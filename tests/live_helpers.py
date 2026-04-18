@@ -65,6 +65,7 @@ EXTRACT_TOOL_NAMES = {
 MAINTAIN_TOOL_NAMES = {
     "archive_record",
     "fetch_records",
+    "list_records",
     "search_records",
     "supersede_record",
     "update_record",
@@ -72,6 +73,7 @@ MAINTAIN_TOOL_NAMES = {
 ASK_TOOL_NAMES = {
     "context_query",
     "fetch_records",
+    "list_records",
     "search_records",
 }
 _API_KEY_ATTRS = {

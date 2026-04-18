@@ -288,3 +288,20 @@ class TestAskFlow:
 		)
 		_, session_id, _ = rt.ask("hello", session_id="fixed-id", repo_root=tmp_path)
 		assert session_id == "fixed-id"
+
+	def test_ask_does_not_short_circuit_known_phrases(self, tmp_path, monkeypatch):
+		rt = _build_runtime(tmp_path, monkeypatch)
+		captured: dict[str, object] = {}
+		monkeypatch.setattr(
+			"lerim.server.runtime.build_pydantic_model",
+			lambda *args, **kwargs: "fake-model",
+		)
+
+		def _fake_run_ask(**kwargs):
+			captured["question"] = kwargs["question"]
+			return AskResult(answer="agent answered")
+
+		monkeypatch.setattr("lerim.server.runtime.run_ask", _fake_run_ask)
+		answer, _, _ = rt.ask("what is the last memory", repo_root=tmp_path)
+		assert answer == "agent answered"
+		assert captured["question"] == "what is the last memory"

@@ -161,7 +161,7 @@ def test_live_maintain_preserves_fresh_decisions_and_cleans_low_value_rows(
     payload = live_runtime.maintain(repo_root=live_repo_root, session_id="integration-maintain")
 
     tool_names = read_agent_trace_tool_names(Path(payload["run_folder"]) / "agent_trace.json")
-    assert "search_records" in tool_names
+    assert any(name in tool_names for name in ("list_records", "search_records"))
     assert "fetch_records" in tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
     assert any(name in tool_names for name in ("archive_record", "supersede_record", "update_record"))

@@ -23,6 +23,7 @@ from lerim.agents.tools import (
     context_query,
     create_record,
     fetch_records,
+    list_records,
     note,
     notes_state_injector,
     prune,
@@ -237,21 +238,29 @@ def test_context_query_lists_and_counts_records(tmp_path) -> None:
     assert list_payload["total"] == 2
     assert list_payload["rows"][0]["title"] == "Second"
 
+    memory_count = json.loads(context_query(ctx, entity="memories", mode="count"))
+    assert memory_count["count"] == 2
 
-def test_search_records_without_query_lists_recent_matching_rows(tmp_path) -> None:
-    """Blank search query should list recent rows for maintain-style review flows."""
+
+def test_list_records_browses_recent_matching_rows(tmp_path) -> None:
+    """list_records should browse recent rows without semantic matching."""
     ctx, _store = _make_ctx(tmp_path)
     json.loads(create_record(ctx, kind="fact", title="First active fact", body="one"))
     json.loads(create_record(ctx, kind="episode", title="Routine sync", body="two", user_intent="sync", what_happened="ran sync"))
 
-    payload = json.loads(search_records(ctx, query="", status_filters=["active"], limit=10))
+    payload = json.loads(list_records(ctx, status_filters=["active"], limit=10))
 
     assert payload["count"] == 2
-    assert {hit["title"] for hit in payload["hits"]} == {"First active fact", "Routine sync"}
-    assert all(hit["sources"] == ["recent-list"] for hit in payload["hits"])
+    assert {row["title"] for row in payload["records"]} == {"First active fact", "Routine sync"}
+    assert all("body_preview" in row for row in payload["records"])
 
-    wildcard_payload = json.loads(search_records(ctx, query="*", status_filters=["active"], limit=10))
-    assert wildcard_payload["count"] == 2
+
+def test_search_records_rejects_blank_query(tmp_path) -> None:
+    """search_records should require a real search query."""
+    ctx, _store = _make_ctx(tmp_path)
+
+    with pytest.raises(ModelRetry, match="Use list_records"):
+        search_records(ctx, query="")
 
 
 def test_context_query_supports_date_filtering(tmp_path) -> None:
@@ -273,6 +282,14 @@ def test_context_query_supports_date_filtering(tmp_path) -> None:
     )
     assert payload["count"] == 0
     assert payload["total"] == 0
+
+
+def test_context_query_invalid_entity_requests_retry(tmp_path) -> None:
+    """Malformed context_query inputs should guide the model to retry."""
+    ctx, _store = _make_ctx(tmp_path)
+
+    with pytest.raises(ModelRetry, match="entity must be one of"):
+        context_query(ctx, entity="", mode="count")
 
 
 def test_compute_request_budget_scales_with_trace_size(tmp_path) -> None:

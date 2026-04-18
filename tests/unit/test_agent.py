@@ -34,6 +34,7 @@ def _make_rate_limit_error() -> RateLimitError:
 def test_ask_system_prompt_mentions_db_tools() -> None:
 	"""Ask prompt should guide the read-only DB retrieval flow."""
 	assert "context_query" in ASK_SYSTEM_PROMPT
+	assert "list_records" in ASK_SYSTEM_PROMPT
 	assert "search_records" in ASK_SYSTEM_PROMPT
 	assert "fetch_records" in ASK_SYSTEM_PROMPT
 	assert "retrieved records only" in ASK_SYSTEM_PROMPT

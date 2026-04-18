@@ -41,8 +41,8 @@ The current system is:
 - canonical run artifacts in `~/.lerim/workspace/`
 - local semantic retrieval via ONNX embeddings + `sqlite-vec` + FTS5 + RRF
 - extract tools: `trace_read`, `search_records`, `fetch_records`, `create_record`, `update_record`, `note`, `prune`
-- maintain tools: `search_records`, `fetch_records`, `update_record`, `archive_record`, `supersede_record`
-- ask tools: `search_records`, `fetch_records`, `context_query`
+- maintain tools: `list_records`, `search_records`, `fetch_records`, `update_record`, `archive_record`, `supersede_record`
+- ask tools: `list_records`, `search_records`, `fetch_records`, `context_query`
 
 ## Fixtures
 
