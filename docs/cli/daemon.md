@@ -6,7 +6,8 @@ schedules. It is **not** a separate CLI command: it runs **inside** `lerim serve
 
 ## Intervals
 
-Configure in `~/.lerim/config.toml` or `<repo>/.lerim/config.toml` under `[server]`:
+Configure in `~/.lerim/config.toml` (or via an explicit `LERIM_CONFIG`
+override) under `[server]`:
 
 | Setting | Typical default | Description |
 |---------|-----------------|-------------|

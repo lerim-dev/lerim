@@ -1,9 +1,10 @@
 # Sync & Maintain
 
-Lerim has two runtime paths that keep your memory store accurate and clean:
+Lerim has two runtime paths that keep the shared context store accurate and
+clean:
 
-- **Sync** (hot path) -- processes new agent sessions and extracts memories
-- **Maintain** (cold path) -- refines existing memories offline
+- **Sync** (hot path) -- processes new agent sessions and extracts context records
+- **Maintain** (cold path) -- refines existing records offline
 
 Both run automatically in the daemon loop and can also be triggered manually.
 Both use the same PydanticAI runtime and the `[roles.agent]` role model.
@@ -12,13 +13,14 @@ Both use the same PydanticAI runtime and the `[roles.agent]` role model.
 
 ## Sync path
 
-The sync path turns raw agent session transcripts into structured memories:
+The sync path turns raw agent session transcripts into structured context
+records:
 
 1. **Discover** -- adapters scan session directories for new sessions within the time window
 2. **Index** -- new sessions are cataloged in `sessions.sqlite3`
 3. **Match to project** -- sessions matching a registered project are enqueued; unmatched sessions are indexed but not extracted
 4. **Compact** -- traces are compacted (tool outputs stripped) and cached
-5. **Extract flow** -- the PydanticAI extraction agent (`[roles.agent]`) reads the trace and uses memory tools (`read`, `grep`, `note`, `prune`, `write`, `edit`, `verify_index`) to write or edit memories, update `index.md`, and save a session summary
+5. **Extract flow** -- the PydanticAI extraction agent (`[roles.agent]`) reads the trace and uses `trace_read`, `note`, `prune`, `context_search`, `context_fetch`, and `context_apply` to write one episode record plus a small number of durable records into `~/.lerim/context.sqlite3`
 
 ### Time window
 
@@ -36,19 +38,20 @@ lerim sync --max-sessions 10         # limit batch size
 ```
 
 !!! info "Processing order"
-    Sessions are processed in **chronological order** (oldest-first) so that later sessions can correctly update memories from earlier ones.
+    Sessions are processed in **chronological order** (oldest-first) so that later sessions can correctly update records from earlier ones.
 
 ---
 
 ## Maintain path
 
-The maintain path runs offline refinement over stored memories, iterating over all registered projects:
+The maintain path runs offline refinement over stored context records,
+iterating over all registered projects:
 
-1. **Scan** -- `scan()` and optional reads of summaries / `index.md`
-2. **Merge duplicates** -- edit or archive redundant markdown files
-3. **Archive low-value** -- `archive()` moves files to `memory/archived/`
-4. **Consolidate** -- combine related topics via `edit()` / `write()`
-5. **Re-index** -- `verify_index()` checks consistency; the agent uses `edit("index.md", ...)` to refresh the memory index when needed
+1. **Search** -- `context_search()` finds candidate active records in one project scope
+2. **Inspect** -- `context_fetch()` loads only the records that may change
+3. **Merge duplicates** -- `context_apply()` updates or supersedes redundant truth
+4. **Archive low-value** -- records move to archived status in the DB
+5. **Consolidate** -- the maintainer can add semantic links or improve summaries without touching repo-local files
 
 ### Request turn limits
 
@@ -100,13 +103,13 @@ lerim maintain --dry-run             # preview without writing
 
     [:octicons-arrow-right-24: How it works](how-it-works.md)
 
--   :material-brain:{ .lg .middle } **Memory Model**
+-   :material-brain:{ .lg .middle } **Context Model**
 
     ---
 
     Types, layout, and lifecycle.
 
-    [:octicons-arrow-right-24: Memory model](memory-model.md)
+    [:octicons-arrow-right-24: Context model](context-model.md)
 
 -   :material-tune:{ .lg .middle } **Configuration**
 

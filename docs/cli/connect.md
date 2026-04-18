@@ -4,7 +4,7 @@ Manage agent platform connections for session ingestion.
 
 ## Overview
 
-Register, list, or remove agent platform connections. Lerim reads session data from connected platforms to build memory.
+Register, list, or remove agent platform connections. Lerim reads session data from connected platforms to build shared context records.
 
 Supported platforms: `claude`, `codex`, `cursor`, `opencode`
 

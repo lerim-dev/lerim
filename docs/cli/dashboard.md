@@ -21,14 +21,15 @@ lerim dashboard
 Sample output:
 
 ```
-  Lerim Dashboard is not available yet.
+  Lerim Dashboard is moving to the cloud.
+  The new dashboard will be available at https://lerim.dev
 
   In the meantime, use these CLI commands:
     lerim status     - system overview
-    lerim ask        - query your memories
+    lerim ask        - query your stored context
     lerim queue      - view session processing queue
     lerim sync       - process new sessions
-    lerim maintain   - run memory maintenance
+    lerim maintain   - refine stored records
 ```
 
 ## See also

@@ -38,7 +38,7 @@ Set `LERIM_MLFLOW=true` in your environment or `.env` file:
 
 === ".env file"
 
-	Persistent toggle in `~/.lerim/.env` or `<repo>/.lerim/.env`:
+	Persistent toggle in `~/.lerim/.env`:
 
 	```bash
 	LERIM_MLFLOW=true
