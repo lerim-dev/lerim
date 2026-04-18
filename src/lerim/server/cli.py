@@ -1,8 +1,8 @@
-"""Command-line interface for Lerim runtime, memory, and service operations.
+"""Command-line interface for Lerim runtime and service operations.
 
 Service commands (ask, sync, maintain, status) are thin HTTP clients that
 talk to a running Lerim server (started via ``lerim up`` or ``lerim serve``).
-Host-only commands (init, project, up, down, logs, connect, memory)
+Host-only commands (init, project, up, down, logs, connect)
 run locally and never require an HTTP server.
 """
 
@@ -44,12 +44,10 @@ from lerim.server.daemon import (
     run_sync_once,
     resolve_window_bounds,
 )
-from lerim.config.project_scope import resolve_data_dirs
 from lerim.config.logging import configure_logging
 from lerim.cloud.auth import cmd_auth, cmd_auth_logout, cmd_auth_status
 from lerim.config.settings import get_config, USER_CONFIG_PATH
 from lerim.config.tracing import configure_tracing
-from lerim.memory.repo import build_memory_paths, reset_memory_root
 
 
 def _emit(message: object = "", *, file: Any | None = None) -> None:
@@ -249,10 +247,10 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
 	print()
 	print("  In the meantime, use these CLI commands:")
 	print("    lerim status     - system overview")
-	print("    lerim ask        - query your memories")
+	print("    lerim ask        - query your stored context")
 	print("    lerim queue      - view session processing queue")
 	print("    lerim sync       - process new sessions")
-	print("    lerim maintain   - run memory maintenance")
+	print("    lerim maintain   - refine stored records")
 	print()
 	return 0
 
@@ -260,75 +258,6 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
 def _normalize_scope(raw: str | None) -> str:
     """Normalize CLI scope flag to all|project."""
     return "project" if str(raw or "").strip().lower() == "project" else "all"
-
-
-def _project_memory_roots_for_scope(
-    *,
-    scope: str,
-    project: str | None,
-) -> list[tuple[str, Path]]:
-    """Resolve selected project memory roots for local CLI reads."""
-    config = get_config()
-    projects = {
-        name: Path(path).expanduser().resolve() for name, path in config.projects.items()
-    }
-
-    if scope == "all":
-        roots = [
-            (name, path / ".lerim" / "memory")
-            for name, path in projects.items()
-        ]
-        if roots:
-            return roots
-        return [("global", config.global_data_dir / "memory")]
-
-    if not project and len(projects) == 1:
-        only_name = next(iter(projects))
-        return [(only_name, projects[only_name] / ".lerim" / "memory")]
-    if not project:
-        return []
-
-    resolved_repo = _resolve_project_repo_path(project)
-    if not resolved_repo:
-        return []
-    repo_path = Path(resolved_repo).expanduser().resolve()
-    for name, path in projects.items():
-        if path == repo_path:
-            return [(name, path / ".lerim" / "memory")]
-    return []
-
-
-def _cmd_memory_list(args: argparse.Namespace) -> int:
-    """List memory files for all projects (default) or one project."""
-    scope = _normalize_scope(getattr(args, "scope", None))
-    selected = _project_memory_roots_for_scope(
-        scope=scope,
-        project=getattr(args, "project", None),
-    )
-    if scope == "project" and not selected:
-        _emit(
-            "Project not found. Provide --project <name> or register one with `lerim project add <path>`.",
-            file=sys.stderr,
-        )
-        return 1
-
-    files: list[Path] = []
-    for _name, memory_dir in selected:
-        if memory_dir.exists():
-            files.extend(sorted(memory_dir.rglob("*.md")))
-    files = sorted(files)[: max(1, int(args.limit))]
-
-    if not files:
-        if args.json:
-            _emit("[]")
-        return 0
-
-    if args.json:
-        _emit(json.dumps([str(f) for f in files], indent=2, ensure_ascii=True))
-        return 0
-    for f in files:
-        _emit(str(f))
-    return 0
 
 
 def _cmd_ask(args: argparse.Namespace) -> int:
@@ -348,56 +277,6 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         _emit(json.dumps(data, indent=2, ensure_ascii=True))
     else:
         _emit(data.get("answer", ""))
-    return 0
-
-
-def _cmd_memory_reset(args: argparse.Namespace) -> int:
-    """Reset memory trees for project/global roots.
-
-    Project scope resets per-project memory only.
-    Global scope resets global infrastructure (workspace, index, cache).
-    """
-    if not args.yes:
-        _emit("Refusing to reset without --yes", file=sys.stderr)
-        return 2
-    config = get_config()
-    resolved = resolve_data_dirs(
-        global_data_dir=config.global_data_dir,
-        repo_path=Path.cwd(),
-    )
-    from lerim.memory.repo import reset_global_infrastructure
-
-    selected_scope = str(args.scope or "both")
-    seen: set[Path] = set()
-    summaries: list[dict[str, Any]] = []
-
-    # Project scope: reset per-project memory (knowledge)
-    if selected_scope in {"project", "both"} and resolved.project_data_dir:
-        root = resolved.project_data_dir.resolve()
-        if root not in seen:
-            seen.add(root)
-            layout = build_memory_paths(root)
-            result = reset_memory_root(layout)
-            summaries.append(
-                {"data_dir": str(root), "removed": result.get("removed") or []}
-            )
-
-    # Global scope: reset infrastructure (workspace, index, cache)
-    if selected_scope in {"global", "both"}:
-        root = resolved.global_data_dir.resolve()
-        if root not in seen:
-            seen.add(root)
-            result = reset_global_infrastructure(root)
-            summaries.append(
-                {"data_dir": str(root), "removed": result.get("removed") or []}
-            )
-
-    if args.json:
-        _emit(json.dumps({"reset": summaries}, indent=2, ensure_ascii=True))
-    else:
-        _emit("Memory reset completed:")
-        for item in summaries:
-            _emit(f"- {item['data_dir']}: removed={len(item['removed'])}")
     return 0
 
 
@@ -459,10 +338,6 @@ def _cmd_queue(args: argparse.Namespace) -> int:
 	project_filter: str | None = None
 	project_exact = False
 	project = getattr(args, "project", None)
-	project_like = getattr(args, "project_like", None)
-	if project and project_like:
-		_emit("Use either --project or --project-like, not both.", file=sys.stderr)
-		return 2
 	if project:
 		repo_path = _resolve_project_repo_path(str(project))
 		if not repo_path:
@@ -470,8 +345,6 @@ def _cmd_queue(args: argparse.Namespace) -> int:
 			return 1
 		project_filter = repo_path
 		project_exact = True
-	elif project_like:
-		project_filter = str(project_like)
 
 	jobs = list_queue_jobs(
 		status_filter=getattr(args, "status", None),
@@ -588,14 +461,6 @@ def _cmd_status_live(args: argparse.Namespace) -> int:
 	except KeyboardInterrupt:
 		_emit("")
 		return 0
-
-
-def _render_status_output(payload: dict[str, Any], *, refreshed_at: str):
-	"""Compatibility wrapper for tests and callers expecting CLI renderer symbol."""
-	from lerim.server.status_tui import render_status_output
-
-	return render_status_output(payload, refreshed_at=refreshed_at)
-
 
 def _dead_letter_action(
 	args: argparse.Namespace,
@@ -745,7 +610,7 @@ def _setup_api_keys() -> None:
 
     _emit("\n── LLM Provider Setup ──────────────────────────────")
     _emit("")
-    _emit("  Lerim needs an LLM provider to extract memories from your sessions.")
+    _emit("  Lerim needs an LLM provider to extract context records from your sessions.")
     _emit("  Select your provider(s) and enter API keys. You can change these")
     _emit("  later in ~/.lerim/.env and ~/.lerim/config.toml.")
     _emit("")
@@ -877,8 +742,7 @@ def _cmd_project(args: argparse.Namespace) -> int:
         _emit(f"Registered projects: {len(projects)}")
         for p in projects:
             status = "ok" if p["exists"] else "missing"
-            lerim = " .lerim/" if p["has_lerim"] else ""
-            _emit(f"  {p['name']}: {p['path']} ({status}{lerim})")
+            _emit(f"  {p['name']}: {p['path']} ({status})")
         return 0
 
     if action == "add":
@@ -891,7 +755,6 @@ def _cmd_project(args: argparse.Namespace) -> int:
             _emit(result["error"], file=sys.stderr)
             return 1
         _emit(f'Added project "{result["name"]}" ({result["path"]})')
-        _emit(f"Created {result['path']}/.lerim/")
         # Restart container if running
         if is_container_running():
             _emit("Restarting Lerim to mount new project...")
@@ -1329,12 +1192,13 @@ def _add_dead_letter_args(parser: argparse.ArgumentParser, *, verb: str) -> None
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the canonical Lerim command-line parser."""
+    config = get_config()
     _F = argparse.RawDescriptionHelpFormatter  # noqa: N806
     parser = argparse.ArgumentParser(
         prog="lerim",
         formatter_class=_F,
         description="Lerim -- continual learning layer for coding agents.\n"
-        "Indexes agent sessions, extracts memories, and answers questions\n"
+        "Indexes agent sessions, extracts context records, and answers questions\n"
         "using accumulated project knowledge.",
     )
     parser.add_argument(
@@ -1343,7 +1207,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Emit structured JSON instead of human-readable text (works with status, memory list, etc.)",
+        help="Emit structured JSON instead of human-readable text (works with status, ask, sync, etc.)",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -1380,9 +1244,9 @@ def build_parser() -> argparse.ArgumentParser:
     sync = sub.add_parser(
         "sync",
         formatter_class=_F,
-        help="Index new sessions and extract memories (hot path)",
+        help="Index new sessions and extract context records (hot path)",
         description=(
-            "Index new sessions and extract memories via PydanticAI.\n\n"
+            "Index new sessions and extract context records via PydanticAI.\n\n"
             "Examples:\n"
             "  lerim sync                      # default 7d window\n"
             "  lerim sync --window 30d         # last 30 days\n"
@@ -1404,7 +1268,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Time window for session discovery. Accepts durations like 30s, 2m, 1h, 7d, "
         "or the literal 'all' to scan every session. Ignored when --since is set. "
-        "(default: sync_window_days from config, currently 7d)",
+        f"(default: sync_window_days from config, currently {config.sync_window_days}d)",
     )
     sync.add_argument(
         "--since",
@@ -1419,13 +1283,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Maximum number of sessions to extract in one run. "
-        "(default: sync_max_sessions from config, currently 50)",
+        f"(default: sync_max_sessions from config, currently {config.sync_max_sessions})",
     )
     sync.add_argument(
         "--no-extract",
         action="store_true",
         help="Index and enqueue sessions but skip extraction entirely. "
-        "Useful to populate the queue without creating memories yet.",
+        "Useful to populate the queue without creating records yet.",
     )
     _add_force_flag(sync)
     _add_dry_run_flag(sync)
@@ -1441,9 +1305,9 @@ def build_parser() -> argparse.ArgumentParser:
     maintain = sub.add_parser(
         "maintain",
         formatter_class=_F,
-        help="Refine existing memories offline (cold path)",
+        help="Refine existing records offline (cold path)",
         description=(
-            "Offline memory refinement: merge duplicates, archive low-value items.\n\n"
+            "Offline record refinement: merge duplicates, archive low-value items.\n\n"
             "Examples:\n"
             "  lerim maintain            # one pass\n"
             "  lerim maintain --force    # force even if recently run"
@@ -1462,66 +1326,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dashboard.set_defaults(func=_cmd_dashboard)
 
-    # ── memory (parent group) ────────────────────────────────────────
-    memory = sub.add_parser(
-        "memory",
-        formatter_class=_F,
-        help="Memory store operations (list, reset)",
-        description="Manage the memory store (list, reset).",
-    )
-    memory_sub = memory.add_subparsers(dest="memory_command")
-
-    memory_list = memory_sub.add_parser(
-        "list",
-        formatter_class=_F,
-        help="List memory files",
-        description="List stored memories as a sorted file list.",
-    )
-    memory_list.add_argument(
-        "--scope",
-        choices=["all", "project"],
-        default="all",
-        help="Read scope: all projects (default) or one project.",
-    )
-    memory_list.add_argument(
-        "--project", help="Project name/path when --scope=project."
-    )
-    memory_list.add_argument(
-        "--limit", type=int, default=50, help="Maximum items to display. (default: 50)"
-    )
-    memory_list.set_defaults(func=_cmd_memory_list)
-
-    memory_reset = memory_sub.add_parser(
-        "reset",
-        formatter_class=_F,
-        help="DESTRUCTIVE: wipe memory, workspace, cache, and index data",
-        description=(
-            "Irreversibly wipe memory/index/cache under the selected scope.\n\n"
-            "Examples:\n"
-            "  lerim memory reset --yes              # wipe both scopes\n"
-            "  lerim memory reset --scope project --yes"
-        ),
-    )
-    memory_reset.add_argument(
-        "--scope",
-        choices=["project", "global", "both"],
-        default="both",
-        help="What to reset: 'project' (.lerim/ in repo), 'global' (~/.lerim/), or 'both'. (default: both)",
-    )
-    memory_reset.add_argument(
-        "--yes",
-        action="store_true",
-        help="Required safety flag to confirm destructive reset. Without this, the command refuses to run.",
-    )
-    memory_reset.set_defaults(func=_cmd_memory_reset)
-
     # ── ask ──────────────────────────────────────────────────────────
     ask = sub.add_parser(
         "ask",
         formatter_class=_F,
-        help="Ask a question using accumulated memory as context",
+        help="Ask a question using stored context records",
         description=(
-            "Query Lerim using accumulated memory as context.\n\n"
+            "Query Lerim using stored context records.\n\n"
             "Example: lerim ask 'What auth pattern do we use?'"
         ),
     )
@@ -1543,8 +1354,8 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser(
         "status",
         formatter_class=_F,
-        help="Show runtime status (platforms, memory count, queue, last runs)",
-        description="Runtime summary: platforms, memory count, queue stats, last runs.",
+        help="Show runtime status (platforms, context records, queue, last runs)",
+        description="Runtime summary: platforms, context records, queue stats, last runs.",
     )
     status.add_argument(
         "--scope",
@@ -1584,7 +1395,6 @@ def build_parser() -> argparse.ArgumentParser:
     queue.add_argument("--failed", action="store_true", help="Show only failed + dead_letter jobs.")
     queue.add_argument("--status", help="Filter by specific status (pending, running, failed, dead_letter, done).")
     queue.add_argument("--project", help="Filter by exact project name/path.")
-    queue.add_argument("--project-like", help="Substring match on repo_path (legacy behavior).")
     queue.set_defaults(func=_cmd_queue)
 
     # ── unscoped ─────────────────────────────────────────────────────
@@ -1801,7 +1611,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-_TRACE_COMMANDS = frozenset({"serve", "sync", "maintain", "ask"})
+_TRACE_COMMANDS = frozenset({"serve"})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1809,18 +1619,15 @@ def main(argv: list[str] | None = None) -> int:
     raw_argv = list(argv or sys.argv[1:])
     # Determine subcommand early to skip heavy init for lightweight commands.
     first_arg = next((a for a in raw_argv if not a.startswith("-")), None)
+    wants_help = any(arg in {"-h", "--help"} for arg in raw_argv)
     configure_logging()
-    if first_arg in _TRACE_COMMANDS:
+    if first_arg in _TRACE_COMMANDS and not wants_help:
         configure_tracing(get_config())
     parser = build_parser()
     args = parser.parse_args(_hoist_global_json_flag(list(argv or sys.argv[1:])))
 
     if not getattr(args, "command", None):
         parser.print_help()
-        return 0
-
-    if args.command == "memory" and not getattr(args, "memory_command", None):
-        parser.parse_args([args.command, "--help"])
         return 0
 
     if args.command == "project" and not getattr(args, "project_action", None):

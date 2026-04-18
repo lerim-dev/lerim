@@ -115,135 +115,135 @@ def init_sessions_db() -> None:
     with _connect() as conn:
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS session_docs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id TEXT NOT NULL UNIQUE,
-                agent_type TEXT NOT NULL,
-                repo_path TEXT,
-                repo_name TEXT,
-                start_time TEXT,
-                content TEXT,
-                indexed_at TEXT NOT NULL,
-                status TEXT DEFAULT 'completed',
-                duration_ms INTEGER DEFAULT 0,
-                message_count INTEGER DEFAULT 0,
-                tool_call_count INTEGER DEFAULT 0,
-                error_count INTEGER DEFAULT 0,
-                total_tokens INTEGER DEFAULT 0,
-                summaries TEXT,
-                summary_text TEXT,
-                turns_json TEXT,
-                session_path TEXT,
-                content_hash TEXT,
-                tags TEXT,
-                outcome TEXT
-            )
-            """
-        )
+                    """
+                    CREATE TABLE IF NOT EXISTS session_docs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_id TEXT NOT NULL UNIQUE,
+                        agent_type TEXT NOT NULL,
+                        repo_path TEXT,
+                        repo_name TEXT,
+                        start_time TEXT,
+                        content TEXT,
+                        indexed_at TEXT NOT NULL,
+                        status TEXT DEFAULT 'completed',
+                        duration_ms INTEGER DEFAULT 0,
+                        message_count INTEGER DEFAULT 0,
+                        tool_call_count INTEGER DEFAULT 0,
+                        error_count INTEGER DEFAULT 0,
+                        total_tokens INTEGER DEFAULT 0,
+                        summaries TEXT,
+                        summary_text TEXT,
+                        turns_json TEXT,
+                        session_path TEXT,
+                        content_hash TEXT,
+                        tags TEXT,
+                        outcome TEXT
+                    )
+                    """
+                )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_session_docs_run ON session_docs (run_id)"
-        )
+                    "CREATE INDEX IF NOT EXISTS idx_session_docs_run ON session_docs (run_id)"
+                )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_session_docs_agent ON session_docs (agent_type)"
-        )
+                    "CREATE INDEX IF NOT EXISTS idx_session_docs_agent ON session_docs (agent_type)"
+                )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_session_docs_time ON session_docs (start_time)"
-        )
+                    "CREATE INDEX IF NOT EXISTS idx_session_docs_time ON session_docs (start_time)"
+                )
 
         conn.execute(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(
-                run_id,
-                agent_type,
-                repo_name,
-                content,
-                content='session_docs',
-                content_rowid='id'
-            )
-            """
-        )
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(
+                        run_id,
+                        agent_type,
+                        repo_name,
+                        content,
+                        content='session_docs',
+                        content_rowid='id'
+                    )
+                    """
+                )
         conn.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS session_docs_ai AFTER INSERT ON session_docs BEGIN
-                INSERT INTO sessions_fts(rowid, run_id, agent_type, repo_name, content)
-                VALUES (new.id, new.run_id, new.agent_type, new.repo_name, new.content);
-            END
-            """
-        )
+                    """
+                    CREATE TRIGGER IF NOT EXISTS session_docs_ai AFTER INSERT ON session_docs BEGIN
+                        INSERT INTO sessions_fts(rowid, run_id, agent_type, repo_name, content)
+                        VALUES (new.id, new.run_id, new.agent_type, new.repo_name, new.content);
+                    END
+                    """
+                )
         conn.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS session_docs_ad AFTER DELETE ON session_docs BEGIN
-                INSERT INTO sessions_fts(sessions_fts, rowid, run_id, agent_type, repo_name, content)
-                VALUES ('delete', old.id, old.run_id, old.agent_type, old.repo_name, old.content);
-            END
-            """
-        )
+                    """
+                    CREATE TRIGGER IF NOT EXISTS session_docs_ad AFTER DELETE ON session_docs BEGIN
+                        INSERT INTO sessions_fts(sessions_fts, rowid, run_id, agent_type, repo_name, content)
+                        VALUES ('delete', old.id, old.run_id, old.agent_type, old.repo_name, old.content);
+                    END
+                    """
+                )
         conn.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS session_docs_au AFTER UPDATE ON session_docs BEGIN
-                INSERT INTO sessions_fts(sessions_fts, rowid, run_id, agent_type, repo_name, content)
-                VALUES ('delete', old.id, old.run_id, old.agent_type, old.repo_name, old.content);
-                INSERT INTO sessions_fts(rowid, run_id, agent_type, repo_name, content)
-                VALUES (new.id, new.run_id, new.agent_type, new.repo_name, new.content);
-            END
-            """
-        )
+                    """
+                    CREATE TRIGGER IF NOT EXISTS session_docs_au AFTER UPDATE ON session_docs BEGIN
+                        INSERT INTO sessions_fts(sessions_fts, rowid, run_id, agent_type, repo_name, content)
+                        VALUES ('delete', old.id, old.run_id, old.agent_type, old.repo_name, old.content);
+                        INSERT INTO sessions_fts(rowid, run_id, agent_type, repo_name, content)
+                        VALUES (new.id, new.run_id, new.agent_type, new.repo_name, new.content);
+                    END
+                    """
+                )
 
         conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS session_jobs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id TEXT NOT NULL,
-                job_type TEXT NOT NULL DEFAULT 'extract',
-                agent_type TEXT,
-                session_path TEXT,
-                start_time TEXT,
-                status TEXT NOT NULL,
-                attempts INTEGER DEFAULT 0,
-                max_attempts INTEGER DEFAULT 3,
-                trigger TEXT,
-                available_at TEXT NOT NULL,
-                claimed_at TEXT,
-                completed_at TEXT,
-                heartbeat_at TEXT,
-                error TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                repo_path TEXT,
-                UNIQUE(run_id, job_type)
-            )
-            """
-        )
+                    """
+                    CREATE TABLE IF NOT EXISTS session_jobs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_id TEXT NOT NULL,
+                        job_type TEXT NOT NULL DEFAULT 'extract',
+                        agent_type TEXT,
+                        session_path TEXT,
+                        start_time TEXT,
+                        status TEXT NOT NULL,
+                        attempts INTEGER DEFAULT 0,
+                        max_attempts INTEGER DEFAULT 3,
+                        trigger TEXT,
+                        available_at TEXT NOT NULL,
+                        claimed_at TEXT,
+                        completed_at TEXT,
+                        heartbeat_at TEXT,
+                        error TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        repo_path TEXT,
+                        UNIQUE(run_id, job_type)
+                    )
+                    """
+                )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_session_jobs_status_available ON session_jobs (status, available_at)"
-        )
+                    "CREATE INDEX IF NOT EXISTS idx_session_jobs_status_available ON session_jobs (status, available_at)"
+                )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_session_jobs_updated ON session_jobs (updated_at)"
-        )
+                    "CREATE INDEX IF NOT EXISTS idx_session_jobs_updated ON session_jobs (updated_at)"
+                )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_session_jobs_repo ON session_jobs (repo_path)"
-        )
+                    "CREATE INDEX IF NOT EXISTS idx_session_jobs_repo ON session_jobs (repo_path)"
+                )
 
         conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS service_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_type TEXT NOT NULL,
-                status TEXT NOT NULL,
-                started_at TEXT NOT NULL,
-                completed_at TEXT,
-                trigger TEXT,
-                details_json TEXT
-            )
-            """
-        )
+                    """
+                    CREATE TABLE IF NOT EXISTS service_runs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        job_type TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        started_at TEXT NOT NULL,
+                        completed_at TEXT,
+                        trigger TEXT,
+                        details_json TEXT
+                    )
+                    """
+                )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_service_runs_job ON service_runs (job_type)"
-        )
+                    "CREATE INDEX IF NOT EXISTS idx_service_runs_job ON service_runs (job_type)"
+                )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_service_runs_started ON service_runs (started_at)"
-        )
+                    "CREATE INDEX IF NOT EXISTS idx_service_runs_started ON service_runs (started_at)"
+                )
         conn.commit()
     _DB_INITIALIZED_PATH = _db_path()
 

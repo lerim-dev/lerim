@@ -1,4 +1,4 @@
-"""Cloud shipper — ships local data (logs, sessions, memories) to lerim-cloud.
+"""Cloud shipper — ships local data (logs, sessions, records) to lerim-cloud.
 
 Reads new entries from local storage, batches them, and POSTs to the cloud API.
 Tracks shipping offsets in ``~/.lerim/cloud_shipper_state.json`` to avoid
@@ -15,12 +15,13 @@ import sqlite3
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from lerim.config.logging import LOG_DIR, logger
 from lerim.config.settings import Config
-from lerim.sessions.catalog import _ensure_sessions_db_initialized
+from lerim.context import ContextStore, resolve_project_identity
 
 # ── constants ────────────────────────────────────────────────────────────────
 
@@ -28,7 +29,7 @@ _STATE_PATH = Path.home() / ".lerim" / "cloud_shipper_state.json"
 
 _BATCH_LOGS = 500
 _BATCH_SESSIONS = 100
-_BATCH_MEMORIES = 100
+_BATCH_RECORDS = 100
 
 _HTTP_TIMEOUT_SECONDS = 30
 _GZIP_THRESHOLD_BYTES = 1024
@@ -44,8 +45,8 @@ class _ShipperState:
     log_offset_bytes: int = 0
     log_file: str = "lerim.jsonl"
     sessions_shipped_at: str = ""
-    memories_shipped_at: str = ""
-    memories_pulled_at: str = ""
+    records_shipped_at: str = ""
+    records_pulled_at: str = ""
     service_runs_shipped_at: str = ""
     jobs_shipped_at: str = ""
 
@@ -68,8 +69,8 @@ class _ShipperState:
                 log_offset_bytes=int(raw.get("log_offset_bytes") or 0),
                 log_file=str(raw.get("log_file") or "lerim.jsonl"),
                 sessions_shipped_at=str(raw.get("sessions_shipped_at") or ""),
-                memories_shipped_at=str(raw.get("memories_shipped_at") or ""),
-                memories_pulled_at=str(raw.get("memories_pulled_at") or ""),
+                records_shipped_at=str(raw.get("records_shipped_at") or ""),
+                records_pulled_at=str(raw.get("records_pulled_at") or ""),
                 service_runs_shipped_at=str(raw.get("service_runs_shipped_at") or ""),
                 jobs_shipped_at=str(raw.get("jobs_shipped_at") or ""),
             )
@@ -153,118 +154,147 @@ def _get_json_sync(
 # ── pull helpers ─────────────────────────────────────────────────────────────
 
 
-def _find_memory_file(project_path: Path, memory_id: str) -> Path | None:
-    """Find an existing local memory file by its ID."""
-    memory_root = project_path / ".lerim" / "memory"
-    if not memory_root.is_dir():
-        return None
-    for md_path in memory_root.rglob("*.md"):
-        try:
-            text = md_path.read_text(encoding="utf-8")
-            if text.startswith("---"):
-                end = text.find("---", 3)
-                if end > 0:
-                    import yaml
-
-                    fm = yaml.safe_load(text[3:end]) or {}
-                    if fm.get("id") == memory_id:
-                        return md_path
-        except Exception:
-            continue
-    return None
+def _normalize_cloud_kind(raw: str | None) -> str:
+    """Map cloud record kinds onto canonical context kinds."""
+    kind = str(raw or "").strip().lower()
+    if kind in {"decision", "preference", "constraint", "fact", "reference", "episode"}:
+        return kind
+    if kind in {"project", "learning", "feedback", "implementation"}:
+        return "fact"
+    return "fact"
 
 
-async def _pull_memories(
+def _structured_from_cloud_record(record: dict[str, Any], *, kind: str) -> dict[str, Any]:
+    """Derive minimal structured payload for pulled cloud records."""
+    title = str(record.get("title") or record.get("name") or "").strip()
+    summary = str(record.get("description") or "").strip()
+    body = str(record.get("body") or "").strip()
+    structured = record.get("structured")
+    if isinstance(structured, dict) and structured:
+        return structured
+    if kind == "decision":
+        return {
+            "decision": title or summary or body,
+            "why": body or summary,
+        }
+    if kind == "episode":
+        return {
+            "user_intent": summary or title,
+            "what_happened": body or summary or title,
+        }
+    return {
+        "content": body or summary or title,
+        "why": summary if body and summary else "",
+    }
+
+
+def _upsert_pulled_record(
+    *,
+    context_db_path: Path,
+    project_name: str,
+    project_path: Path,
+    record: dict[str, Any],
+) -> bool:
+    """Upsert one pulled cloud record into the canonical context DB."""
+    record_id = str(record.get("record_id") or "").strip()
+    if not record_id:
+        return False
+    store = ContextStore(context_db_path)
+    store.initialize()
+    identity = resolve_project_identity(project_path)
+    store.register_project(identity)
+    kind = _normalize_cloud_kind(str(record.get("record_kind") or ""))
+    summary = str(record.get("description") or "").strip()
+    structured = _structured_from_cloud_record(record, kind=kind)
+    cloud_edited = str(record.get("cloud_edited_at") or "").strip() or datetime.now(timezone.utc).isoformat()
+    with store.connect() as conn:
+        row = conn.execute(
+            "SELECT record_id FROM records WHERE record_id = ? AND project_id = ?",
+            (record_id, identity.project_id),
+        ).fetchone()
+    if row is None:
+        store.create_record(
+            project_id=identity.project_id,
+            session_id=None,
+            record_id=record_id,
+            kind=kind,
+            domain="project",
+            title=str(record.get("title") or record.get("name") or record_id).strip(),
+            summary=summary,
+            structured=structured,
+            status=str(record.get("status") or "active").strip() or "active",
+            valid_from=cloud_edited,
+            change_reason="cloud_pull",
+        )
+        return True
+    store.update_record(
+        record_id=record_id,
+        session_id=None,
+        changes={
+            "kind": kind,
+            "domain": "project",
+            "title": str(record.get("title") or record.get("name") or record_id).strip(),
+            "summary": summary,
+            "structured": structured,
+            "status": str(record.get("status") or "active").strip() or "active",
+            "valid_from": cloud_edited,
+        },
+        change_reason="cloud_pull",
+    )
+    return True
+
+
+async def _pull_records(
     endpoint: str, token: str, config: Config, state: _ShipperState
 ) -> int:
-    """Pull dashboard-edited memories from cloud and write to local files."""
+    """Pull dashboard-edited records into the canonical context DB."""
     params: dict[str, str] = {"limit": "200"}
-    if state.memories_pulled_at:
-        params["since"] = state.memories_pulled_at
+    if state.records_pulled_at:
+        params["since"] = state.records_pulled_at
 
     try:
         data = await asyncio.to_thread(
-            _get_json_sync, endpoint, "/api/v1/sync/memories", token, params
+            _get_json_sync, endpoint, "/api/v1/sync/records", token, params
         )
     except Exception as exc:
-        logger.warning("cloud pull memories failed: {}", exc)
+        logger.warning("cloud pull records failed: {}", exc)
         return 0
 
-    if not data or not data.get("memories"):
+    if not data or not data.get("records"):
         return 0
 
     pulled = 0
-    latest_edited = state.memories_pulled_at
+    latest_edited = state.records_pulled_at
 
-    for mem in data["memories"]:
-        cloud_edited = mem.get("cloud_edited_at", "")
+    for record in data["records"]:
+        cloud_edited = record.get("cloud_edited_at", "")
         if not cloud_edited:
             continue
 
-        # Find the project directory for this memory
-        project_name = mem.get("project")
+        project_name = record.get("project")
         if not project_name or project_name not in (config.projects or {}):
-            # Try first project as fallback
             if config.projects:
                 project_name = next(iter(config.projects))
             else:
                 continue
 
-        project_path = Path(config.projects[project_name])
-        memory_dir = project_path / ".lerim" / "memory"
-        memory_dir.mkdir(parents=True, exist_ok=True)
-
-        # Build filename from memory_id
-        memory_id = mem.get("memory_id", "")
-        if not memory_id:
-            continue
-
-        # Find existing file or create new one
-        existing_file = _find_memory_file(project_path, memory_id)
-        if existing_file:
-            target_path = existing_file
-        else:
-            # Create new file: YYYYMMDD-slug.md
-            from datetime import datetime, timezone
-
-            date_prefix = datetime.now(timezone.utc).strftime("%Y%m%d")
-            slug = memory_id[:60].replace(" ", "-").lower()
-            target_path = memory_dir / f"{date_prefix}-{slug}.md"
-
-        # Build frontmatter + body
-        frontmatter: dict[str, Any] = {
-            "name": mem.get("title", ""),
-            "description": mem.get("description", ""),
-            "type": mem.get("memory_type", "project"),
-            "id": memory_id,
-            "source": mem.get("source", "cloud-edit"),
-            "created": mem.get("created_at", ""),
-            "updated": cloud_edited,
-        }
-        # Remove None values
-        frontmatter = {k: v for k, v in frontmatter.items() if v is not None}
-
-        body = mem.get("body", "")
-
-        # Write YAML frontmatter + markdown body
-        import yaml
-
-        fm_str = yaml.dump(
-            frontmatter, default_flow_style=False, allow_unicode=True
-        ).strip()
-        content = f"---\n{fm_str}\n---\n\n{body}\n"
-
         try:
-            target_path.write_text(content, encoding="utf-8")
-            pulled += 1
+            project_path = Path(config.projects[project_name]).expanduser().resolve()
+            if _upsert_pulled_record(
+                context_db_path=config.context_db_path,
+                project_name=str(project_name),
+                project_path=project_path,
+                record=record,
+            ):
+                pulled += 1
         except OSError as exc:
-            logger.warning("failed to write pulled memory {}: {}", memory_id, exc)
+            logger.warning("failed to persist pulled record {}: {}", record.get("record_id", ""), exc)
 
         if cloud_edited > latest_edited:
             latest_edited = cloud_edited
 
-    if latest_edited and latest_edited != state.memories_pulled_at:
-        state.memories_pulled_at = latest_edited
+    if latest_edited and latest_edited != state.records_pulled_at:
+        state.records_pulled_at = latest_edited
 
     return pulled
 
@@ -356,7 +386,6 @@ def _query_new_sessions(
     """Query sessions with ``indexed_at`` after *since_iso* (synchronous)."""
     if not db_path.exists():
         return []
-    _ensure_sessions_db_initialized()
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = lambda cur, row: {
@@ -466,134 +495,113 @@ async def _ship_sessions(
     return shipped
 
 
-# ── memory shipping ──────────────────────────────────────────────────────────
+# ── record shipping ──────────────────────────────────────────────────────────
 
 
-def _scan_memory_files(
-    projects: dict[str, str], since_iso: str
+def _query_context_records(
+    context_db_path: Path,
+    projects: dict[str, str],
+    since_iso: str,
+    limit: int,
 ) -> list[dict[str, Any]]:
-    """Scan project memory directories for files updated after *since_iso*.
-
-    Memory files live at ``<project_path>/.lerim/memory/{type}/*.md``.
-    Each file is a frontmatter+markdown document.  We extract the ``updated``
-    field from the frontmatter to compare against the watermark.
-
-    Returns a list of dicts ready for JSON serialization.
-    """
-    results: list[dict[str, Any]] = []
-    for project_name, project_path_str in projects.items():
-        memory_root = Path(project_path_str) / ".lerim" / "memory"
-        if not memory_root.is_dir():
-            continue
-        for md_path in memory_root.rglob("*.md"):
-            if not md_path.is_file():
-                continue
+    """Query durable context records for the selected projects."""
+    if not context_db_path.exists() or not projects:
+        return []
+    selected_ids = {
+        resolve_project_identity(Path(project_path)).project_id: project_name
+        for project_name, project_path in projects.items()
+    }
+    placeholders = ", ".join("?" for _ in selected_ids)
+    sql = (
+        "SELECT record_id, project_id, kind, title, summary, content_md, structured_json, status, updated_at "
+        f"FROM records WHERE project_id IN ({placeholders})"
+    )
+    params: list[Any] = list(selected_ids.keys())
+    if since_iso:
+        sql += " AND updated_at > ?"
+        params.append(since_iso)
+    sql += " ORDER BY updated_at ASC LIMIT ?"
+    params.append(limit)
+    try:
+        conn = sqlite3.connect(context_db_path)
+        conn.row_factory = lambda cur, row: {
+            col[0]: row[idx] for idx, col in enumerate(cur.description)
+        }
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("cloud shipper: context record query failed: {}", exc)
+        return []
+    for row in rows:
+        row["project"] = selected_ids.get(str(row.get("project_id") or ""), "")
+        structured_json = row.get("structured_json")
+        if isinstance(structured_json, str):
             try:
-                text = md_path.read_text(encoding="utf-8")
-            except OSError:
-                continue
-
-            # Parse frontmatter with YAML (handles lists like tags properly).
-            updated_value = ""
-            frontmatter_raw: dict[str, Any] = {}
-            if text.startswith("---"):
-                end = text.find("---", 3)
-                if end > 0:
-                    fm_block = text[3:end].strip()
-                    body = text[end + 3 :].strip()
-                    try:
-                        import yaml
-                        frontmatter_raw = yaml.safe_load(fm_block) or {}
-                    except Exception:
-                        frontmatter_raw = {}
-                    updated_value = str(frontmatter_raw.get("updated", ""))
-                    # Strip ARCHIVED prefix from body (added by maintain process)
-                    if body.startswith("ARCHIVED"):
-                        body_lines = body.split("\n", 2)
-                        body = body_lines[2].strip() if len(body_lines) > 2 else body_lines[-1].strip()
-                else:
-                    body = text
-            else:
-                body = text
-
-            # Filter by watermark.
-            if since_iso and updated_value and updated_value <= since_iso:
-                continue
-
-            # Determine memory type and archived status from frontmatter.
-            memory_type = str(frontmatter_raw.get("type", "project"))
-            rel = md_path.relative_to(memory_root)
-            parts = rel.parts
-            is_archived_folder = len(parts) >= 2 and parts[0] == "archived"
-
-            results.append(
-                {
-                    "project": project_name,
-                    "memory_type": memory_type,
-                    "file": str(rel),
-                    "frontmatter": frontmatter_raw,
-                    "body": body,
-                    "updated": updated_value,
-                    "is_archived": is_archived_folder or bool(frontmatter_raw.get("archived")),
-                }
-            )
-    return results
+                row["structured"] = json.loads(structured_json)
+            except json.JSONDecodeError:
+                row["structured"] = {}
+        else:
+            row["structured"] = {}
+    return rows
 
 
-async def _ship_memories(
+async def _ship_records(
     endpoint: str,
     token: str,
     config: Config,
     state: _ShipperState,
 ) -> int:
-    """Ship new/updated memories from project memory directories."""
+    """Ship durable context records from the canonical context DB."""
     projects = config.projects or {}
     if not projects:
         return 0
 
-    all_memories = await asyncio.to_thread(
-        _scan_memory_files, projects, state.memories_shipped_at
+    all_records = await asyncio.to_thread(
+        _query_context_records,
+        config.context_db_path,
+        projects,
+        state.records_shipped_at,
+        _BATCH_RECORDS * 10,
     )
-    if not all_memories:
+    if not all_records:
         return 0
 
     shipped = 0
-    latest_updated = state.memories_shipped_at
+    latest_updated = state.records_shipped_at
 
-    for i in range(0, len(all_memories), _BATCH_MEMORIES):
-        raw_batch = all_memories[i : i + _BATCH_MEMORIES]
-        # Map scanned memory files to API's expected MemoryEntry fields
+    for i in range(0, len(all_records), _BATCH_RECORDS):
+        raw_batch = all_records[i : i + _BATCH_RECORDS]
         batch = []
-        for mem in raw_batch:
-            fm = mem.get("frontmatter") or {}
+        for record in raw_batch:
             entry: dict[str, Any] = {
-                "memory_id": fm.get("id") or mem.get("file", ""),
-                "memory_type": mem.get("memory_type"),
-                "title": fm.get("name", ""),
-                "description": fm.get("description", ""),
-                "body": mem.get("body", ""),
-                "project": mem.get("project"),
-                "source": fm.get("source"),
-                "status": "archived" if mem.get("is_archived") else fm.get("status", "active"),
+                "record_id": record.get("record_id", ""),
+                "record_kind": record.get("kind"),
+                "title": record.get("title", ""),
+                "description": record.get("summary", ""),
+                "body": record.get("content_md", ""),
+                "project": record.get("project"),
+                "status": record.get("status", "active"),
+                "structured": record.get("structured", {}),
+                "updated": record.get("updated_at", ""),
             }
             batch.append(entry)
         ok = await _post_batch(
             endpoint,
-            "/api/v1/ingest/memories",
+            "/api/v1/ingest/records",
             token,
-            {"memories": batch},
+            {"records": batch},
         )
         if ok:
             shipped += len(batch)
-            for mem in batch:
-                ts = str(mem.get("updated") or "")
+            for record in batch:
+                ts = str(record.get("updated") or "")
                 if ts > latest_updated:
                     latest_updated = ts
         else:
             break
 
-    if latest_updated and latest_updated != state.memories_shipped_at:
-        state.memories_shipped_at = latest_updated
+    if latest_updated and latest_updated != state.records_shipped_at:
+        state.records_shipped_at = latest_updated
     return shipped
 
 
@@ -602,7 +610,6 @@ async def _ship_memories(
 
 def _query_service_runs(db_path: Path, since_iso: str, limit: int) -> list[dict[str, Any]]:
     """Query local service_runs table for new entries."""
-    _ensure_sessions_db_initialized()
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = lambda cur, row: {col[0]: row[idx] for idx, col in enumerate(cur.description)}
@@ -686,7 +693,6 @@ def _query_job_statuses(
 	"""Query session_jobs with ``updated_at`` after *since_iso*."""
 	if not db_path.exists():
 		return []
-	_ensure_sessions_db_initialized()
 	try:
 		conn = sqlite3.connect(db_path)
 		conn.row_factory = lambda cur, row: {
@@ -786,7 +792,7 @@ async def ship_once(config: Config) -> dict[str, int]:
     state = _ShipperState.load()
 
     # Phase 1: Pull (cloud -> local)
-    memories_pulled = await _pull_memories(endpoint, token, config, state)
+    records_pulled = await _pull_records(endpoint, token, config, state)
 
     # Phase 2: Push (local -> cloud)
     logs_shipped = await _ship_logs(endpoint, token, state)
@@ -799,7 +805,7 @@ async def ship_once(config: Config) -> dict[str, int]:
     job_statuses_shipped = await _ship_job_statuses(
         endpoint, token, state, config.sessions_db_path
     )
-    memories_shipped = await _ship_memories(endpoint, token, config, state)
+    records_shipped = await _ship_records(endpoint, token, config, state)
 
     state.save()
 
@@ -808,6 +814,6 @@ async def ship_once(config: Config) -> dict[str, int]:
         "sessions": sessions_shipped,
         "service_runs": service_runs_shipped,
         "job_statuses": job_statuses_shipped,
-        "memories": memories_shipped,
-        "memories_pulled": memories_pulled,
+        "records": records_shipped,
+        "records_pulled": records_pulled,
     }

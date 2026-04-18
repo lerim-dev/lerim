@@ -6,9 +6,10 @@ Canonical parser source:
 Canonical command:
 - `lerim`
 
+Durable Lerim context lives in the global SQLite DB at `~/.lerim/context.sqlite3`.
 Commands that call the HTTP API (`ask`, `sync`, `maintain`, `status`) require a
 running server (`lerim up` or `lerim serve`). Most other commands are **host-only**
-(local files / Docker CLI / queue DB). `memory list` and `memory reset` work without a server.
+(local files, Docker CLI, local SQLite state).
 
 ## Global flags
 
@@ -35,7 +36,6 @@ running server (`lerim up` or `lerim serve`). Most other commands are **host-onl
 - `sync`
 - `maintain`
 - `dashboard`
-- `memory` (`list`, `reset`)
 - `ask`
 - `status`
 - `queue`
@@ -57,7 +57,9 @@ lerim init
 
 ### `lerim project` (host-only)
 
-Manage tracked repositories. Each project gets a `.lerim/` directory.
+Manage tracked repositories. Project registration only records the repository path.
+There is no project-local Lerim state directory. Durable Lerim context stays in
+`~/.lerim/context.sqlite3`.
 
 ```bash
 lerim project add ~/codes/my-app       # register a project
@@ -115,7 +117,7 @@ lerim serve --host 0.0.0.0 --port 8765  # custom bind
 ### `lerim connect`
 
 Register, list, or remove agent platform connections.
-Lerim reads session data from connected platforms to build memory.
+Lerim reads session data from connected platforms to build context records.
 
 Supported platforms: `claude`, `codex`, `cursor`, `opencode`
 
@@ -136,7 +138,7 @@ lerim connect remove claude               # disconnect Claude
 ### `lerim sync`
 
 Hot-path: discover new agent sessions from connected platforms, enqueue them,
-and run PydanticAI extraction to create memories.
+and run PydanticAI extraction to create context records.
 Requires a running server (`lerim up` or `lerim serve`).
 
 **Time window** controls which sessions to scan:
@@ -178,9 +180,8 @@ Notes:
 
 ### `lerim maintain`
 
-Cold-path: offline memory refinement. Scans existing memories and merges
-duplicates, archives low-value items, and consolidates related memories.
-Archived items go to `memory/archived/`.
+Cold-path: offline context refinement. Scans existing records and merges
+duplicates, archives low-value items, and consolidates related context.
 Requires a running server (`lerim up` or `lerim serve`).
 
 ```bash
@@ -192,7 +193,7 @@ lerim maintain --dry-run      # preview only, no writes
 | Flag | Description |
 |------|-------------|
 | `--force` | Force maintenance even if a recent run was completed |
-| `--dry-run` | Record a run but skip actual memory changes |
+| `--dry-run` | Record a run but skip actual record changes |
 
 ### Background sync and maintain
 
@@ -208,53 +209,9 @@ Shows current web UI status and lists CLI alternatives for common tasks.
 lerim dashboard
 ```
 
-### `lerim memory`
-
-Subcommands for managing the memory store directly.
-Memories are stored as markdown files in `.lerim/memory/`.
-
-#### `lerim memory list`
-
-List memory files for all registered projects (default) or one selected project.
-
-```bash
-lerim memory list
-lerim memory list --scope project --project lerim-cli
-lerim memory list --limit 10
-lerim memory list --json       # structured JSON output
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--scope` | `all` | Read scope: `all` or `project` |
-| `--project` | -- | Project name/path when `--scope=project` |
-| `--limit` | `50` | Max items |
-
-#### `lerim memory reset`
-
-Irreversibly delete `memory/`, `workspace/`, and `index/` under selected scope.
-
-Scopes:
-- `project` -- reset `<repo>/.lerim/` only
-- `global` -- reset `~/.lerim/` only (includes sessions DB)
-- `both` -- reset both project and global roots (default)
-
-The sessions DB lives in global `index/`, so `--scope project` alone does **not** reset the session queue. Use `--scope global` or `--scope both` to fully reset sessions.
-
-```bash
-lerim memory reset --yes                     # wipe everything (both scopes)
-lerim memory reset --scope project --yes     # project data only
-lerim memory reset --yes && lerim sync --max-sessions 5  # fresh start
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--scope` | `both` | `project`, `global`, or `both` |
-| `--yes` | off | Required safety flag (refuses to run without it) |
-
 ### `lerim ask`
 
-One-shot query: ask Lerim a question with memory-informed context.
+One-shot query: ask Lerim a question with context-informed retrieval.
 Requires a running server (`lerim up` or `lerim serve`).
 
 ```bash
@@ -269,12 +226,12 @@ lerim ask "How is the database configured?"
 | `--project` | -- | Project name/path when `--scope=project` |
 
 Notes:
-- Ask uses memory retrieval evidence.
+- Ask uses context retrieval evidence.
 - If provider auth fails, CLI returns exit code 1.
 
 ### `lerim status`
 
-Print runtime state: connected platforms, memory count, session queue stats,
+Print runtime state: connected platforms, context record count, session queue stats,
 and timestamps of the latest sync/maintain runs.
 Requires a running server (`lerim up` or `lerim serve`).
 
@@ -302,7 +259,6 @@ lerim queue --json
 | `--failed` | Only failed + dead_letter jobs |
 | `--status` | Filter by status (`pending`, `running`, `failed`, `dead_letter`, `done`) |
 | `--project` | Exact project name/path match |
-| `--project-like` | Substring match on repo path (legacy behavior) |
 
 ### `lerim unscoped`
 

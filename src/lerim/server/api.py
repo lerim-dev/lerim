@@ -10,7 +10,6 @@ import os
 import shutil
 import sqlite3
 import subprocess
-import tempfile
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -27,7 +26,7 @@ from lerim.adapters.registry import (
     connect_platform,
     list_platforms,
 )
-from lerim.memory.repo import build_memory_paths, ensure_project_memory
+from lerim.context import ContextStore, resolve_project_identity
 from lerim.server.daemon import (
     resolve_window_bounds,
     run_maintain_once,
@@ -234,17 +233,11 @@ def _registered_projects(config: Config) -> list[tuple[str, Path]]:
     return items
 
 
-def _project_memory_root(project_path: Path) -> Path:
-    """Return per-project memory root path."""
-    return project_path / ".lerim" / "memory"
-
-
-def _ensure_memory_root_layout(memory_root: Path) -> None:
-    """Ensure memory root has canonical folders + index file."""
-    ensure_project_memory(build_memory_paths(memory_root.parent))
-    index_path = memory_root / "index.md"
-    if not index_path.exists():
-        index_path.write_text("# Memory Index\n", encoding="utf-8")
+def _context_store(config: Config) -> ContextStore:
+    """Return the canonical global context store."""
+    store = ContextStore(config.context_db_path)
+    store.initialize()
+    return store
 
 
 def _resolve_selected_projects(
@@ -279,64 +272,45 @@ def _resolve_selected_projects(
     raise ValueError("scope=project requires a project name when multiple projects are registered.")
 
 
-def _copy_memory_file(src: Path, dst_dir: Path, *, prefix: str) -> str:
-    """Copy one memory markdown file into merged ask memory root."""
-    safe_prefix = prefix.replace("/", "_").replace("\\", "_")
-    target_name = f"{safe_prefix}__{src.name}"
-    target = dst_dir / target_name
-    if target.exists():
-        stem = src.stem
-        suffix = src.suffix
-        counter = 2
-        while True:
-            candidate = dst_dir / f"{safe_prefix}__{stem}_{counter}{suffix}"
-            if not candidate.exists():
-                target = candidate
-                target_name = candidate.name
-                break
-            counter += 1
-    shutil.copy2(src, target)
-    return target_name
+def _count_project_records(config: Config, project_path: Path) -> int:
+    """Count canonical records for one registered project."""
+    store = _context_store(config)
+    identity = resolve_project_identity(project_path)
+    store.register_project(identity)
+    with store.connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(1) AS total FROM records WHERE project_id = ?",
+            (identity.project_id,),
+        ).fetchone()
+    return int(row["total"]) if row else 0
 
 
-def _build_merged_ask_memory_root(
-    selected_projects: list[tuple[str, Path]],
-) -> tuple[Path, str]:
-    """Build temporary merged memory root for ask scope=all."""
-    temp_root = Path(tempfile.mkdtemp(prefix="lerim-ask-"))
-    memory_root = temp_root / "memory"
-    _ensure_memory_root_layout(memory_root)
-    index_lines = ["# Memory Index", ""]
-    copied_any = False
+def _session_stats_for_repo(
+    *,
+    sessions_db_path: Path,
+    repo_path: str,
+) -> tuple[int, str | None]:
+    """Return indexed-session count and latest session start time for one repo."""
+    if not sessions_db_path.exists():
+        return 0, None
 
-    for name, project_path in selected_projects:
-        src_root = _project_memory_root(project_path)
-        if not src_root.exists():
-            continue
-        copied_names: list[str] = []
-        for src in sorted(src_root.glob("*.md")):
-            if src.name == "index.md":
-                continue
-            copied_names.append(_copy_memory_file(src, memory_root, prefix=name))
-        if not copied_names:
-            continue
-        copied_any = True
-        index_lines.append(f"## {name}")
-        for copied in copied_names:
-            index_lines.append(f"- [{copied}]({copied})")
-        index_lines.append("")
+    try:
+        with sqlite3.connect(sessions_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                """
+                SELECT COUNT(1) AS total, MAX(start_time) AS latest_start_time
+                FROM session_docs
+                WHERE repo_path = ?
+                """,
+                (repo_path,),
+            ).fetchone()
+    except sqlite3.Error:
+        return 0, None
 
-    if not copied_any:
-        index_lines.extend(["## No Memories Yet", "- No project memories found.", ""])
-    (memory_root / "index.md").write_text("\n".join(index_lines), encoding="utf-8")
-    return memory_root, str(temp_root)
-
-
-def _count_memory_files(memory_root: Path) -> int:
-    """Count markdown memory files under one memory root."""
-    if not memory_root.exists():
-        return 0
-    return sum(1 for _ in memory_root.rglob("*.md"))
+    if not row:
+        return 0, None
+    return int(row["total"] or 0), str(row["latest_start_time"] or "") or None
 
 
 def _queue_counts_for_repo(
@@ -422,34 +396,30 @@ def api_ask(
         return {
             "answer": str(exc),
             "agent_session_id": "",
-            "memories_used": [],
+            "projects_used": [],
             "error": True,
             "cost_usd": 0.0,
         }
 
-    cleanup_root: str | None = None
-    if normalized_scope == "all" and len(selected_projects) > 1:
-        memory_root_path, cleanup_root = _build_merged_ask_memory_root(selected_projects)
-    elif selected_projects:
-        memory_root_path = _project_memory_root(selected_projects[0][1])
-        _ensure_memory_root_layout(memory_root_path)
-    else:
-        memory_root_path = config.global_data_dir / "memory"
-        _ensure_memory_root_layout(memory_root_path)
-
     agent = LerimRuntime()
-    try:
-        response, session_id, cost_usd = agent.ask(
-            question, cwd=str(config.global_data_dir), memory_root=str(memory_root_path)
-        )
-    finally:
-        if cleanup_root:
-            shutil.rmtree(cleanup_root, ignore_errors=True)
+    project_ids: list[str] = []
+    repo_root: str | Path | None = None
+    if selected_projects:
+        for _name, path in selected_projects:
+            identity = resolve_project_identity(path)
+            _context_store(config).register_project(identity)
+            project_ids.append(identity.project_id)
+        repo_root = selected_projects[0][1]
+    response, session_id, cost_usd = agent.ask(
+        question,
+        project_ids=project_ids or None,
+        repo_root=repo_root,
+    )
     error = looks_like_auth_error(response)
     return {
         "answer": response,
         "agent_session_id": session_id,
-        "memories_used": [name for name, _ in selected_projects],
+        "projects_used": [name for name, _ in selected_projects],
         "error": bool(error),
         "cost_usd": cost_usd,
         "scope": normalized_scope,
@@ -591,10 +561,9 @@ def _normalize_activity_item(run: dict[str, Any]) -> dict[str, Any]:
                     "consolidated": int(counts.get("consolidated") or 0),
                     "unchanged": int(counts.get("unchanged") or 0),
                 },
-                "memories_new": int(maintain_metrics.get("memories_new") or 0),
-                "memories_updated": int(maintain_metrics.get("memories_updated") or 0),
-                "memories_archived": int(maintain_metrics.get("memories_archived") or 0),
-                "index_updated": bool(maintain_metrics.get("index_updated")),
+                "records_created": int(maintain_metrics.get("records_created") or 0),
+                "records_updated": int(maintain_metrics.get("records_updated") or 0),
+                "records_archived": int(maintain_metrics.get("records_archived") or 0),
             }
         )
         return base
@@ -623,18 +592,9 @@ def _normalize_activity_item(run: dict[str, Any]) -> dict[str, Any]:
                 or details.get("skipped_sessions")
                 or 0
             ),
-            "memories_new": int(
-                sync_metrics.get("memories_new")
-                or details.get("learnings_new")
-                or 0
-            ),
-            "memories_updated": int(
-                sync_metrics.get("memories_updated")
-                or details.get("learnings_updated")
-                or 0
-            ),
-            "memories_archived": int(sync_metrics.get("memories_archived") or 0),
-            "index_updated": bool(sync_metrics.get("index_updated")),
+            "records_created": int(sync_metrics.get("records_created") or 0),
+            "records_updated": int(sync_metrics.get("records_updated") or 0),
+            "records_archived": int(sync_metrics.get("records_archived") or 0),
         }
     )
     return base
@@ -648,6 +608,7 @@ def _recent_activity(
     """Return normalized recent service activity for status UI."""
     rows = list_service_runs(limit=max(1, int(limit)))
     items = [_normalize_activity_item(run) for run in rows]
+    items = [item for item in items if not _is_empty_activity_item(item)]
     if allowed_projects:
         filtered: list[dict[str, Any]] = []
         for item in items:
@@ -659,6 +620,90 @@ def _recent_activity(
                 filtered.append(item)
         items = filtered
     return items
+
+
+def _is_empty_activity_item(item: dict[str, Any]) -> bool:
+    """Return whether an activity row carries no project scope and no useful counters."""
+    return (
+        not item.get("projects")
+        and not item.get("error")
+        and int(item.get("sessions_analyzed") or 0) == 0
+        and int(item.get("sessions_extracted") or 0) == 0
+        and int(item.get("sessions_failed") or 0) == 0
+        and int(item.get("sessions_skipped") or 0) == 0
+        and int(item.get("records_created") or 0) == 0
+        and int(item.get("records_updated") or 0) == 0
+        and int(item.get("records_archived") or 0) == 0
+        and not item.get("maintain_counts")
+    )
+
+
+def _normalize_latest_run(run: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return a stable latest-run payload with normalized record-era fields only."""
+    if not isinstance(run, dict):
+        return None
+    details = run.get("details") if isinstance(run.get("details"), dict) else {}
+    normalized = _normalize_activity_item(run)
+    details_payload: dict[str, Any] = {
+        "projects": normalized.get("projects") or [],
+        "project_label": normalized.get("project_label") or "",
+        "error": str(details.get("error") or ""),
+    }
+    if str(run.get("job_type") or "") == "maintain":
+        details_payload["maintain_counts"] = normalized.get("maintain_counts") or {}
+        details_payload["records_created"] = int(normalized.get("records_created") or 0)
+        details_payload["records_updated"] = int(normalized.get("records_updated") or 0)
+        details_payload["records_archived"] = int(normalized.get("records_archived") or 0)
+    else:
+        details_payload["sessions_analyzed"] = int(normalized.get("sessions_analyzed") or 0)
+        details_payload["sessions_extracted"] = int(normalized.get("sessions_extracted") or 0)
+        details_payload["sessions_failed"] = int(normalized.get("sessions_failed") or 0)
+        details_payload["sessions_skipped"] = int(normalized.get("sessions_skipped") or 0)
+        details_payload["records_created"] = int(normalized.get("records_created") or 0)
+        details_payload["records_updated"] = int(normalized.get("records_updated") or 0)
+        details_payload["records_archived"] = int(normalized.get("records_archived") or 0)
+        details_payload["skipped_unscoped"] = int(details.get("skipped_unscoped") or 0)
+    return {
+        "id": run.get("id"),
+        "job_type": run.get("job_type"),
+        "status": run.get("status"),
+        "started_at": run.get("started_at"),
+        "completed_at": run.get("completed_at"),
+        "trigger": run.get("trigger"),
+        "details": details_payload,
+    }
+
+
+def _activity_as_latest_run(item: dict[str, Any]) -> dict[str, Any]:
+    """Convert a normalized activity row into latest-run response shape."""
+    details: dict[str, Any] = {
+        "projects": item.get("projects") or [],
+        "project_label": item.get("project_label") or "",
+        "error": item.get("error") or "",
+    }
+    if item.get("op_type") == "maintain":
+        details["maintain_counts"] = item.get("maintain_counts") or {}
+        details["records_created"] = int(item.get("records_created") or 0)
+        details["records_updated"] = int(item.get("records_updated") or 0)
+        details["records_archived"] = int(item.get("records_archived") or 0)
+    else:
+        details["sessions_analyzed"] = int(item.get("sessions_analyzed") or 0)
+        details["sessions_extracted"] = int(item.get("sessions_extracted") or 0)
+        details["sessions_failed"] = int(item.get("sessions_failed") or 0)
+        details["sessions_skipped"] = int(item.get("sessions_skipped") or 0)
+        details["records_created"] = int(item.get("records_created") or 0)
+        details["records_updated"] = int(item.get("records_updated") or 0)
+        details["records_archived"] = int(item.get("records_archived") or 0)
+        details["skipped_unscoped"] = 0
+    return {
+        "id": None,
+        "job_type": item.get("op_type"),
+        "status": item.get("status"),
+        "started_at": item.get("time"),
+        "completed_at": None,
+        "trigger": "derived",
+        "details": details,
+    }
 
 
 def _running_activity_rows(
@@ -696,10 +741,9 @@ def _running_activity_rows(
                 "sessions_extracted": 0,
                 "sessions_failed": 0,
                 "sessions_skipped": 0,
-                "memories_new": 0,
-                "memories_updated": 0,
-                "memories_archived": 0,
-                "index_updated": False,
+                "records_created": 0,
+                "records_updated": 0,
+                "records_archived": 0,
             },
         )
         row["sessions_analyzed"] = int(row.get("sessions_analyzed") or 0) + 1
@@ -733,11 +777,14 @@ def api_status(
         selected_projects = []
 
     projects_payload: list[dict[str, Any]] = []
-    total_memory = 0
+    total_records = 0
     for name, path in selected_projects:
-        memory_root = _project_memory_root(path)
-        memory_count = _count_memory_files(memory_root)
-        total_memory += memory_count
+        record_count = _count_project_records(config, path)
+        total_records += record_count
+        indexed_sessions_count, latest_session_start_time = _session_stats_for_repo(
+            sessions_db_path=config.sessions_db_path,
+            repo_path=str(path),
+        )
         queue_counts, blocked_run_id, last_error = _queue_counts_for_repo(
             sessions_db_path=config.sessions_db_path,
             repo_path=str(path),
@@ -746,35 +793,57 @@ def api_status(
             {
                 "name": name,
                 "path": str(path),
-                "exists": path.exists(),
-                "memory_dir": str(memory_root),
-                "memory_count": memory_count,
+                "project_id": resolve_project_identity(path).project_id,
+                "record_count": record_count,
+                "indexed_sessions_count": indexed_sessions_count,
+                "latest_session_start_time": latest_session_start_time,
                 "queue": queue_counts,
                 "oldest_blocked_run_id": blocked_run_id,
                 "last_error": last_error,
             }
         )
     if not projects_payload and normalized_scope == "all":
-        total_memory = _count_memory_files(config.global_data_dir / "memory")
+        total_records = 0
 
-    latest_sync = latest_service_run("sync")
-    latest_maintain = latest_service_run("maintain")
+    latest_sync_raw = latest_service_run("sync")
+    latest_maintain_raw = latest_service_run("maintain")
     queue = count_session_jobs_by_status()
     queue_health = queue_health_snapshot()
-    latest_sync_details = (latest_sync or {}).get("details") or {}
+    latest_sync_details = (latest_sync_raw or {}).get("details") or {}
     unscoped_by_agent = count_unscoped_sessions_by_agent(projects=config.projects)
 
     selected_project_names = {name for name, _ in selected_projects}
 
+    platforms = list_platforms(config.platforms_path)
+    recent_activity = (
+        _running_activity_rows(selected_projects=selected_projects)
+        + _recent_activity(
+            limit=12,
+            allowed_projects=selected_project_names if normalized_scope == "project" else None,
+        )
+    )[:12]
+
+    latest_sync = _normalize_latest_run(latest_sync_raw)
+    if latest_sync and _is_empty_activity_item(
+        _normalize_activity_item(latest_sync_raw or {})
+    ):
+        fallback_sync = next(
+            (item for item in recent_activity if item.get("op_type") == "sync"),
+            None,
+        )
+        if fallback_sync is not None:
+            latest_sync = _activity_as_latest_run(fallback_sync)
+
     payload: dict[str, Any] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "connected_agents": list(config.agents.keys()),
-        "platforms": list_platforms(config.platforms_path),
-        "memory_count": total_memory,
+        "connected_agents": [str(item.get("name") or "") for item in platforms if item.get("name")],
+        "platforms": platforms,
+        "record_count": total_records,
         "sessions_indexed_count": count_fts_indexed(),
         "queue": queue,
         "queue_health": queue_health,
         "projects": projects_payload,
+        "sync_window_days": config.sync_window_days,
         "unscoped_sessions": {
             "total": sum(unscoped_by_agent.values()),
             "by_agent": unscoped_by_agent,
@@ -785,14 +854,8 @@ def api_status(
             "skipped_unscoped": int(latest_sync_details.get("skipped_unscoped") or 0),
         },
         "latest_sync": latest_sync,
-        "latest_maintain": latest_maintain,
-        "recent_activity": (
-            _running_activity_rows(selected_projects=selected_projects)
-            + _recent_activity(
-                limit=12,
-                allowed_projects=selected_project_names if normalized_scope == "project" else None,
-            )
-        )[:12],
+        "latest_maintain": _normalize_latest_run(latest_maintain_raw),
+        "recent_activity": recent_activity,
     }
     if selection_error:
         payload["error"] = selection_error
@@ -851,29 +914,19 @@ def api_skip_all_dead_letter() -> dict[str, Any]:
 def api_queue_jobs(
     status: str | None = None,
     project: str | None = None,
-    project_like: str | None = None,
 ) -> dict[str, Any]:
     """List queue jobs with optional filters."""
     project_filter: str | None = None
     project_exact = False
     if project:
         config = get_config()
-        try:
-            selected = _resolve_selected_projects(
-                config=config, scope="project", project=project
-            )
-        except ValueError:
-            # Backward-compatible fallback for HTTP/API callers that still
-            # pass free-form project substrings.
-            selected = []
-            project_filter = str(project)
-            project_exact = False
+        selected = _resolve_selected_projects(
+            config=config, scope="project", project=project
+        )
         if selected:
             _name, project_path = selected[0]
             project_filter = str(project_path)
             project_exact = True
-    elif project_like:
-        project_filter = project_like
 
     jobs = list_queue_jobs(
         status_filter=status,
@@ -910,7 +963,6 @@ def api_project_list() -> list[dict[str, Any]]:
                 "name": name,
                 "path": str(resolved),
                 "exists": resolved.exists(),
-                "has_lerim": (resolved / ".lerim").is_dir(),
             }
         )
     return result
@@ -923,20 +975,18 @@ def api_project_add(path_str: str) -> dict[str, Any]:
         return {"error": f"Not a directory: {resolved}", "name": None}
 
     name = resolved.name
-    # Create canonical project memory layout under .lerim/
-    lerim_dir = resolved / ".lerim"
-    lerim_dir.mkdir(parents=True, exist_ok=True)
-    memory_root = lerim_dir / "memory"
-    _ensure_memory_root_layout(memory_root)
-
     # Update config
     save_config_patch({"projects": {name: str(resolved)}})
+    config = get_config()
+    store = _context_store(config)
+    identity = resolve_project_identity(resolved)
+    store.register_project(identity)
 
     return {
         "name": name,
         "path": str(resolved),
-        "created_lerim_dir": True,
-        "memory_dir": str(memory_root),
+        "project_id": identity.project_id,
+        "context_db_path": str(config.context_db_path),
     }
 
 
@@ -1031,9 +1081,10 @@ def _generate_compose_yml(build_local: bool = False) -> str:
     """
     config = reload_config()
     home = str(Path.home())
+    user_spec = f"{os.getuid()}:{os.getgid()}"
 
-    # Mount only .lerim/ subdirectories — agent should NOT see source code.
-    # Global lerim data (config, index, cache)
+    # Mount global Lerim state only. Project roots are identifiers for routing,
+    # not local runtime state.
     lerim_dir = f"{home}/.lerim"
     volumes = [f"      - {lerim_dir}:{lerim_dir}"]
 
@@ -1041,12 +1092,6 @@ def _generate_compose_yml(build_local: bool = False) -> str:
     for _name, path_str in config.agents.items():
         resolved = str(Path(path_str).expanduser().resolve())
         volumes.append(f"      - {resolved}:{resolved}:ro")
-
-    # Project .lerim dirs only (NOT the whole project directory)
-    for _name, path_str in config.projects.items():
-        resolved = Path(path_str).expanduser().resolve()
-        lerim_subdir = resolved / ".lerim"
-        volumes.append(f"      - {lerim_subdir}:{lerim_subdir}")
 
     volumes_block = "\n".join(volumes)
     port = config.server_port
@@ -1076,14 +1121,6 @@ def _generate_compose_yml(build_local: bool = False) -> str:
     else:
         image_or_build = f"    image: {GHCR_IMAGE}:{__version__}"
 
-    # Set working_dir to first registered project's .lerim dir so
-    # git_root_for() can work with the mounted .lerim subdirectory.
-    workdir_line = ""
-    if config.projects:
-        first_project = next(iter(config.projects.values()))
-        resolved_project = Path(first_project).expanduser().resolve()
-        workdir_line = f'\n    working_dir: "{resolved_project / ".lerim"}"'
-
     # Resolve seccomp profile path (shipped with the package)
     seccomp_path = Path(__file__).parent / "lerim-seccomp.json"
     seccomp_line = ""
@@ -1096,7 +1133,7 @@ def _generate_compose_yml(build_local: bool = False) -> str:
 services:
   lerim:
 {image_or_build}
-    container_name: lerim{workdir_line}
+    user: "{user_spec}"
     command: ["--host", "0.0.0.0", "--port", "{port}"]
     restart: "no"
     ports:

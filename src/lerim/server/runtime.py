@@ -19,7 +19,7 @@ from lerim.agents.extract import ExtractionResult, run_extraction
 from lerim.agents.maintain import run_maintain
 from lerim.config.providers import build_pydantic_model
 from lerim.config.settings import Config, get_config
-from lerim.memory.repo import build_memory_paths, ensure_project_memory
+from lerim.context import ContextStore, resolve_project_identity
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 
 logger = logging.getLogger("lerim.runtime")
@@ -56,27 +56,37 @@ def _build_artifact_paths(run_folder: Path) -> dict[str, Path]:
 def _resolve_runtime_roots(
 	*,
 	config: Config,
-	memory_root: str | Path | None,
-	workspace_root: str | Path | None,
-) -> tuple[Path, Path]:
-	"""Resolve memory/workspace roots using config defaults when unset."""
-	resolved_memory_root = (
-		Path(memory_root).expanduser().resolve() if memory_root else config.memory_dir
-	)
-	resolved_workspace_root = (
-		Path(workspace_root).expanduser().resolve()
-		if workspace_root
-		else (config.global_data_dir / "workspace")
-	)
-	return resolved_memory_root, resolved_workspace_root
+) -> Path:
+	"""Return the canonical global workspace root.
+
+	Run artifacts are always written under ``~/.lerim/workspace``.
+	The DB-only architecture no longer allows callers to redirect
+	artifacts into repo-local ``.lerim`` trees or any other custom path.
+	"""
+	return config.global_data_dir / "workspace"
 
 
-def _ensure_memory_root_layout(memory_root: Path) -> None:
-	"""Ensure memory root has canonical folders + index file."""
-	ensure_project_memory(build_memory_paths(memory_root.parent))
-	index_path = memory_root / "index.md"
-	if not index_path.exists():
-		index_path.write_text("# Memory Index\n", encoding="utf-8")
+def _store_for_config(config: Config) -> ContextStore:
+	"""Return the canonical context store for the current config."""
+	store = ContextStore(config.context_db_path)
+	store.initialize()
+	return store
+
+
+def _record_change_counts(config: Config, session_id: str) -> dict[str, int]:
+	"""Count record version mutations written by one session-scoped agent run."""
+	store = _store_for_config(config)
+	with store.connect() as conn:
+		rows = conn.execute(
+			"""
+			SELECT change_kind, COUNT(1) AS total
+			FROM record_versions
+			WHERE changed_by_session_id = ?
+			GROUP BY change_kind
+			""",
+			(session_id,),
+		).fetchall()
+	return {str(row["change_kind"]): int(row["total"]) for row in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -217,31 +227,55 @@ class LerimRuntime:
 	def sync(
 		self,
 		trace_path: str | Path,
-		memory_root: str | Path | None = None,
-		workspace_root: str | Path | None = None,
+		session_id: str | None = None,
+		agent_type: str = "unknown",
+		session_meta: dict[str, Any] | None = None,
 		adapter: Any | None = None,
 	) -> dict[str, Any]:
-		"""Run memory-write sync flow and return stable contract payload."""
+		"""Run record-write sync flow and return stable contract payload."""
 		del adapter  # retained for older call-sites; no longer used
 		trace_file = Path(trace_path).expanduser().resolve()
 		if not trace_file.exists() or not trace_file.is_file():
 			raise FileNotFoundError(f"trace_path_missing:{trace_file}")
 
 		repo_root = Path(self._default_cwd or Path.cwd()).expanduser().resolve()
-		return self._sync_inner(trace_file, repo_root, memory_root, workspace_root)
+		return self._sync_inner(
+			trace_file,
+			repo_root,
+			session_id=session_id,
+			agent_type=agent_type,
+			session_meta=session_meta or {},
+		)
 
 	def _sync_inner(
 		self,
 		trace_file: Path,
 		repo_root: Path,
-		memory_root: str | Path | None,
-		workspace_root: str | Path | None,
+		*,
+		session_id: str | None,
+		agent_type: str,
+		session_meta: dict[str, Any],
 	) -> dict[str, Any]:
 		"""Inner sync logic called by sync()."""
-		resolved_memory_root, resolved_workspace_root = _resolve_runtime_roots(
+		project_identity = resolve_project_identity(repo_root)
+		resolved_workspace_root = _resolve_runtime_roots(
 			config=self.config,
-			memory_root=memory_root,
-			workspace_root=workspace_root,
+		)
+		store = _store_for_config(self.config)
+		store.register_project(project_identity)
+		resolved_session_id = session_id or trace_file.stem or self.generate_session_id()
+		store.upsert_session(
+			project_id=project_identity.project_id,
+			session_id=resolved_session_id,
+			agent_type=agent_type,
+			source_trace_ref=str(trace_file),
+			repo_path=str(project_identity.repo_path),
+			cwd=str(session_meta.get("cwd") or project_identity.repo_path),
+			started_at=str(session_meta.get("started_at") or ""),
+			model_name=str(self.config.agent_role.model),
+			instructions_text=str(session_meta.get("instructions_text") or "")[:4000] or None,
+			prompt_text=str(session_meta.get("prompt_text") or "")[:4000] or None,
+			metadata=session_meta,
 		)
 		run_folder = resolved_workspace_root / _default_run_folder_name("sync")
 		run_folder.mkdir(parents=True, exist_ok=True)
@@ -255,21 +289,21 @@ class LerimRuntime:
 		_write_json_artifact(artifact_paths["session_log"], metadata)
 		artifact_paths["subagents_log"].write_text("", encoding="utf-8")
 
-		_ensure_memory_root_layout(resolved_memory_root)
-
 		def _primary_builder() -> Any:
 			return build_pydantic_model("agent", config=self.config)
 
-		def _call(model: Any) -> ExtractionResult:
+		def _call(model: Any) -> tuple[ExtractionResult, list[ModelMessage]]:
 			return run_extraction(
-				memory_root=resolved_memory_root,
+				context_db_path=self.config.context_db_path,
+				project_identity=project_identity,
+				session_id=resolved_session_id,
 				trace_path=trace_file,
 				model=model,
 				run_folder=run_folder,
-				return_messages=False,
+				return_messages=True,
 			)
 
-		result: ExtractionResult = self._run_with_fallback(
+		result, messages = self._run_with_fallback(
 			flow="sync",
 			callable_fn=_call,
 			model_builders=[_primary_builder],
@@ -279,15 +313,24 @@ class LerimRuntime:
 		_write_text_with_newline(artifact_paths["agent_log"], response_text)
 
 		agent_trace_path = run_folder / "agent_trace.json"
-		if not agent_trace_path.exists():
+		try:
+			_write_agent_trace(agent_trace_path, messages)
+		except Exception as exc:
+			logger.warning(f"[sync] Failed to write agent trace: {exc}")
 			agent_trace_path.write_text("[]", encoding="utf-8")
+
+		counts = _record_change_counts(self.config, resolved_session_id)
 
 		payload = {
 			"trace_path": str(trace_file),
-			"memory_root": str(resolved_memory_root),
+			"context_db_path": str(self.config.context_db_path),
+			"project_id": project_identity.project_id,
 			"workspace_root": str(resolved_workspace_root),
 			"run_folder": str(run_folder),
 			"artifacts": {key: str(path) for key, path in artifact_paths.items()},
+			"records_created": int(counts.get("create") or 0),
+			"records_updated": int(counts.get("update") or 0) + int(counts.get("supersede") or 0),
+			"records_archived": int(counts.get("archive") or 0),
 			"cost_usd": 0.0,
 		}
 		return SyncResultContract.model_validate(payload).model_dump(mode="json")
@@ -298,37 +341,41 @@ class LerimRuntime:
 
 	def maintain(
 		self,
-		memory_root: str | Path | None = None,
-		workspace_root: str | Path | None = None,
+		repo_root: str | Path | None = None,
+		session_id: str | None = None,
 	) -> dict[str, Any]:
-		"""Run memory maintenance flow and return stable contract payload."""
-		repo_root = Path(self._default_cwd or Path.cwd()).expanduser().resolve()
-		return self._maintain_inner(repo_root, memory_root, workspace_root)
+		"""Run context-store maintenance flow and return stable contract payload."""
+		resolved_repo_root = Path(repo_root).expanduser().resolve() if repo_root else Path(self._default_cwd or Path.cwd()).expanduser().resolve()
+		return self._maintain_inner(
+			resolved_repo_root,
+			session_id=session_id or self.generate_session_id(),
+		)
 
 	def _maintain_inner(
 		self,
 		repo_root: Path,
-		memory_root: str | Path | None,
-		workspace_root: str | Path | None,
+		*,
+		session_id: str,
 	) -> dict[str, Any]:
 		"""Inner maintain logic called by maintain()."""
-		resolved_memory_root, resolved_workspace_root = _resolve_runtime_roots(
+		project_identity = resolve_project_identity(repo_root)
+		resolved_workspace_root = _resolve_runtime_roots(
 			config=self.config,
-			memory_root=memory_root,
-			workspace_root=workspace_root,
 		)
+		store = _store_for_config(self.config)
+		store.register_project(project_identity)
 		run_folder = resolved_workspace_root / _default_run_folder_name("maintain")
 		run_folder.mkdir(parents=True, exist_ok=True)
 		artifact_paths = build_maintain_artifact_paths(run_folder)
-
-		_ensure_memory_root_layout(resolved_memory_root)
 
 		def _primary_builder() -> Any:
 			return build_pydantic_model("agent", config=self.config)
 
 		def _call(model: Any) -> tuple[Any, list[ModelMessage]]:
 			return run_maintain(
-				memory_root=resolved_memory_root,
+				context_db_path=self.config.context_db_path,
+				project_identity=project_identity,
+				session_id=session_id,
 				model=model,
 				request_limit=self.config.agent_role.max_iters_maintain,
 				return_messages=True,
@@ -350,15 +397,17 @@ class LerimRuntime:
 			logger.warning(f"[maintain] Failed to write agent trace: {exc}")
 			agent_trace_path.write_text("[]", encoding="utf-8")
 
-		index_path = resolved_memory_root / "index.md"
-		if index_path.exists():
-			logger.info(f"[maintain] Memory index at {index_path}")
+		counts = _record_change_counts(self.config, session_id)
 
 		payload = {
-			"memory_root": str(resolved_memory_root),
+			"context_db_path": str(self.config.context_db_path),
+			"project_id": project_identity.project_id,
 			"workspace_root": str(resolved_workspace_root),
 			"run_folder": str(run_folder),
 			"artifacts": {key: str(path) for key, path in artifact_paths.items()},
+			"records_created": int(counts.get("create") or 0),
+			"records_updated": int(counts.get("update") or 0) + int(counts.get("supersede") or 0),
+			"records_archived": int(counts.get("archive") or 0),
 			"cost_usd": 0.0,
 		}
 		return MaintainResultContract.model_validate(payload).model_dump(mode="json")
@@ -371,15 +420,15 @@ class LerimRuntime:
 		self,
 		prompt: str,
 		session_id: str | None = None,
-		cwd: str | None = None,
-		memory_root: str | Path | None = None,
+		project_ids: list[str] | None = None,
+		repo_root: str | Path | None = None,
 	) -> tuple[str, str, float]:
 		"""Run one ask prompt. Returns (response, session_id, cost_usd)."""
-		del cwd
-		resolved_memory_root = (
-			Path(memory_root).expanduser().resolve() if memory_root else self.config.memory_dir
-		)
 		resolved_session_id = session_id or self.generate_session_id()
+		resolved_repo_root = Path(repo_root).expanduser().resolve() if repo_root else Path(self._default_cwd or Path.cwd()).expanduser().resolve()
+		project_identity = resolve_project_identity(resolved_repo_root)
+		store = _store_for_config(self.config)
+		store.register_project(project_identity)
 		hints = format_ask_hints(hits=[], context_docs=[])
 
 		def _primary_builder() -> Any:
@@ -387,7 +436,10 @@ class LerimRuntime:
 
 		def _call(model: Any) -> Any:
 			return run_ask(
-				memory_root=resolved_memory_root,
+				context_db_path=self.config.context_db_path,
+				project_identity=project_identity,
+				project_ids=project_ids or [project_identity.project_id],
+				session_id=resolved_session_id,
 				model=model,
 				question=prompt,
 				hints=hints,

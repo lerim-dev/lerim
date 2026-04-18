@@ -29,15 +29,16 @@ def _project_state(project: dict[str, Any]) -> str:
 	dead = int(queue.get("dead_letter") or 0)
 	running = int(queue.get("running") or 0)
 	pending = int(queue.get("pending") or 0)
-	memory = int(project.get("memory_count") or 0)
+	record_count = int(project.get("record_count") or 0)
+	indexed_sessions = int(project.get("indexed_sessions_count") or 0)
 	if dead > 0 and str(project.get("oldest_blocked_run_id") or "").strip():
 		return "blocked"
 	if running > 0:
 		return "running"
 	if pending > 0:
 		return "queued"
-	if memory > 0:
-		return "healthy"
+	if record_count > 0 or indexed_sessions > 0 or int(queue.get("done") or 0) > 0:
+		return "quiet"
 	return "idle"
 
 
@@ -79,8 +80,6 @@ def _render_activity_line(item: dict[str, Any]) -> str:
 	op = str(item.get("op_type") or item.get("type") or "sync").strip().lower()
 	status = str(item.get("status") or "unknown").strip().lower()
 	project = str(item.get("project_label") or "global").strip()
-	index_updated = bool(item.get("index_updated"))
-	index_txt = "index updated" if index_updated else "index unchanged"
 	err = str(item.get("error") or "").strip()
 	if len(err) > 72:
 		err = f"{err[:69]}..."
@@ -91,25 +90,25 @@ def _render_activity_line(item: dict[str, Any]) -> str:
 		archived = int(counts.get("archived") or 0)
 		consolidated = int(counts.get("consolidated") or 0)
 		unchanged = int(counts.get("unchanged") or 0)
-		new = int(item.get("memories_new") or 0)
-		upd = int(item.get("memories_updated") or 0)
-		arc = int(item.get("memories_archived") or 0)
+		new = int(item.get("records_created") or 0)
+		upd = int(item.get("records_updated") or 0)
+		arc = int(item.get("records_archived") or 0)
 		base = (
 			f"{when_txt} {project} | maintain/{status} | "
 			f"merged {merged}, archived {archived}, consolidated {consolidated}, unchanged {unchanged} | "
-			f"+{new} ~{upd} -{arc} | {index_txt}"
+			f"+{new} ~{upd} -{arc}"
 		)
 	else:
 		analyzed = int(item.get("sessions_analyzed") or 0)
 		extracted = int(item.get("sessions_extracted") or 0)
 		failed = int(item.get("sessions_failed") or 0)
-		new = int(item.get("memories_new") or 0)
-		upd = int(item.get("memories_updated") or 0)
-		arc = int(item.get("memories_archived") or 0)
+		new = int(item.get("records_created") or 0)
+		upd = int(item.get("records_updated") or 0)
+		arc = int(item.get("records_archived") or 0)
 		base = (
 			f"{when_txt} {project} | sync/{status} | "
 			f"{analyzed} analyzed, {extracted} extracted, {failed} failed | "
-			f"+{new} ~{upd} -{arc} | {index_txt}"
+			f"+{new} ~{upd} -{arc}"
 		)
 	if err:
 		return f"{base} | error: {err}"
@@ -130,8 +129,18 @@ def render_status_output(payload: dict[str, Any], *, refreshed_at: str) -> Group
 	summary.add_column(justify="left", style="bold")
 	summary.add_column(justify="left")
 	summary.add_row("Connected agents", str(len(payload.get("connected_agents", []))))
-	summary.add_row("Memory files", str(int(payload.get("memory_count") or 0)))
+	summary.add_row("Context records", str(int(payload.get("record_count") or 0)))
 	summary.add_row("Indexed sessions", str(int(payload.get("sessions_indexed_count") or 0)))
+	sync_window_days = payload.get("sync_window_days")
+	sync_window_text = (
+		f"last {int(sync_window_days)}d (discovery + queueing)"
+		if sync_window_days is not None
+		else "unknown (restart daemon after upgrade)"
+	)
+	summary.add_row(
+		"Sync window",
+		sync_window_text,
+	)
 	summary.add_row("Queue", _format_queue_counts(queue))
 	summary.add_row(
 		"Unscoped sessions",
@@ -150,7 +159,7 @@ def render_status_output(payload: dict[str, Any], *, refreshed_at: str) -> Group
 	project_table.add_column("Project", no_wrap=True)
 	project_table.add_column("State", no_wrap=True)
 	project_table.add_column("Queue")
-	project_table.add_column("Memory", no_wrap=True)
+	project_table.add_column("Records", no_wrap=True)
 	project_table.add_column("Blocker", no_wrap=True)
 	project_table.add_column("Next Step")
 
@@ -158,7 +167,7 @@ def render_status_output(payload: dict[str, Any], *, refreshed_at: str) -> Group
 		"blocked": "red bold",
 		"running": "cyan",
 		"queued": "yellow",
-		"healthy": "green",
+		"quiet": "green",
 		"idle": "dim",
 	}
 
@@ -168,14 +177,14 @@ def render_status_output(payload: dict[str, Any], *, refreshed_at: str) -> Group
 		style = state_style.get(state, "white")
 		pqueue = item.get("queue") or {}
 		queue_text = _format_queue_counts(pqueue)
-		memory_count = str(int(item.get("memory_count") or 0))
+		record_count = str(int(item.get("record_count") or 0))
 		blocked_by = str(item.get("oldest_blocked_run_id") or "").strip()
 		blocked_short = blocked_by[:16] if blocked_by else "-"
 		project_table.add_row(
 			name,
 			f"[{style}]{state}[/{style}]",
 			queue_text,
-			memory_count,
+			record_count,
 			blocked_short,
 			_project_next_action(item),
 		)
@@ -187,6 +196,8 @@ def render_status_output(payload: dict[str, Any], *, refreshed_at: str) -> Group
 	meaning.add_row("blocked", "Oldest job is dead_letter; this project stream is paused.")
 	meaning.add_row("running", "A job is being processed now.")
 	meaning.add_row("queued", "Jobs are waiting; stream is not blocked.")
+	meaning.add_row("quiet", "Past in-scope sessions exist; no queued work right now.")
+	meaning.add_row("idle", "No indexed sessions in the current sync window for this project.")
 	meaning.add_row("unscoped", "Indexed sessions with no registered project match (not extracted).")
 	meaning.add_row("dead_letter", "Failed max retries; needs retry or skip.")
 

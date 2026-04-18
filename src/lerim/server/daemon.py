@@ -104,11 +104,6 @@ class OperationResult:
 			):
 				out[k] = v
 
-		# Backward compatibility for cloud dashboards.
-		if self.operation == "sync":
-			sync_metrics = out.get("sync_metrics") if isinstance(out.get("sync_metrics"), dict) else {}
-			out.setdefault("learnings_new", int(sync_metrics.get("memories_new") or 0))
-			out.setdefault("learnings_updated", int(sync_metrics.get("memories_updated") or 0))
 		return out
 
 	def to_span_attrs(self) -> dict[str, Any]:
@@ -377,84 +372,6 @@ def resolve_window_bounds(
     return until - timedelta(seconds=seconds), until
 
 
-def _stat_signature(path: Path) -> tuple[int, int]:
-	"""Return stable file signature: (mtime_ns, size_bytes)."""
-	stat = path.stat()
-	return int(stat.st_mtime_ns), int(stat.st_size)
-
-
-def _snapshot_dir_md(path: Path) -> dict[str, tuple[int, int]]:
-	"""Return md-file signatures under a directory, keyed by relative path."""
-	if not path.exists() or not path.is_dir():
-		return {}
-	snapshot: dict[str, tuple[int, int]] = {}
-	for item in sorted(path.rglob("*.md")):
-		if not item.is_file():
-			continue
-		rel = str(item.relative_to(path))
-		try:
-			snapshot[rel] = _stat_signature(item)
-		except OSError:
-			continue
-	return snapshot
-
-
-def _capture_memory_snapshot(memory_root: Path) -> dict[str, Any]:
-	"""Capture memory tree state for before/after delta computation."""
-	active: dict[str, tuple[int, int]] = {}
-	if memory_root.exists() and memory_root.is_dir():
-		for file in sorted(memory_root.glob("*.md")):
-			if not file.is_file() or file.name == "index.md":
-				continue
-			try:
-				active[file.name] = _stat_signature(file)
-			except OSError:
-				continue
-	index_path = memory_root / "index.md"
-	index_sig: tuple[int, int] | None = None
-	if index_path.exists() and index_path.is_file():
-		try:
-			index_sig = _stat_signature(index_path)
-		except OSError:
-			index_sig = None
-	return {
-		"active": active,
-		"summaries": _snapshot_dir_md(memory_root / "summaries"),
-		"archived": _snapshot_dir_md(memory_root / "archived"),
-		"index_sig": index_sig,
-	}
-
-
-def _diff_memory_snapshot(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
-	"""Compute memory deltas between two captured snapshots."""
-	before_active = before.get("active") or {}
-	after_active = after.get("active") or {}
-	before_archived = before.get("archived") or {}
-	after_archived = after.get("archived") or {}
-	before_summaries = before.get("summaries") or {}
-	after_summaries = after.get("summaries") or {}
-
-	before_active_names = set(before_active.keys())
-	after_active_names = set(after_active.keys())
-	before_archived_names = set(before_archived.keys())
-	after_archived_names = set(after_archived.keys())
-	before_summary_names = set(before_summaries.keys())
-	after_summary_names = set(after_summaries.keys())
-
-	updated_active = 0
-	for name in before_active_names & after_active_names:
-		if before_active.get(name) != after_active.get(name):
-			updated_active += 1
-
-	return {
-		"memories_new": len(after_active_names - before_active_names),
-		"memories_updated": updated_active,
-		"memories_archived": len(after_archived_names - before_archived_names),
-		"summaries_new": len(after_summary_names - before_summary_names),
-		"index_updated": bool(after.get("index_sig")) and after.get("index_sig") != before.get("index_sig"),
-	}
-
-
 def _new_project_metric() -> dict[str, Any]:
 	"""Create empty per-project metrics row."""
 	return {
@@ -462,11 +379,9 @@ def _new_project_metric() -> dict[str, Any]:
 		"sessions_extracted": 0,
 		"sessions_failed": 0,
 		"sessions_skipped": 0,
-		"memories_new": 0,
-		"memories_updated": 0,
-		"memories_archived": 0,
-		"summaries_new": 0,
-		"index_updated": False,
+		"records_created": 0,
+		"records_updated": 0,
+		"records_archived": 0,
 		"duration_ms": 0,
 		"last_error": None,
 		"maintain_counts": {
@@ -485,14 +400,12 @@ def _merge_project_metric(target: dict[str, Any], source: dict[str, Any]) -> Non
 		"sessions_extracted",
 		"sessions_failed",
 		"sessions_skipped",
-		"memories_new",
-		"memories_updated",
-		"memories_archived",
-		"summaries_new",
+		"records_created",
+		"records_updated",
+		"records_archived",
 		"duration_ms",
 	):
 		target[key] = int(target.get(key) or 0) + int(source.get(key) or 0)
-	target["index_updated"] = bool(target.get("index_updated")) or bool(source.get("index_updated"))
 	if source.get("last_error"):
 		target["last_error"] = str(source.get("last_error"))
 	t_counts = target.get("maintain_counts") if isinstance(target.get("maintain_counts"), dict) else {}
@@ -509,12 +422,10 @@ def _aggregate_sync_totals(projects_metrics: dict[str, dict[str, Any]]) -> dict[
 		"sessions_extracted": 0,
 		"sessions_failed": 0,
 		"sessions_skipped": 0,
-		"memories_new": 0,
-		"memories_updated": 0,
-		"memories_archived": 0,
-		"summaries_new": 0,
+		"records_created": 0,
+		"records_updated": 0,
+		"records_archived": 0,
 		"projects_count": len(projects_metrics),
-		"index_updated": False,
 	}
 	for metrics in projects_metrics.values():
 		for key in (
@@ -522,13 +433,11 @@ def _aggregate_sync_totals(projects_metrics: dict[str, dict[str, Any]]) -> dict[
 			"sessions_extracted",
 			"sessions_failed",
 			"sessions_skipped",
-			"memories_new",
-			"memories_updated",
-			"memories_archived",
-			"summaries_new",
+			"records_created",
+			"records_updated",
+			"records_archived",
 		):
 			totals[key] += int(metrics.get(key) or 0)
-		totals["index_updated"] = bool(totals["index_updated"]) or bool(metrics.get("index_updated"))
 	return totals
 
 
@@ -537,17 +446,14 @@ def _aggregate_maintain_totals(projects_metrics: dict[str, dict[str, Any]]) -> d
 	counts = {"merged": 0, "archived": 0, "consolidated": 0, "unchanged": 0}
 	totals = {
 		"projects_count": len(projects_metrics),
-		"memories_new": 0,
-		"memories_updated": 0,
-		"memories_archived": 0,
-		"summaries_new": 0,
-		"index_updated": False,
+		"records_created": 0,
+		"records_updated": 0,
+		"records_archived": 0,
 		"counts": counts,
 	}
 	for metrics in projects_metrics.values():
-		for key in ("memories_new", "memories_updated", "memories_archived", "summaries_new"):
+		for key in ("records_created", "records_updated", "records_archived"):
 			totals[key] += int(metrics.get(key) or 0)
-		totals["index_updated"] = bool(totals["index_updated"]) or bool(metrics.get("index_updated"))
 		m_counts = metrics.get("maintain_counts") if isinstance(metrics.get("maintain_counts"), dict) else {}
 		for key in ("merged", "archived", "consolidated", "unchanged"):
 			counts[key] += int(m_counts.get(key) or 0)
@@ -570,7 +476,6 @@ def _process_one_job(job: dict[str, Any]) -> dict[str, Any]:
 
     repo_path = str(job.get("repo_path") or "").strip()
     project_name = Path(repo_path).name if repo_path else "unknown"
-    project_memory_path = Path(repo_path) / ".lerim" / "memory" if repo_path else None
 
     # Skip sessions that don't match a registered project
     if not repo_path:
@@ -585,56 +490,49 @@ def _process_one_job(job: dict[str, Any]) -> dict[str, Any]:
             "duration_ms": int((time.monotonic() - started_monotonic) * 1000),
         }
 
-    # Validate project directory still exists
-    if not Path(repo_path).is_dir():
-        complete_session_job(rid)
-        return {
-            "status": "skipped",
-            "reason": "project_dir_missing",
-            "run_id": rid,
-            "project_name": project_name,
-            "repo_path": repo_path,
-            "metrics": {},
-            "duration_ms": int((time.monotonic() - started_monotonic) * 1000),
-        }
-
-    # Route memories to the project's .lerim/memory/
-    project_memory = str(project_memory_path)
-    before_snapshot = _capture_memory_snapshot(project_memory_path)
-
     attempts = max(int(job.get("attempts") or 1), 1)
     try:
+        doc = fetch_session_doc(rid) or {}
         session_path = str(job.get("session_path") or "").strip()
         if not session_path:
-            doc = fetch_session_doc(rid) or {}
             session_path = str(doc.get("session_path") or "").strip()
         agent = LerimRuntime(default_cwd=repo_path)
-        result = agent.sync(Path(session_path), memory_root=project_memory)
+        result = agent.sync(
+            Path(session_path),
+            session_id=rid,
+            agent_type=str(job.get("agent_type") or doc.get("agent_type") or "unknown"),
+            session_meta={
+                "cwd": str(job.get("repo_path") or repo_path),
+                "started_at": str(job.get("start_time") or doc.get("start_time") or ""),
+            },
+        )
     except Exception as exc:
         fail_session_job(
             rid,
             error=str(exc),
             retry_backoff_seconds=_retry_backoff_seconds(attempts),
         )
-        after_snapshot = _capture_memory_snapshot(project_memory_path)
         return {
             "status": "failed",
             "run_id": rid,
             "project_name": project_name,
             "repo_path": repo_path,
             "error": str(exc),
-            "metrics": _diff_memory_snapshot(before_snapshot, after_snapshot),
+            "metrics": {},
             "duration_ms": int((time.monotonic() - started_monotonic) * 1000),
         }
     complete_session_job(rid)
-    after_snapshot = _capture_memory_snapshot(project_memory_path)
     return {
         "status": "extracted",
         "run_id": rid,
         "project_name": project_name,
         "repo_path": repo_path,
         "cost_usd": float(result.get("cost_usd") or 0),
-        "metrics": _diff_memory_snapshot(before_snapshot, after_snapshot),
+        "metrics": {
+            "records_created": int(result.get("records_created") or 0),
+            "records_updated": int(result.get("records_updated") or 0),
+            "records_archived": int(result.get("records_archived") or 0),
+        },
         "duration_ms": int((time.monotonic() - started_monotonic) * 1000),
     }
 
@@ -646,7 +544,7 @@ def _process_claimed_jobs(
 
     Jobs are already sorted oldest-first by ``claim_session_jobs``.
     Sequential processing ensures that later sessions can correctly
-    update or supersede memories created by earlier ones.
+    update or supersede records created by earlier ones.
 
     Returns
         (extracted, failed, skipped, cost_usd, projects_metrics, events).
@@ -664,9 +562,8 @@ def _process_claimed_jobs(
         metric_row["sessions_analyzed"] = int(metric_row.get("sessions_analyzed") or 0) + 1
         metric_row["duration_ms"] = int(metric_row.get("duration_ms") or 0) + int(result.get("duration_ms") or 0)
         delta = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
-        for key in ("memories_new", "memories_updated", "memories_archived", "summaries_new"):
+        for key in ("records_created", "records_updated", "records_archived"):
             metric_row[key] = int(metric_row.get(key) or 0) + int(delta.get(key) or 0)
-        metric_row["index_updated"] = bool(metric_row.get("index_updated")) or bool(delta.get("index_updated"))
 
         event = {
             "time": _now_iso(),
@@ -678,11 +575,9 @@ def _process_claimed_jobs(
             "sessions_extracted": 0,
             "sessions_failed": 0,
             "sessions_skipped": 0,
-            "memories_new": int(delta.get("memories_new") or 0),
-            "memories_updated": int(delta.get("memories_updated") or 0),
-            "memories_archived": int(delta.get("memories_archived") or 0),
-            "summaries_new": int(delta.get("summaries_new") or 0),
-            "index_updated": bool(delta.get("index_updated")),
+            "records_created": int(delta.get("records_created") or 0),
+            "records_updated": int(delta.get("records_updated") or 0),
+            "records_archived": int(delta.get("records_archived") or 0),
             "duration_ms": int(result.get("duration_ms") or 0),
         }
 
@@ -1038,21 +933,12 @@ def run_maintain_once(
         failed_projects: list[str] = []
         for project_name, project_path_str in projects.items():
             project_path = Path(project_path_str).expanduser().resolve()
-            if not project_path.is_dir():
-                continue
-            project_memory = str(project_path / ".lerim" / "memory")
-            project_memory_path = Path(project_memory)
-            before_snapshot = _capture_memory_snapshot(project_memory_path)
             started_project = time.monotonic()
             metric_row = _new_project_metric()
             try:
                 agent = LerimRuntime(default_cwd=str(project_path))
-                result = agent.maintain(memory_root=project_memory)
+                result = agent.maintain(repo_root=project_path)
                 results[project_name] = result
-                # Check for memory index
-                memory_index_path = Path(project_memory) / "index.md"
-                if memory_index_path.exists():
-                    result["memory_index_exists"] = True
                 maintain_cost = float(result.get("cost_usd") or 0)
                 if maintain_cost:
                     log_activity(
@@ -1062,11 +948,9 @@ def run_maintain_once(
                         time.monotonic() - t0,
                         cost_usd=maintain_cost,
                     )
-                after_snapshot = _capture_memory_snapshot(project_memory_path)
-                delta = _diff_memory_snapshot(before_snapshot, after_snapshot)
-                for key in ("memories_new", "memories_updated", "memories_archived", "summaries_new"):
-                    metric_row[key] = int(delta.get(key) or 0)
-                metric_row["index_updated"] = bool(delta.get("index_updated"))
+                metric_row["records_created"] = int(result.get("records_created") or 0)
+                metric_row["records_updated"] = int(result.get("records_updated") or 0)
+                metric_row["records_archived"] = int(result.get("records_archived") or 0)
                 metric_row["duration_ms"] = int((time.monotonic() - started_project) * 1000)
                 raw_counts = result.get("counts") if isinstance(result.get("counts"), dict) else {}
                 metric_row["maintain_counts"] = {
@@ -1080,11 +964,6 @@ def run_maintain_once(
                 results[project_name] = {"error": str(exc)}
                 metric_row["last_error"] = str(exc)
                 metric_row["duration_ms"] = int((time.monotonic() - started_project) * 1000)
-                after_snapshot = _capture_memory_snapshot(project_memory_path)
-                delta = _diff_memory_snapshot(before_snapshot, after_snapshot)
-                for key in ("memories_new", "memories_updated", "memories_archived", "summaries_new"):
-                    metric_row[key] = int(delta.get(key) or 0)
-                metric_row["index_updated"] = bool(delta.get("index_updated"))
             projects_metrics[project_name] = metric_row
             maintain_events.append(
                 {
@@ -1092,11 +971,9 @@ def run_maintain_once(
                     "op_type": "maintain",
                     "status": "failed" if metric_row.get("last_error") else "completed",
                     "project": project_name,
-                    "memories_new": int(metric_row.get("memories_new") or 0),
-                    "memories_updated": int(metric_row.get("memories_updated") or 0),
-                    "memories_archived": int(metric_row.get("memories_archived") or 0),
-                    "summaries_new": int(metric_row.get("summaries_new") or 0),
-                    "index_updated": bool(metric_row.get("index_updated")),
+                    "records_created": int(metric_row.get("records_created") or 0),
+                    "records_updated": int(metric_row.get("records_updated") or 0),
+                    "records_archived": int(metric_row.get("records_archived") or 0),
                     "duration_ms": int(metric_row.get("duration_ms") or 0),
                     "maintain_counts": metric_row.get("maintain_counts") or {},
                     "error": str(metric_row.get("last_error") or ""),
