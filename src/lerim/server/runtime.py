@@ -7,10 +7,9 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import secrets
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -20,11 +19,10 @@ from lerim.agents.extract import ExtractionResult, run_extraction
 from lerim.agents.maintain import run_maintain
 from lerim.config.providers import build_pydantic_model
 from lerim.config.settings import Config, get_config
-from lerim.context import ContextStore, resolve_project_identity
+from lerim.context import resolve_project_identity
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 
 logger = logging.getLogger("lerim.runtime")
-_LAST_N_PATTERN = re.compile(r"\b(?:last|latest)\s+(\d+)\s+learnings?\b", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -68,8 +66,10 @@ def _resolve_runtime_roots(
 	return config.global_data_dir / "workspace"
 
 
-def _store_for_config(config: Config) -> ContextStore:
+def _store_for_config(config: Config):
 	"""Return the canonical context store for the current config."""
+	from lerim.context import ContextStore
+
 	store = ContextStore(config.context_db_path)
 	store.initialize()
 	return store
@@ -89,125 +89,6 @@ def _record_change_counts(config: Config, session_id: str) -> dict[str, int]:
 			(session_id,),
 		).fetchall()
 	return {str(row["change_kind"]): int(row["total"]) for row in rows}
-
-
-def _is_learning_row(row: dict[str, Any]) -> bool:
-	"""Return whether one record row should count as a learning."""
-	return str(row.get("kind") or "") != "episode"
-
-
-def _format_direct_rows(rows: list[dict[str, Any]]) -> str:
-	"""Format a short deterministic list of record rows."""
-	if not rows:
-		return "No matching records found."
-	lines = []
-	for idx, row in enumerate(rows, start=1):
-		title = str(row.get("title") or "").strip() or "(untitled)"
-		kind = str(row.get("kind") or "?")
-		created_at = str(row.get("created_at") or "")
-		lines.append(f"{idx}. [{kind}] {title} ({created_at})")
-	return "\n".join(lines)
-
-
-def _format_episode_rows(rows: list[dict[str, Any]]) -> str:
-	"""Format episode rows as short session recaps."""
-	if not rows:
-		return "No matching episodes found."
-	lines = []
-	for idx, row in enumerate(rows, start=1):
-		title = str(row.get("title") or "").strip() or "(untitled)"
-		happened = str(row.get("what_happened") or row.get("body") or "").strip()
-		preview = happened[:240]
-		created_at = str(row.get("created_at") or "")
-		lines.append(f"{idx}. {title} ({created_at})\n   {preview}")
-	return "\n".join(lines)
-
-
-def _direct_ask_answer(
-	*,
-	store: ContextStore,
-	project_ids: list[str],
-	question: str,
-) -> str | None:
-	"""Answer simple analytic ask questions deterministically before using the model."""
-	text = question.strip()
-	lowered = text.lower()
-
-	if "how many" in lowered and any(token in lowered for token in ("record", "records", "memory", "memories")):
-		payload = store.query(entity="records", mode="count", project_ids=project_ids)
-		return f"There are {int(payload['count'])} records extracted."
-
-	if "how many" in lowered and "learning" in lowered:
-		payload = store.query(entity="records", mode="list", project_ids=project_ids, order_by="created_at", limit=500)
-		rows = [row for row in payload["rows"] if _is_learning_row(row)]
-		return f"There are {len(rows)} learnings extracted."
-
-	if any(phrase in lowered for phrase in ("what is the last memory", "what's the last memory", "latest memory", "last record", "latest record")):
-		payload = store.query(entity="records", mode="list", project_ids=project_ids, order_by="created_at", limit=50)
-		rows = [row for row in payload["rows"] if _is_learning_row(row)]
-		if not rows:
-			return "No records found."
-		row = rows[0]
-		title = str(row.get("title") or "").strip() or "(untitled)"
-		return (
-			f"The latest record is [{row['kind']}] {title} "
-			f"created at {row['created_at']}."
-		)
-
-	match = _LAST_N_PATTERN.search(text)
-	if match:
-		limit = max(1, min(int(match.group(1)), 50))
-		payload = store.query(entity="records", mode="list", project_ids=project_ids, order_by="created_at", limit=200)
-		rows = [row for row in payload["rows"] if _is_learning_row(row)][:limit]
-		if not rows:
-			return "No learnings found."
-		return _format_direct_rows(rows)
-
-	if "yesterday" in lowered and "learning" in lowered:
-		now = datetime.now(timezone.utc)
-		start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
-		end = now.replace(hour=0, minute=0, second=0, microsecond=0)
-		payload = store.query(
-			entity="records",
-			mode="list",
-			project_ids=project_ids,
-			order_by="created_at",
-			created_since=start.isoformat(),
-			created_until=end.isoformat(),
-			limit=200,
-		)
-		rows = [row for row in payload["rows"] if _is_learning_row(row)]
-		if not rows:
-			return "No learnings were created yesterday."
-		return _format_direct_rows(rows)
-
-	if "what happened yesterday" in lowered or ("yesterday" in lowered and "happened" in lowered):
-		now = datetime.now(timezone.utc)
-		start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
-		end = now.replace(hour=0, minute=0, second=0, microsecond=0)
-		payload = store.query(
-			entity="records",
-			mode="list",
-			project_ids=project_ids,
-			order_by="created_at",
-			kind="episode",
-			created_since=start.isoformat(),
-			created_until=end.isoformat(),
-			limit=20,
-		)
-		rows = payload["rows"]
-		if not rows:
-			return "No episodes were created yesterday."
-		return _format_episode_rows(rows)
-
-	if "main learnings" in lowered:
-		payload = store.query(entity="records", mode="list", project_ids=project_ids, order_by="updated_at", limit=20)
-		rows = [row for row in payload["rows"] if _is_learning_row(row)][:5]
-		if not rows:
-			return "No learnings found."
-		return _format_direct_rows(rows)
-
-	return None
 
 
 # ---------------------------------------------------------------------------
@@ -566,16 +447,7 @@ class LerimRuntime:
 		resolved_session_id = session_id or self.generate_session_id()
 		resolved_repo_root = Path(repo_root).expanduser().resolve() if repo_root else Path(self._default_cwd or Path.cwd()).expanduser().resolve()
 		project_identity = resolve_project_identity(resolved_repo_root)
-		store = _store_for_config(self.config)
-		store.register_project(project_identity)
 		resolved_project_ids = project_ids or [project_identity.project_id]
-		direct_answer = _direct_ask_answer(
-			store=store,
-			project_ids=resolved_project_ids,
-			question=prompt,
-		)
-		if direct_answer is not None:
-			return direct_answer, resolved_session_id, 0.0
 		hints = format_ask_hints(hits=[], context_docs=[])
 
 		def _primary_builder() -> Any:

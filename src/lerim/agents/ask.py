@@ -11,7 +11,7 @@ from pydantic_ai import Agent
 from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
 
-from lerim.agents.tools import ContextDeps, context_query, fetch_records, search_records
+from lerim.agents.tools import ContextDeps, context_query, fetch_records, list_records, search_records
 from lerim.context.project_identity import ProjectIdentity
 
 
@@ -35,6 +35,7 @@ Answer questions from retrieved context records.
 
 Use:
 - `context_query` for deterministic count/list/date/latest questions
+- `list_records` to browse recent or filtered records by exact fields like time, kind, and status
 - `search_records` to retrieve candidate records for semantic questions
 - `fetch_records` to inspect the best candidates
 
@@ -44,6 +45,15 @@ Rules:
 - say clearly when support is only episodic
 - keep the answer concise and evidence-backed
 - treat "learning" as a durable non-episode record unless the user says otherwise
+- when the question asks for latest/last/recent/yesterday/by date, prefer exact record listing/querying before synthesis
+- for mixed questions, first narrow with `list_records` or `context_query`, then `fetch_records`, then answer
+
+Tool strategy:
+- For "how many", use `context_query(mode="count")`.
+- For "last", "latest", or "recent", use `list_records(order_by=...)` or `context_query(mode="list", order_by=...)`.
+- For time windows like "yesterday" or "this week", use exact date filters first, then fetch the records you need.
+- For "why", "what do we know", or topic questions, use `search_records`, then `fetch_records`.
+- For mixed questions like "main learnings from yesterday", first narrow by time with `list_records` or `context_query`, then fetch the best records, then answer.
 """
 
 
@@ -60,7 +70,7 @@ def build_ask_agent(model: Model) -> Agent[ContextDeps, AskResult]:
         deps_type=ContextDeps,
         output_type=AskResult,
         system_prompt=ASK_SYSTEM_PROMPT,
-        tools=[context_query, search_records, fetch_records],
+        tools=[context_query, list_records, search_records, fetch_records],
         retries=5,
         output_retries=2,
     )

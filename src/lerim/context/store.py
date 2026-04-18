@@ -35,6 +35,8 @@ QUERY_MODES = ("list", "count")
 QUERY_ORDER_FIELDS = ("created_at", "updated_at", "valid_from")
 RRF_K = 60
 QUERY_ENTITY_ALIASES = {
+    "memory": "records",
+    "memories": "records",
     "learning": "records",
     "learnings": "records",
     "record": "records",

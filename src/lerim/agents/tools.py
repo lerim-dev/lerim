@@ -116,41 +116,11 @@ def search_records(
     """Search the context store with hybrid retrieval and compact results."""
     store = _store(ctx)
     trimmed_query = str(query or "").strip()
-    if trimmed_query in {"", "*"}:
-        listing = store.query(
-            entity="records",
-            mode="list",
-            project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
-            kind=_normalize_kind(kind_filters[0]) if kind_filters and len(kind_filters) == 1 else None,
-            status=_normalize_status(status_filters[0]) if status_filters and len(status_filters) == 1 else None,
-            valid_at=valid_at.strip() or None,
-            order_by="updated_at",
-            limit=max(1, min(int(limit), 8)),
-            include_total=False,
+    if not trimmed_query or trimmed_query == "*":
+        raise ModelRetry(
+            "search_records needs a real text query. "
+            "Use list_records when you want to browse recent or filtered records."
         )
-        rows = listing["rows"]
-        if not include_archived:
-            rows = [row for row in rows if str(row.get("status") or "") == "active"]
-        payload = {
-            "count": len(rows),
-            "hits": [
-                {
-                    "record_id": row["record_id"],
-                    "kind": row["kind"],
-                    "title": row["title"],
-                    "body_preview": str(row["body"])[:280],
-                    "status": row["status"],
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"],
-                    "valid_from": row["valid_from"],
-                    "valid_until": row["valid_until"],
-                    "score": None,
-                    "sources": ["recent-list"],
-                }
-                for row in rows
-            ],
-        }
-        return json.dumps(payload, ensure_ascii=True, indent=2)
     hits = store.search(
         project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
         query=trimmed_query,
@@ -177,6 +147,65 @@ def search_records(
                 "sources": hit.sources,
             }
             for hit in hits
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=True, indent=2)
+
+
+def list_records(
+    ctx: RunContext[ContextDeps],
+    kind_filters: list[str] | None = None,
+    status_filters: list[str] | None = None,
+    created_since: str = "",
+    created_until: str = "",
+    updated_since: str = "",
+    updated_until: str = "",
+    valid_at: str = "",
+    include_archived: bool = False,
+    order_by: str = "updated_at",
+    limit: int = 8,
+) -> str:
+    """List compact record rows with exact filters and ordering."""
+    store = _store(ctx)
+    order = str(order_by or "updated_at").strip().lower()
+    if order not in {"created_at", "updated_at", "valid_from"}:
+        raise ModelRetry("list_records order_by must be one of: created_at, updated_at, valid_from.")
+    status: str | None = None
+    if status_filters and len(status_filters) == 1:
+        status = _normalize_status(status_filters[0])
+    elif not include_archived:
+        status = "active"
+    listing = store.query(
+        entity="records",
+        mode="list",
+        project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
+        kind=_normalize_kind(kind_filters[0]) if kind_filters and len(kind_filters) == 1 else None,
+        status=status,
+        created_since=created_since.strip() or None,
+        created_until=created_until.strip() or None,
+        updated_since=updated_since.strip() or None,
+        updated_until=updated_until.strip() or None,
+        valid_at=valid_at.strip() or None,
+        order_by=order,
+        limit=max(1, min(int(limit), 50)),
+        include_total=False,
+    )
+    payload = {
+        "count": listing["count"],
+        "records": [
+            {
+                "record_id": row["record_id"],
+                "kind": row["kind"],
+                "title": row["title"],
+                "body_preview": str(row["body"])[:280],
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "valid_from": row["valid_from"],
+                "valid_until": row["valid_until"],
+                "superseded_by_record_id": row["superseded_by_record_id"],
+            }
+            for row in listing["rows"]
         ],
     }
     return json.dumps(payload, ensure_ascii=True, indent=2)
@@ -397,23 +426,35 @@ def context_query(
 ) -> str:
     """Run deterministic count/list queries over records, versions, or sessions."""
     store = _store(ctx)
-    payload = store.query(
-        entity=str(entity or "").strip().lower(),
-        mode=str(mode or "").strip().lower(),
-        project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
-        kind=_normalize_kind(kind) or None,
-        status=_normalize_status(status) if str(status or "").strip() else None,
-        source_session_id=str(source_session_id or "").strip() or None,
-        created_since=str(created_since or "").strip() or None,
-        created_until=str(created_until or "").strip() or None,
-        updated_since=str(updated_since or "").strip() or None,
-        updated_until=str(updated_until or "").strip() or None,
-        valid_at=str(valid_at or "").strip() or None,
-        order_by=str(order_by or "created_at").strip(),
-        limit=max(1, min(int(limit), 100)),
-        offset=max(0, int(offset)),
-        include_total=bool(include_total),
-    )
+    try:
+        payload = store.query(
+            entity=str(entity or "").strip().lower(),
+            mode=str(mode or "").strip().lower(),
+            project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
+            kind=_normalize_kind(kind) or None,
+            status=_normalize_status(status) if str(status or "").strip() else None,
+            source_session_id=str(source_session_id or "").strip() or None,
+            created_since=str(created_since or "").strip() or None,
+            created_until=str(created_until or "").strip() or None,
+            updated_since=str(updated_since or "").strip() or None,
+            updated_until=str(updated_until or "").strip() or None,
+            valid_at=str(valid_at or "").strip() or None,
+            order_by=str(order_by or "created_at").strip(),
+            limit=max(1, min(int(limit), 100)),
+            offset=max(0, int(offset)),
+            include_total=bool(include_total),
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message.startswith("invalid_query_entity:"):
+            raise ModelRetry(
+                "context_query entity must be one of: records, memories, learnings, versions, sessions."
+            ) from exc
+        if message.startswith("invalid_query_mode:"):
+            raise ModelRetry("context_query mode must be 'list' or 'count'.") from exc
+        if message.startswith("invalid_query_order_by:"):
+            raise ModelRetry("context_query order_by must be one of: created_at, updated_at, valid_from.") from exc
+        raise
     return json.dumps(payload, ensure_ascii=True, indent=2)
 
 

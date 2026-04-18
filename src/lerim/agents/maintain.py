@@ -13,6 +13,7 @@ from lerim.agents.tools import (
     ContextDeps,
     archive_record,
     fetch_records,
+    list_records,
     search_records,
     supersede_record,
     update_record,
@@ -49,7 +50,8 @@ You should not:
 - use `archive_record` on a fresh active non-episode duplicate when `supersede_record` is the right lifecycle tool
 
 Use:
-- `search_records` to find candidate records
+- `list_records` to browse recent or filtered records in exact project scope
+- `search_records` to find semantic duplicate candidates or topic-related records
 - `fetch_records` to inspect the full typed fields of only the records you may change
 - `update_record` to improve a record
 - `archive_record` to archive junk or stale rows
@@ -82,7 +84,7 @@ def build_maintain_agent(model: Model) -> Agent[ContextDeps, MaintainResult]:
         deps_type=ContextDeps,
         output_type=MaintainResult,
         system_prompt=MAINTAIN_SYSTEM_PROMPT,
-        tools=[search_records, fetch_records, update_record, archive_record, supersede_record],
+        tools=[list_records, search_records, fetch_records, update_record, archive_record, supersede_record],
         retries=5,
         output_retries=2,
     )

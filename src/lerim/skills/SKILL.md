@@ -41,6 +41,7 @@ Your job is to read and query existing context records when they are relevant. Y
 The DB-era tool surface is small on purpose.
 
 - `trace_read`: read bounded trace chunks during extract
+- `list_records`: browse exact recent or filtered records by time, kind, and status
 - `search_records`: retrieve candidate records with local ONNX embeddings + `sqlite-vec` + FTS5 + RRF
 - `fetch_records`: load selected records in concise or detailed form
 - `create_record`: create a new durable record with explicit typed fields
