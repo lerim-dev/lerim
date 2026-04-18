@@ -186,6 +186,10 @@ class Config:
     sessions_db_path: Path
     context_db_path: Path
     platforms_path: Path
+    embedding_model_id: str
+    embedding_cache_dir: Path
+    semantic_shortlist_size: int
+    lexical_shortlist_size: int
 
     server_host: str
     server_port: int
@@ -221,6 +225,10 @@ class Config:
             "sessions_db_path": str(self.sessions_db_path),
             "context_db_path": str(self.context_db_path),
             "platforms_path": str(self.platforms_path),
+            "embedding_model_id": self.embedding_model_id,
+            "embedding_cache_dir": str(self.embedding_cache_dir),
+            "semantic_shortlist_size": self.semantic_shortlist_size,
+            "lexical_shortlist_size": self.lexical_shortlist_size,
             "server_host": self.server_host,
             "server_port": self.server_port,
             "sync_interval_minutes": self.sync_interval_minutes,
@@ -305,6 +313,7 @@ def _default_context_db_path(global_data_dir: Path) -> Path:
 _TOP_LEVEL_CONFIG_KEYS = {
     "data",
     "server",
+    "semantic_search",
     "roles",
     "providers",
     "cloud",
@@ -312,6 +321,12 @@ _TOP_LEVEL_CONFIG_KEYS = {
     "projects",
 }
 _DATA_KEYS = {"dir", "context_db_path"}
+_SEMANTIC_SEARCH_KEYS = {
+    "embedding_model_id",
+    "embedding_cache_dir",
+    "semantic_shortlist_size",
+    "lexical_shortlist_size",
+}
 _SERVER_KEYS = {
     "host",
     "port",
@@ -361,6 +376,11 @@ def _validate_config_shape(toml_data: dict[str, Any]) -> None:
     _raise_unknown_keys("root", toml_data, _TOP_LEVEL_CONFIG_KEYS)
     _raise_unknown_keys("data", _ensure_dict(toml_data, "data"), _DATA_KEYS)
     _raise_unknown_keys("server", _ensure_dict(toml_data, "server"), _SERVER_KEYS)
+    _raise_unknown_keys(
+        "semantic_search",
+        _ensure_dict(toml_data, "semantic_search"),
+        _SEMANTIC_SEARCH_KEYS,
+    )
     roles = _ensure_dict(toml_data, "roles")
     _raise_unknown_keys("roles", roles, _ROLES_KEYS)
     for role_name, role_payload in roles.items():
@@ -399,6 +419,7 @@ def load_config() -> Config:
     data = toml_data.get("data", {})
     server = toml_data.get("server", {})
     roles = _ensure_dict(toml_data, "roles")
+    semantic_search = _ensure_dict(toml_data, "semantic_search")
     global_data_dir = _expand(data.get("dir"), GLOBAL_DATA_DIR)
     context_db_path = _expand(
         data.get("context_db_path"),
@@ -438,6 +459,20 @@ def load_config() -> Config:
         sessions_db_path=global_data_dir / "index" / "sessions.sqlite3",
         context_db_path=context_db_path,
         platforms_path=global_data_dir / "platforms.json",
+        embedding_model_id=_to_non_empty_string(
+            semantic_search.get("embedding_model_id")
+        )
+        or "mixedbread-ai/mxbai-embed-xsmall-v1",
+        embedding_cache_dir=_expand(
+            semantic_search.get("embedding_cache_dir"),
+            global_data_dir / "cache" / "embeddings",
+        ),
+        semantic_shortlist_size=_require_int(
+            semantic_search, "semantic_shortlist_size", minimum=1
+        ),
+        lexical_shortlist_size=_require_int(
+            semantic_search, "lexical_shortlist_size", minimum=1
+        ),
         server_host=_to_non_empty_string(server.get("host")) or "127.0.0.1",
         server_port=port,
         sync_interval_minutes=_require_int(server, "sync_interval_minutes", minimum=1),

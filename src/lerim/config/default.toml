@@ -13,6 +13,12 @@ maintain_interval_minutes = 60       # maintain cold path interval
 sync_window_days = 7
 sync_max_sessions = 50
 
+[semantic_search]
+embedding_model_id = "mixedbread-ai/mxbai-embed-xsmall-v1"
+embedding_cache_dir = "~/.lerim/cache/embeddings"
+semantic_shortlist_size = 40
+lexical_shortlist_size = 40
+
 [roles.agent]
 provider = "minimax"               # opencode_go | minimax | zai | openrouter | openai | ollama
 model = "MiniMax-M2.7"                 # package default model for minimax provider
