@@ -1,4 +1,4 @@
-"""Shared test fixtures for Lerim's maintained unit test suite.
+"""Shared test fixtures for Lerim's maintained test suite.
 
 This file only supports the DB-only runtime.
 It provides temporary global Lerim roots and trace fixture paths.
@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from lerim.server.runtime import LerimRuntime
+from tests.live_helpers import build_live_config
 from tests.helpers import make_config
 
 
@@ -29,6 +31,32 @@ def tmp_lerim_root(tmp_path):
 def tmp_config(tmp_path, tmp_lerim_root):
     """Temporary config pointing at tmp_lerim_root."""
     return make_config(tmp_lerim_root)
+
+
+@pytest.fixture
+def live_lerim_root(tmp_path):
+    """Temporary global Lerim root for live smoke, integration, and e2e tests."""
+    return tmp_path / ".lerim"
+
+
+@pytest.fixture
+def live_config(live_lerim_root):
+    """Temporary live config that preserves current provider settings but isolates state."""
+    return build_live_config(live_lerim_root)
+
+
+@pytest.fixture
+def live_repo_root(tmp_path):
+    """Temporary project root used for live runtime tests."""
+    repo_root = tmp_path / "live-project"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    return repo_root
+
+
+@pytest.fixture
+def live_runtime(live_config, live_repo_root):
+    """Live runtime pointing at the temporary project root and isolated global state."""
+    return LerimRuntime(default_cwd=str(live_repo_root), config=live_config)
 
 
 def skip_unless_env(var_name):

@@ -356,10 +356,8 @@ def test_api_status_returns_expected_keys(monkeypatch, tmp_path) -> None:
 		project_id=identity.project_id,
 		session_id=None,
 		kind="fact",
-		domain="project",
 		title="Canonical store",
-		summary="Context is stored in SQLite.",
-		structured={"content": "Context is stored in SQLite."},
+		body="Context is stored in SQLite.",
 	)
 
 	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
@@ -489,10 +487,8 @@ def test_api_status_reports_projects_and_unscoped(monkeypatch, tmp_path) -> None
 			project_id=identity.project_id,
 			session_id=None,
 			kind="fact",
-			domain="project",
 			title=title,
-			summary=title,
-			structured={"content": title},
+			body=title,
 		)
 	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
 	monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])

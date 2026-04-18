@@ -155,6 +155,24 @@ class TestRunWithFallback:
 			)
 		assert count == 1
 
+	def test_value_error_is_non_retryable(self, tmp_path, monkeypatch):
+		rt = _build_runtime(tmp_path, monkeypatch)
+		count = 0
+
+		def call(_model):
+			nonlocal count
+			count += 1
+			raise ValueError("decision_requires_decision_and_why")
+
+		with pytest.raises(ValueError, match="decision_requires_decision_and_why"):
+			rt._run_with_fallback(
+				flow="test",
+				callable_fn=call,
+				model_builders=[lambda: "primary"],
+				max_attempts=3,
+			)
+		assert count == 1
+
 	def test_exhausted_models_raises_runtime_error(self, tmp_path, monkeypatch):
 		monkeypatch.setattr(time, "sleep", lambda *_: None)
 		rt = _build_runtime(tmp_path, monkeypatch)

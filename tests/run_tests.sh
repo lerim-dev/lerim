@@ -155,36 +155,24 @@ run_unit() {
   python -m pytest tests/unit/ -x -q
 }
 
-run_pytest_allow_empty() {
-  set +e
-  python -m pytest "$@"
-  status=$?
-  set -e
-  if [[ $status -eq 5 ]]; then
-    echo "No tests collected for selector ($*); treating as pass."
-    return 0
-  fi
-  return $status
-}
-
 run_integration() {
   print_section "Integration tests"
   export LERIM_INTEGRATION=1
   export LERIM_LLM_INTEGRATION=1
   export LERIM_EMBEDDINGS_INTEGRATION=1
-  run_pytest_allow_empty tests/integration/ -n 4
+  python -m pytest tests/integration/ -q -n 1
 }
 
 run_e2e() {
   print_section "End-to-end tests"
   export LERIM_E2E=1
-  run_pytest_allow_empty tests/e2e/ -n 4
+  python -m pytest tests/e2e/ -q -n 1
 }
 
 run_smoke() {
   print_section "Smoke tests"
   export LERIM_SMOKE=1
-  run_pytest_allow_empty tests/smoke/ -n 4
+  python -m pytest tests/smoke/ -q -n 1
 }
 
 run_lint() {

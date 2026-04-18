@@ -33,17 +33,18 @@ def _make_rate_limit_error() -> RateLimitError:
 
 def test_ask_system_prompt_mentions_db_tools() -> None:
 	"""Ask prompt should guide the read-only DB retrieval flow."""
-	assert "context_search" in ASK_SYSTEM_PROMPT
-	assert "context_fetch" in ASK_SYSTEM_PROMPT
+	assert "context_query" in ASK_SYSTEM_PROMPT
+	assert "search_records" in ASK_SYSTEM_PROMPT
+	assert "fetch_records" in ASK_SYSTEM_PROMPT
 	assert "retrieved records only" in ASK_SYSTEM_PROMPT
 	assert "historical truth" in ASK_SYSTEM_PROMPT
 
 
 def test_maintain_system_prompt_mentions_semantic_mutations() -> None:
 	"""Maintain prompt should talk about record mutations, not file edits."""
-	assert "context_search" in MAINTAIN_SYSTEM_PROMPT
-	assert "context_fetch" in MAINTAIN_SYSTEM_PROMPT
-	assert "context_apply" in MAINTAIN_SYSTEM_PROMPT
+	assert "search_records" in MAINTAIN_SYSTEM_PROMPT
+	assert "fetch_records" in MAINTAIN_SYSTEM_PROMPT
+	assert "supersede_record" in MAINTAIN_SYSTEM_PROMPT
 	assert "storage layout" in MAINTAIN_SYSTEM_PROMPT
 
 
@@ -54,7 +55,7 @@ def test_format_ask_hints_renders_hits() -> None:
 			{
 				"kind": "decision",
 				"title": "Auth policy",
-				"summary": "Use short-lived access tokens and rotate refresh tokens.",
+				"body_preview": "Use short-lived access tokens and rotate refresh tokens.",
 			},
 		],
 		context_docs=[],
@@ -141,7 +142,7 @@ def test_run_maintain_delegates_to_built_agent(monkeypatch, tmp_path) -> None:
 		request_limit=9,
 	)
 	assert result.completion_summary == "merged 2"
-	assert "semantic DB mutations" in str(captured["prompt"])
+	assert "repairing weak records" in str(captured["prompt"])
 	assert captured["request_limit"] == 9
 	assert captured["deps"].session_id == "sess_maintain"
 

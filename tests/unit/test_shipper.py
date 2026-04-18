@@ -152,10 +152,8 @@ def _insert_context_record(
 		session_id=None,
 		record_id=record_id,
 		kind=kind,
-		domain="project",
 		title=title,
-		summary=summary,
-		structured={"content": content},
+		body=content or summary,
 	)
 
 
@@ -771,11 +769,12 @@ class TestPullRecords:
 		identity = resolve_project_identity(proj_dir)
 		with store.connect() as conn:
 			row = conn.execute(
-				"SELECT title, summary FROM records WHERE record_id = ? AND project_id = ?",
+				"SELECT title, body FROM records WHERE record_id = ? AND project_id = ?",
 				("cloud-mem-1", identity.project_id),
 			).fetchone()
 		assert row is not None
 		assert row["title"] == "Cloud Record"
+		assert row["body"] == "Edited body text"
 
 	def test_skips_missing_record_id(self, tmp_path):
 		"""Records without record_id are skipped."""
