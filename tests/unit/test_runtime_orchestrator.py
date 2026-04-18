@@ -57,23 +57,8 @@ class TestHelpers:
 
 	def test_resolve_runtime_roots_defaults(self, tmp_path):
 		cfg = make_config(tmp_path)
-		mem, ws = _resolve_runtime_roots(
-			config=cfg,
-			memory_root=None,
-			workspace_root=None,
-		)
-		assert mem == cfg.memory_dir
+		ws = _resolve_runtime_roots(config=cfg)
 		assert ws == cfg.global_data_dir / "workspace"
-
-	def test_resolve_runtime_roots_overrides(self, tmp_path):
-		cfg = make_config(tmp_path)
-		mem, ws = _resolve_runtime_roots(
-			config=cfg,
-			memory_root=str(tmp_path / "m"),
-			workspace_root=str(tmp_path / "w"),
-		)
-		assert mem == (tmp_path / "m").resolve()
-		assert ws == (tmp_path / "w").resolve()
 
 	def test_write_json_artifact(self, tmp_path):
 		path = tmp_path / "artifact.json"
@@ -194,9 +179,6 @@ class TestSyncFlow:
 
 	def test_sync_happy_path(self, tmp_path, monkeypatch):
 		rt = _build_runtime(tmp_path, monkeypatch)
-		memory_root = tmp_path / "memory"
-		workspace_root = tmp_path / "workspace"
-		memory_root.mkdir(parents=True, exist_ok=True)
 
 		trace = tmp_path / "trace.jsonl"
 		trace.write_text('{"role":"user","content":"hello"}\n', encoding="utf-8")
@@ -207,28 +189,27 @@ class TestSyncFlow:
 		)
 		monkeypatch.setattr(
 			"lerim.server.runtime.run_extraction",
-			lambda **kwargs: ExtractionResult(completion_summary="extracted"),
+			lambda **kwargs: (
+				ExtractionResult(completion_summary="extracted"),
+				[ModelRequest(parts=[SystemPromptPart(content="extract")])],
+			),
 		)
 
-		result = rt.sync(
-			trace_path=trace,
-			memory_root=memory_root,
-			workspace_root=workspace_root,
-		)
+		result = rt.sync(trace_path=trace)
 
 		run_folder = Path(result["run_folder"])
 		assert run_folder.exists()
 		assert (run_folder / "agent.log").read_text(encoding="utf-8").strip() == "extracted"
-		assert json.loads((run_folder / "agent_trace.json").read_text(encoding="utf-8")) == []
+		trace_data = json.loads((run_folder / "agent_trace.json").read_text(encoding="utf-8"))
+		assert isinstance(trace_data, list)
 		assert result["trace_path"] == str(trace.resolve())
+		assert result["context_db_path"] == str(rt.config.context_db_path)
+		assert result["project_id"].startswith("proj_")
 
 
 class TestMaintainFlow:
 	def test_maintain_happy_path_and_trace_write(self, tmp_path, monkeypatch):
 		rt = _build_runtime(tmp_path, monkeypatch)
-		memory_root = tmp_path / "memory"
-		workspace_root = tmp_path / "workspace"
-		memory_root.mkdir(parents=True, exist_ok=True)
 
 		captured: dict[str, object] = {}
 
@@ -246,12 +227,13 @@ class TestMaintainFlow:
 
 		monkeypatch.setattr("lerim.server.runtime.run_maintain", _fake_run_maintain)
 
-		result = rt.maintain(memory_root=memory_root, workspace_root=workspace_root)
+		result = rt.maintain(repo_root=tmp_path)
 		run_folder = Path(result["run_folder"])
 		assert (run_folder / "agent.log").read_text(encoding="utf-8").strip() == "maintenance complete"
 		trace_data = json.loads((run_folder / "agent_trace.json").read_text(encoding="utf-8"))
 		assert isinstance(trace_data, list)
 		assert captured["request_limit"] == rt.config.agent_role.max_iters_maintain
+		assert result["context_db_path"] == str(rt.config.context_db_path)
 
 
 class TestAskFlow:
@@ -269,7 +251,7 @@ class TestAskFlow:
 			return AskResult(answer="answer text")
 
 		monkeypatch.setattr("lerim.server.runtime.run_ask", _fake_run_ask)
-		answer, session_id, cost = rt.ask("what changed?")
+		answer, session_id, cost = rt.ask("what changed?", repo_root=tmp_path)
 		assert answer == "answer text"
 		assert session_id.startswith("lerim-")
 		assert cost == 0.0
@@ -286,5 +268,5 @@ class TestAskFlow:
 			"lerim.server.runtime.run_ask",
 			lambda **kwargs: AskResult(answer="ok"),
 		)
-		_, session_id, _ = rt.ask("hello", session_id="fixed-id")
+		_, session_id, _ = rt.ask("hello", session_id="fixed-id", repo_root=tmp_path)
 		assert session_id == "fixed-id"

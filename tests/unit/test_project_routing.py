@@ -1,4 +1,4 @@
-"""Unit tests for per-project memory routing: match_session_project and repo_path fields."""
+"""Unit tests for per-project session routing: match_session_project and repo_path fields."""
 
 from __future__ import annotations
 

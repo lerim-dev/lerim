@@ -9,10 +9,14 @@ def test_sync_result_contract_fields():
 
     expected = {
         "trace_path",
-        "memory_root",
+        "context_db_path",
+        "project_id",
         "workspace_root",
         "run_folder",
         "artifacts",
+        "records_created",
+        "records_updated",
+        "records_archived",
         "cost_usd",
     }
     assert set(SyncResultContract.model_fields.keys()) == expected
@@ -23,10 +27,14 @@ def test_maintain_result_contract_fields():
     from lerim.agents.contracts import MaintainResultContract
 
     expected = {
-        "memory_root",
+        "context_db_path",
+        "project_id",
         "workspace_root",
         "run_folder",
         "artifacts",
+        "records_created",
+        "records_updated",
+        "records_archived",
         "cost_usd",
     }
     assert set(MaintainResultContract.model_fields.keys()) == expected
@@ -51,7 +59,6 @@ def test_cli_subcommands_present():
         "maintain",
         "serve",
         "ask",
-        "memory",
         "dashboard",
         "status",
         "queue",
@@ -59,5 +66,3 @@ def test_cli_subcommands_present():
         "skip",
     ):
         assert cmd in choices, f"Missing CLI subcommand: {cmd}"
-
-

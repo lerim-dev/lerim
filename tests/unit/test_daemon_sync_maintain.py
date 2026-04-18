@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from lerim.server import daemon
 from lerim.server.daemon import log_activity
 from lerim.config.settings import reload_config
@@ -125,7 +127,7 @@ def test_maintain_calls_agent(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "lerim.server.runtime.LerimRuntime.maintain",
         lambda self, **kw: (
-            called.append(kw.get("memory_root", "")),
+            called.append(str(kw.get("repo_root", ""))),
             {
                 "counts": {
                     "merged": 0,
@@ -139,8 +141,9 @@ def test_maintain_calls_agent(monkeypatch, tmp_path) -> None:
     code, payload = daemon.run_maintain_once(force=False, dry_run=False)
     assert code == daemon.EXIT_OK
     assert len(called) >= 1
-    # Each call should pass an explicit memory_root.
+    # Maintain should pass explicit repo_root values, including our test project.
     assert all(r for r in called)
+    assert tmp_path.resolve() in {Path(r).resolve() for r in called}
 
 
 def test_config_has_separate_interval_fields(tmp_path) -> None:
@@ -300,6 +303,8 @@ def test_maintain_no_registered_projects_is_clean_noop(monkeypatch, tmp_path) ->
     """Maintain exits cleanly when no projects are registered."""
     cfg = make_config(tmp_path)
     monkeypatch.setattr("lerim.server.daemon.get_config", lambda: cfg)
+    monkeypatch.setattr("lerim.server.daemon.reload_config", lambda: cfg)
+    monkeypatch.setattr("lerim.server.daemon.record_service_run", lambda **kwargs: None)
 
     called: list[str] = []
     monkeypatch.setattr(

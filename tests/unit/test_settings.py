@@ -267,6 +267,20 @@ def test_layer_precedence_explicit_overrides(tmp_path, monkeypatch):
     assert cfg.server_port == 1234
 
 
+def test_layer_precedence_explicit_context_db_path_override(tmp_path, monkeypatch):
+    """Explicit config layer can override the canonical context DB path."""
+    explicit = tmp_path / "explicit.toml"
+    explicit.write_text(
+        "[data]\n"
+        f'dir = "{tmp_path}"\n'
+        f'context_db_path = "{tmp_path / "db" / "ctx.sqlite3"}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LERIM_CONFIG", str(explicit))
+    cfg = reload_config()
+    assert cfg.context_db_path == tmp_path / "db" / "ctx.sqlite3"
+
+
 def test_deep_merge_adds_new_keys():
     """_deep_merge adds keys from override that don't exist in base."""
     base = {"a": 1}

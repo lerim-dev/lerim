@@ -30,11 +30,9 @@ def _make_ollama_config(
     """Build a Config with Ollama agent role for testing."""
     base = make_config(tmp_path)
     return Config(
-        data_dir=base.data_dir,
         global_data_dir=base.global_data_dir,
-        memory_dir=base.memory_dir,
-        index_dir=base.index_dir,
         sessions_db_path=base.sessions_db_path,
+        context_db_path=base.context_db_path,
         platforms_path=base.platforms_path,
         server_host=base.server_host,
         server_port=base.server_port,

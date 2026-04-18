@@ -1,4 +1,4 @@
-"""Unit tests for lerim.memory.transcript — JSONL trace formatting.
+"""Unit tests for lerim.transcripts.transcript — JSONL trace formatting.
 
 Tests format_transcript and all internal helpers across the four supported
 agent formats (Claude, OpenCode, Codex, Cursor) plus edge cases.
@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 
-from lerim.memory.transcript import (
+from lerim.transcripts.transcript import (
 	_detect_trace_format,
 	_extract_content_text,
 	_format_claude_line,

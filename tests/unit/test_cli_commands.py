@@ -22,7 +22,6 @@ from typing import Any
 import pytest
 
 from lerim.server import cli
-from lerim.config.project_scope import ScopeResolution
 from tests.helpers import make_config
 
 
@@ -442,7 +441,7 @@ class TestCmdAsk:
 
 	def test_ask_success_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
 		"""Ask with --json emits the full response dict."""
-		fake = {"answer": "Use JWT.", "error": False, "memories_used": []}
+		fake = {"answer": "Use JWT.", "error": False, "projects_used": []}
 		monkeypatch.setattr(cli, "_api_post", lambda _p, _b: fake)
 		args = _ns(command="ask", json=True, question="how?", limit=5)
 		buf = io.StringIO()
@@ -517,7 +516,7 @@ class TestCmdStatus:
 		"""Status with --json emits the full API payload as JSON."""
 		fake = {
 			"connected_agents": ["claude"],
-			"memory_count": 10,
+			"record_count": 10,
 			"sessions_indexed_count": 20,
 			"queue": {"pending": 2, "done": 5},
 		}
@@ -528,13 +527,13 @@ class TestCmdStatus:
 			code = cli._cmd_status(args)
 		assert code == 0
 		parsed = json.loads(buf.getvalue())
-		assert parsed["memory_count"] == 10
+		assert parsed["record_count"] == 10
 
 	def test_status_human(self, monkeypatch: pytest.MonkeyPatch) -> None:
 		"""Status without --json prints a human-readable summary."""
 		fake = {
 			"connected_agents": ["claude", "codex"],
-			"memory_count": 5,
+			"record_count": 5,
 			"sessions_indexed_count": 8,
 			"queue": {"pending": 0},
 		}
@@ -546,14 +545,14 @@ class TestCmdStatus:
 		assert code == 0
 		text = buf.getvalue()
 		assert "Connected agents" in text
-		assert "Memory files" in text
+		assert "Context records" in text
 		assert "What These Terms Mean" in text
 
 	def test_status_dead_letter_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
 		"""Status with dead_letter jobs prints a warning hint."""
 		fake = {
 			"connected_agents": [],
-			"memory_count": 0,
+			"record_count": 0,
 			"sessions_indexed_count": 0,
 			"queue": {"dead_letter": 3},
 		}
@@ -569,7 +568,7 @@ class TestCmdStatus:
 		"""Status prints queue-health degraded block and advice."""
 		fake = {
 			"connected_agents": [],
-			"memory_count": 0,
+			"record_count": 0,
 			"sessions_indexed_count": 0,
 			"queue": {},
 			"scope": {"skipped_unscoped": 2},
@@ -611,27 +610,32 @@ class TestCmdStatusLive:
 		"""Shared status renderer includes key human-facing sections."""
 		fake = {
 			"connected_agents": ["claude", "codex"],
-			"memory_count": 5,
+			"record_count": 5,
 			"sessions_indexed_count": 10,
+			"sync_window_days": 7,
 			"queue": {"pending": 2, "dead_letter": 1},
 			"unscoped_sessions": {"total": 3, "by_agent": {"cursor": 3}},
 			"queue_health": {"degraded": True, "advice": "inspect failed queue"},
 			"projects": [
 				{
 					"name": "lerim-cli",
-					"memory_count": 5,
-					"queue": {"pending": 2, "dead_letter": 1},
+					"record_count": 0,
+					"indexed_sessions_count": 1,
+					"queue": {"done": 1},
 					"oldest_blocked_run_id": "agent-abc123456789",
 					}
 				],
 			}
 		from rich.console import Console
 		buf = io.StringIO()
+		from lerim.server.status_tui import render_status_output
 		Console(file=buf, width=120).print(
-			cli._render_status_output(fake, refreshed_at="2026-04-13 07:00:00Z")
+			render_status_output(fake, refreshed_at="2026-04-13 07:00:00Z")
 		)
 		text = buf.getvalue()
 		assert "Lerim Status (" in text
+		assert "Sync window" in text
+		assert "quiet" in text
 		assert "Project Streams" in text
 		assert "What These Terms Mean" in text
 		assert "What To Do Next" in text
@@ -654,201 +658,6 @@ class TestCmdStatusLive:
 		args = _ns(command="status", json=False, interval=1.0, scope="all", project=None)
 		code = cli._cmd_status_live(args)
 		assert code == 1
-
-
-# ===================================================================
-# _cmd_memory_list
-# ===================================================================
-
-
-class TestCmdMemoryList:
-	"""Tests for the memory list command handler."""
-
-	def test_list_with_files(
-		self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-	) -> None:
-		"""Lists .md files in the memory directory."""
-		mem_dir = tmp_path / "memory"
-		mem_dir.mkdir()
-		(mem_dir / "decision-auth.md").write_text("# Auth decision")
-		(mem_dir / "learning-queue.md").write_text("# Queue fix")
-
-		cfg = make_config(tmp_path)
-		monkeypatch.setattr(cli, "get_config", lambda: cfg)
-
-		args = _ns(command="memory", memory_command="list", json=False, limit=50)
-		buf = io.StringIO()
-		with redirect_stdout(buf):
-			code = cli._cmd_memory_list(args)
-		assert code == 0
-		text = buf.getvalue()
-		assert "decision-auth.md" in text
-		assert "learning-queue.md" in text
-
-	def test_list_json(
-		self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-	) -> None:
-		"""Lists memory files as JSON array."""
-		mem_dir = tmp_path / "memory"
-		mem_dir.mkdir()
-		(mem_dir / "one.md").write_text("# One")
-
-		cfg = make_config(tmp_path)
-		monkeypatch.setattr(cli, "get_config", lambda: cfg)
-
-		args = _ns(command="memory", memory_command="list", json=True, limit=50)
-		buf = io.StringIO()
-		with redirect_stdout(buf):
-			code = cli._cmd_memory_list(args)
-		assert code == 0
-		parsed = json.loads(buf.getvalue())
-		assert isinstance(parsed, list)
-		assert len(parsed) == 1
-
-	def test_list_empty_dir(
-		self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-	) -> None:
-		"""Empty memory dir produces no output."""
-		mem_dir = tmp_path / "memory"
-		mem_dir.mkdir()
-
-		cfg = make_config(tmp_path)
-		monkeypatch.setattr(cli, "get_config", lambda: cfg)
-
-		args = _ns(command="memory", memory_command="list", json=False, limit=50)
-		buf = io.StringIO()
-		with redirect_stdout(buf):
-			code = cli._cmd_memory_list(args)
-		assert code == 0
-		assert buf.getvalue().strip() == ""
-
-	def test_list_nonexistent_dir(
-		self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-	) -> None:
-		"""Missing memory directory returns 0 silently."""
-		cfg = make_config(tmp_path / "does-not-exist")
-		monkeypatch.setattr(cli, "get_config", lambda: cfg)
-
-		args = _ns(command="memory", memory_command="list", json=False, limit=50)
-		buf = io.StringIO()
-		with redirect_stdout(buf):
-			code = cli._cmd_memory_list(args)
-		assert code == 0
-
-	def test_list_respects_limit(
-		self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-	) -> None:
-		"""Limit parameter caps the number of files returned."""
-		mem_dir = tmp_path / "memory"
-		mem_dir.mkdir()
-		for i in range(10):
-			(mem_dir / f"mem-{i:02d}.md").write_text(f"# Memory {i}")
-
-		cfg = make_config(tmp_path)
-		monkeypatch.setattr(cli, "get_config", lambda: cfg)
-
-		args = _ns(command="memory", memory_command="list", json=True, limit=3)
-		buf = io.StringIO()
-		with redirect_stdout(buf):
-			code = cli._cmd_memory_list(args)
-		assert code == 0
-		parsed = json.loads(buf.getvalue())
-		assert len(parsed) == 3
-
-
-# ===================================================================
-# _cmd_memory_reset
-# ===================================================================
-
-
-class TestCmdMemoryReset:
-	"""Tests for the memory reset command handler."""
-
-	def test_reset_without_yes_refuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
-		"""Reset without --yes returns exit code 2."""
-		args = _ns(
-			command="memory", memory_command="reset",
-			json=False, yes=False, scope="both",
-		)
-		buf = io.StringIO()
-		with redirect_stderr(buf):
-			code = cli._cmd_memory_reset(args)
-		assert code == 2
-		assert "refusing" in buf.getvalue().lower()
-
-	def test_reset_with_yes(
-		self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-	) -> None:
-		"""Reset with --yes wipes the memory/index trees."""
-		project_root = tmp_path / "project"
-		global_root = tmp_path / "global"
-		for root in (project_root, global_root):
-			(root / "memory").mkdir(parents=True)
-			(root / "memory" / "seed.md").write_text("seed")
-			(root / "index").mkdir(parents=True)
-
-		cfg = replace(
-			make_config(global_root),
-			data_dir=global_root,
-			global_data_dir=global_root,
-		)
-		monkeypatch.setattr(cli, "get_config", lambda: cfg)
-		monkeypatch.setattr(
-			cli,
-			"resolve_data_dirs",
-			lambda **_kw: ScopeResolution(
-				project_root=tmp_path,
-				project_data_dir=project_root,
-				global_data_dir=global_root,
-				ordered_data_dirs=[project_root, global_root],
-			),
-		)
-
-		args = _ns(
-			command="memory", memory_command="reset",
-			json=True, yes=True, scope="both",
-		)
-		buf = io.StringIO()
-		with redirect_stdout(buf):
-			code = cli._cmd_memory_reset(args)
-		assert code == 0
-		parsed = json.loads(buf.getvalue())
-		assert len(parsed["reset"]) == 2
-
-	def test_reset_human_output(
-		self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-	) -> None:
-		"""Reset without --json prints human-readable summary."""
-		root = tmp_path / "data"
-		(root / "memory").mkdir(parents=True)
-		(root / "index").mkdir(parents=True)
-
-		cfg = replace(
-			make_config(root),
-			data_dir=root,
-			global_data_dir=root,
-		)
-		monkeypatch.setattr(cli, "get_config", lambda: cfg)
-		monkeypatch.setattr(
-			cli,
-			"resolve_data_dirs",
-			lambda **_kw: ScopeResolution(
-				project_root=tmp_path,
-				project_data_dir=None,
-				global_data_dir=root,
-				ordered_data_dirs=[root],
-			),
-		)
-
-		args = _ns(
-			command="memory", memory_command="reset",
-			json=False, yes=True, scope="global",
-		)
-		buf = io.StringIO()
-		with redirect_stdout(buf):
-			code = cli._cmd_memory_reset(args)
-		assert code == 0
-		assert "reset completed" in buf.getvalue().lower()
 
 
 # ===================================================================
@@ -1341,7 +1150,7 @@ class TestCmdProject:
 	def test_project_list_with_entries(self, monkeypatch: pytest.MonkeyPatch) -> None:
 		"""Project list with entries prints summary."""
 		monkeypatch.setattr(cli, "api_project_list", lambda: [
-			{"name": "myapp", "path": "/home/user/myapp", "exists": True, "has_lerim": True},
+			{"name": "myapp", "path": "/home/user/myapp", "exists": True},
 		])
 		args = _ns(command="project", json=False, project_action="list")
 		buf = io.StringIO()
@@ -1350,11 +1159,11 @@ class TestCmdProject:
 		assert code == 0
 		text = buf.getvalue()
 		assert "myapp" in text
-		assert ".lerim" in text
+		assert ".lerim" not in text
 
 	def test_project_list_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
 		"""Project list --json emits JSON array."""
-		projects = [{"name": "x", "path": "/x", "exists": True, "has_lerim": False}]
+		projects = [{"name": "x", "path": "/x", "exists": True}]
 		monkeypatch.setattr(cli, "api_project_list", lambda: projects)
 		args = _ns(command="project", json=True, project_action="list")
 		buf = io.StringIO()
@@ -1383,7 +1192,9 @@ class TestCmdProject:
 		with redirect_stdout(buf):
 			code = cli._cmd_project(args)
 		assert code == 0
-		assert "myapp" in buf.getvalue()
+		text = buf.getvalue()
+		assert "myapp" in text
+		assert ".lerim" not in text
 
 	def test_project_add_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
 		"""Project add with error response returns 1."""
@@ -1824,8 +1635,6 @@ class TestBuildParser:
 			["sync"],
 			["maintain"],
 			["dashboard"],
-			["memory", "list"],
-			["memory", "reset", "--yes"],
 			["ask", "question text"],
 			["status"],
 			["queue"],
@@ -1887,16 +1696,8 @@ class TestBuildParser:
 		assert args.force is True
 		assert args.dry_run is True
 
-	def test_memory_reset_scope_choices(self) -> None:
-		"""Memory reset --scope only accepts valid values."""
-		parser = cli.build_parser()
-		args = parser.parse_args(["memory", "reset", "--scope", "project", "--yes"])
-		assert args.scope == "project"
-		with pytest.raises(SystemExit):
-			parser.parse_args(["memory", "reset", "--scope", "invalid"])
-
 	def test_queue_flags(self) -> None:
-		"""Queue parser accepts --failed, --status, --project, --project-like."""
+		"""Queue parser accepts --failed, --status, and --project."""
 		parser = cli.build_parser()
 		args = parser.parse_args(
 			["queue", "--failed", "--status", "pending", "--project", "my"]
@@ -1904,8 +1705,6 @@ class TestBuildParser:
 		assert args.failed is True
 		assert args.status == "pending"
 		assert args.project == "my"
-		args2 = parser.parse_args(["queue", "--project-like", "substring"])
-		assert args2.project_like == "substring"
 
 	def test_status_scope_flags(self) -> None:
 		"""Status parser accepts --scope, --project, --live, --interval."""
@@ -1971,7 +1770,7 @@ class TestMain:
 		monkeypatch.setattr(cli, "configure_tracing", lambda _cfg: None)
 		fake_status = {
 			"connected_agents": [],
-			"memory_count": 0,
+			"record_count": 0,
 			"sessions_indexed_count": 0,
 			"queue": {},
 			"latest_sync": None,
@@ -2003,8 +1802,8 @@ class TestMain:
 			cli.main(["queue", "--json"])
 		assert len(tracing_called) == 0
 
-	def test_enables_tracing_for_model_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
-		"""Model-executing commands (ask) initialize tracing."""
+	def test_skips_tracing_for_http_client_commands(self, monkeypatch: pytest.MonkeyPatch) -> None:
+		"""HTTP client commands must not initialize local tracing."""
 		tracing_called = []
 		monkeypatch.setattr(cli, "configure_logging", lambda: None)
 		monkeypatch.setattr(cli, "configure_tracing", lambda _cfg: tracing_called.append(1))
@@ -2017,23 +1816,41 @@ class TestMain:
 		with redirect_stdout(buf):
 			code = cli.main(["ask", "hello"])
 		assert code == 0
+		assert len(tracing_called) == 0
+
+	def test_enables_tracing_for_serve(self, monkeypatch: pytest.MonkeyPatch) -> None:
+		"""Direct in-process server mode owns tracing initialization."""
+		tracing_called = []
+		monkeypatch.setattr(cli, "configure_logging", lambda: None)
+		monkeypatch.setattr(cli, "configure_tracing", lambda _cfg: tracing_called.append(1))
+		monkeypatch.setattr(
+			cli,
+			"_cmd_serve",
+			lambda _args: 0,
+		)
+		buf = io.StringIO()
+		with redirect_stdout(buf):
+			code = cli.main(["serve"])
+		assert code == 0
 		assert len(tracing_called) == 1
+
+	def test_help_skips_tracing_for_trace_commands(self, monkeypatch: pytest.MonkeyPatch) -> None:
+		"""Subcommand help must not initialize tracing side effects."""
+		tracing_called = []
+		monkeypatch.setattr(cli, "configure_logging", lambda: None)
+		monkeypatch.setattr(cli, "configure_tracing", lambda _cfg: tracing_called.append(1))
+		buf = io.StringIO()
+		with redirect_stdout(buf):
+			with pytest.raises(SystemExit) as exc:
+				cli.main(["maintain", "--help"])
+		assert exc.value.code == 0
+		assert len(tracing_called) == 0
 
 	def test_unknown_command_rejected(self) -> None:
 		"""Unknown commands exit with code 2."""
 		with pytest.raises(SystemExit) as exc:
 			cli.main(["nonexistent_command"])
 		assert exc.value.code == 2
-
-	def test_memory_no_subcommand_shows_help(self, monkeypatch: pytest.MonkeyPatch) -> None:
-		"""'lerim memory' with no subcommand shows help and exits 0."""
-		monkeypatch.setattr(cli, "configure_logging", lambda: None)
-		monkeypatch.setattr(cli, "configure_tracing", lambda _cfg: None)
-		buf = io.StringIO()
-		with redirect_stdout(buf):
-			with pytest.raises(SystemExit) as exc:
-				cli.main(["memory"])
-		assert exc.value.code == 0
 
 	def test_project_no_subcommand_shows_help(self, monkeypatch: pytest.MonkeyPatch) -> None:
 		"""'lerim project' with no subcommand shows help and exits 0."""
@@ -2192,50 +2009,6 @@ class TestCmdQueueDeadLetterHint:
 		assert code == 0
 		text = buf.getvalue()
 		assert "retry" in text.lower()
-
-
-# ===================================================================
-# _cmd_memory_reset: scope=project with no project_data_dir
-# ===================================================================
-
-
-class TestCmdMemoryResetProjectScope:
-	"""Test memory reset with project scope when no project dir exists."""
-
-	def test_reset_project_scope_no_project_dir(
-		self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-	) -> None:
-		"""Reset with scope=project and no project_data_dir resets nothing."""
-		root = tmp_path / "data"
-		(root / "memory").mkdir(parents=True)
-
-		cfg = replace(
-			make_config(root),
-			data_dir=root,
-			global_data_dir=root,
-		)
-		monkeypatch.setattr(cli, "get_config", lambda: cfg)
-		monkeypatch.setattr(
-			cli,
-			"resolve_data_dirs",
-			lambda **_kw: ScopeResolution(
-				project_root=tmp_path,
-				project_data_dir=None,
-				global_data_dir=root,
-				ordered_data_dirs=[root],
-			),
-		)
-
-		args = _ns(
-			command="memory", memory_command="reset",
-			json=True, yes=True, scope="project",
-		)
-		buf = io.StringIO()
-		with redirect_stdout(buf):
-			code = cli._cmd_memory_reset(args)
-		assert code == 0
-		parsed = json.loads(buf.getvalue())
-		assert len(parsed["reset"]) == 0
 
 
 # ===================================================================

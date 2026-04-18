@@ -1,6 +1,6 @@
 """Unit tests for cloud shipper — local-to-cloud data sync.
 
-Tests ship_once, _pull_memories, _ship_sessions, _ship_memories,
+Tests ship_once, _pull_records, _ship_sessions, _ship_records,
 _ship_logs, _ship_service_runs, HTTP helpers, state persistence,
 and error handling. All network calls are mocked.
 """
@@ -17,21 +17,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from lerim.cloud.shipper import (
 	_ShipperState,
-	_find_memory_file,
 	_get_json_sync,
 	_is_cloud_configured,
 	_post_batch_sync,
-	_pull_memories,
+	_pull_records,
+	_query_context_records,
 	_query_new_sessions,
 	_query_service_runs,
 	_read_transcript,
-	_scan_memory_files,
 	_ship_logs,
-	_ship_memories,
+	_ship_records,
 	_ship_service_runs,
 	_ship_sessions,
 	ship_once,
 )
+from lerim.context import ContextStore, resolve_project_identity
 from tests.helpers import make_config
 
 
@@ -132,19 +132,31 @@ def _create_service_runs_table(db_path: Path) -> None:
 	conn.close()
 
 
-def _write_memory_md(path: Path, memory_id: str, body: str = "content") -> None:
-	"""Write a minimal frontmatter+body memory file."""
-	fm = (
-		f"---\n"
-		f"id: {memory_id}\n"
-		f"name: Test Memory\n"
-		f"type: project\n"
-		f"updated: 2026-04-01T00:00:00Z\n"
-		f"---\n\n"
-		f"{body}\n"
+def _insert_context_record(
+	context_db_path: Path,
+	project_path: Path,
+	record_id: str,
+	*,
+	kind: str = "fact",
+		title: str = "Test Record",
+	summary: str = "Test summary",
+	content: str = "content",
+) -> None:
+	"""Insert one canonical context record for shipping tests."""
+	store = ContextStore(context_db_path)
+	store.initialize()
+	identity = resolve_project_identity(project_path)
+	store.register_project(identity)
+	store.create_record(
+		project_id=identity.project_id,
+		session_id=None,
+		record_id=record_id,
+		kind=kind,
+		domain="project",
+		title=title,
+		summary=summary,
+		structured={"content": content},
 	)
-	path.parent.mkdir(parents=True, exist_ok=True)
-	path.write_text(fm, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +172,7 @@ class TestShipperState:
 		state = _ShipperState()
 		assert state.log_offset_bytes == 0
 		assert state.sessions_shipped_at == ""
-		assert state.memories_shipped_at == ""
+		assert state.records_shipped_at == ""
 
 	def test_save_and_load(self, tmp_path, monkeypatch):
 		"""State survives save/load round-trip."""
@@ -170,14 +182,14 @@ class TestShipperState:
 		state = _ShipperState(
 			log_offset_bytes=1024,
 			sessions_shipped_at="2026-03-20T00:00:00Z",
-			memories_shipped_at="2026-03-21T00:00:00Z",
+			records_shipped_at="2026-03-21T00:00:00Z",
 		)
 		state.save()
 
 		loaded = _ShipperState.load()
 		assert loaded.log_offset_bytes == 1024
 		assert loaded.sessions_shipped_at == "2026-03-20T00:00:00Z"
-		assert loaded.memories_shipped_at == "2026-03-21T00:00:00Z"
+		assert loaded.records_shipped_at == "2026-03-21T00:00:00Z"
 
 	def test_load_missing_file(self, tmp_path, monkeypatch):
 		"""Load from non-existent file returns defaults."""
@@ -531,69 +543,71 @@ class TestShipLogs:
 
 
 # ---------------------------------------------------------------------------
-# _scan_memory_files
+# _query_context_records
 # ---------------------------------------------------------------------------
 
 
-class TestScanMemoryFiles:
-	"""Tests for filesystem memory scanning."""
+class TestQueryContextRecords:
+	"""Tests for context-DB record scanning."""
 
-	def test_scans_project_memories(self, tmp_path):
-		"""Scans memory files from project directories."""
+	def test_queries_registered_project_records(self, tmp_path):
+		"""Query returns durable records for the selected projects."""
 		project_dir = tmp_path / "project_a"
-		mem_dir = project_dir / ".lerim" / "memory"
-		_write_memory_md(mem_dir / "test.md", "mem-001")
+		project_dir.mkdir()
+		context_db_path = tmp_path / "context.sqlite3"
+		_insert_context_record(context_db_path, project_dir, "rec-001")
 
-		results = _scan_memory_files(
-			{"project_a": str(project_dir)}, ""
+		results = _query_context_records(
+			context_db_path, {"project_a": str(project_dir)}, "", 100
 		)
 		assert len(results) == 1
 		assert results[0]["project"] == "project_a"
-		assert results[0]["frontmatter"]["id"] == "mem-001"
+		assert results[0]["record_id"] == "rec-001"
 
 	def test_respects_watermark(self, tmp_path):
-		"""Files with updated <= watermark are skipped."""
+		"""Records with updated_at <= watermark are skipped."""
 		project_dir = tmp_path / "project_a"
-		mem_dir = project_dir / ".lerim" / "memory"
-		_write_memory_md(mem_dir / "old.md", "mem-old")
+		project_dir.mkdir()
+		context_db_path = tmp_path / "context.sqlite3"
+		_insert_context_record(context_db_path, project_dir, "rec-old")
 
-		results = _scan_memory_files(
-			{"project_a": str(project_dir)}, "2026-04-02T00:00:00Z"
+		results = _query_context_records(
+			context_db_path, {"project_a": str(project_dir)}, "9999-01-01T00:00:00Z", 100
 		)
-		assert len(results) == 0
+		assert results == []
 
-	def test_no_memory_dir(self, tmp_path):
-		"""Missing memory directory returns empty."""
+	def test_missing_context_db_returns_empty(self, tmp_path):
+		"""Missing context DB returns empty results."""
 		project_dir = tmp_path / "empty_project"
 		project_dir.mkdir()
-		results = _scan_memory_files({"p": str(project_dir)}, "")
+		results = _query_context_records(tmp_path / "missing.sqlite3", {"p": str(project_dir)}, "", 100)
 		assert results == []
 
 
 # ---------------------------------------------------------------------------
-# _ship_memories
+# _ship_records
 # ---------------------------------------------------------------------------
 
 
-class TestShipMemories:
-	"""Tests for memory shipping."""
+class TestShipRecords:
+	"""Tests for record shipping via the cloud records endpoint."""
 
 	def test_no_projects_returns_zero(self, tmp_path):
 		"""No projects configured returns 0 shipped."""
 		cfg = replace(make_config(tmp_path), projects={})
 		state = _ShipperState()
 		shipped = asyncio.run(
-			_ship_memories("https://api.test", "tok", cfg, state)
+			_ship_records("https://api.test", "tok", cfg, state)
 		)
 		assert shipped == 0
 
-	def test_ships_memories(self, tmp_path):
-		"""Memory files are shipped and watermark advanced."""
+	def test_ships_records(self, tmp_path):
+		"""Context records are shipped and watermark advanced."""
 		project_dir = tmp_path / "proj"
-		mem_dir = project_dir / ".lerim" / "memory"
-		_write_memory_md(mem_dir / "m1.md", "mem-1")
+		project_dir.mkdir()
 
 		cfg = replace(make_config(tmp_path), projects={"proj": str(project_dir)})
+		_insert_context_record(cfg.context_db_path, project_dir, "mem-1")
 		state = _ShipperState()
 
 		captured = []
@@ -605,12 +619,13 @@ class TestShipMemories:
 
 		with patch("lerim.cloud.shipper._post_batch", side_effect=mock_post):
 			shipped = asyncio.run(
-				_ship_memories("https://api.test", "tok", cfg, state)
+				_ship_records("https://api.test", "tok", cfg, state)
 			)
 
 		assert shipped == 1
 		assert len(captured) == 1
-		assert "memories" in captured[0]
+		assert "records" in captured[0]
+		assert captured[0]["records"][0]["record_id"] == "mem-1"
 
 
 # ---------------------------------------------------------------------------
@@ -698,12 +713,12 @@ class TestQueryServiceRuns:
 
 
 # ---------------------------------------------------------------------------
-# _pull_memories
+# _pull_records
 # ---------------------------------------------------------------------------
 
 
-class TestPullMemories:
-	"""Tests for pulling cloud-edited memories."""
+class TestPullRecords:
+	"""Tests for pulling cloud-edited records into the context DB."""
 
 	def test_no_data_returns_zero(self, tmp_path):
 		"""Empty response returns 0."""
@@ -716,23 +731,23 @@ class TestPullMemories:
 
 		with patch("lerim.cloud.shipper.asyncio.to_thread", side_effect=mock_get):
 			pulled = asyncio.run(
-				_pull_memories("https://api.test", "tok", cfg, state)
+				_pull_records("https://api.test", "tok", cfg, state)
 			)
 
 		assert pulled == 0
 
-	def test_pulls_and_writes_memory(self, tmp_path):
-		"""Cloud memories are written to local project directories."""
+	def test_pulls_and_upserts_record(self, tmp_path):
+		"""Cloud records are written into the canonical context DB."""
 		proj_dir = tmp_path / "proj"
 		proj_dir.mkdir()
 		cfg = replace(make_config(tmp_path), projects={"proj": str(proj_dir)})
 		state = _ShipperState()
 
 		cloud_data = {
-			"memories": [
+			"records": [
 				{
-					"memory_id": "cloud-mem-1",
-					"title": "Cloud Memory",
+					"record_id": "cloud-mem-1",
+					"title": "Cloud Record",
 					"description": "From dashboard",
 					"body": "Edited body text",
 					"cloud_edited_at": "2026-04-01T12:00:00Z",
@@ -747,28 +762,32 @@ class TestPullMemories:
 
 		with patch("lerim.cloud.shipper.asyncio.to_thread", side_effect=mock_to_thread):
 			pulled = asyncio.run(
-				_pull_memories("https://api.test", "tok", cfg, state)
+				_pull_records("https://api.test", "tok", cfg, state)
 			)
 
 		assert pulled == 1
-		assert state.memories_pulled_at == "2026-04-01T12:00:00Z"
+		assert state.records_pulled_at == "2026-04-01T12:00:00Z"
+		store = ContextStore(cfg.context_db_path)
+		identity = resolve_project_identity(proj_dir)
+		with store.connect() as conn:
+			row = conn.execute(
+				"SELECT title, summary FROM records WHERE record_id = ? AND project_id = ?",
+				("cloud-mem-1", identity.project_id),
+			).fetchone()
+		assert row is not None
+		assert row["title"] == "Cloud Record"
 
-		# Verify file was written
-		mem_dir = proj_dir / ".lerim" / "memory"
-		md_files = list(mem_dir.glob("*.md"))
-		assert len(md_files) == 1
-
-	def test_skips_missing_memory_id(self, tmp_path):
-		"""Memories without memory_id are skipped."""
+	def test_skips_missing_record_id(self, tmp_path):
+		"""Records without record_id are skipped."""
 		proj_dir = tmp_path / "proj"
 		proj_dir.mkdir()
 		cfg = replace(make_config(tmp_path), projects={"proj": str(proj_dir)})
 		state = _ShipperState()
 
 		cloud_data = {
-			"memories": [
+			"records": [
 				{
-					"memory_id": "",
+					"record_id": "",
 					"cloud_edited_at": "2026-04-01T12:00:00Z",
 					"project": "proj",
 				}
@@ -776,46 +795,15 @@ class TestPullMemories:
 		}
 
 		async def mock_to_thread(fn, *args, **kwargs):
-			"""Return cloud data with empty memory_id."""
+			"""Return cloud data with empty record_id."""
 			return cloud_data
 
 		with patch("lerim.cloud.shipper.asyncio.to_thread", side_effect=mock_to_thread):
 			pulled = asyncio.run(
-				_pull_memories("https://api.test", "tok", cfg, state)
+				_pull_records("https://api.test", "tok", cfg, state)
 			)
 
 		assert pulled == 0
-
-
-# ---------------------------------------------------------------------------
-# _find_memory_file
-# ---------------------------------------------------------------------------
-
-
-class TestFindMemoryFile:
-	"""Tests for finding existing memory files by ID."""
-
-	def test_finds_by_id(self, tmp_path):
-		"""Finds memory file matching frontmatter id."""
-		mem_dir = tmp_path / ".lerim" / "memory"
-		_write_memory_md(mem_dir / "test.md", "target-id")
-
-		result = _find_memory_file(tmp_path, "target-id")
-		assert result is not None
-		assert result.name == "test.md"
-
-	def test_no_match(self, tmp_path):
-		"""Returns None when no matching ID found."""
-		mem_dir = tmp_path / ".lerim" / "memory"
-		_write_memory_md(mem_dir / "test.md", "other-id")
-
-		result = _find_memory_file(tmp_path, "nonexistent-id")
-		assert result is None
-
-	def test_no_memory_dir(self, tmp_path):
-		"""Returns None when .lerim/memory does not exist."""
-		result = _find_memory_file(tmp_path, "any-id")
-		assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -872,21 +860,21 @@ class TestShipOnce:
 		conn.commit()
 		conn.close()
 
-		# Mock _pull_memories to avoid real HTTP
+		# Mock _pull_records to avoid real HTTP
 		async def mock_pull(*args, **kwargs):
 			"""No-op pull."""
 			return 0
 
-		monkeypatch.setattr("lerim.cloud.shipper._pull_memories", mock_pull)
+		monkeypatch.setattr("lerim.cloud.shipper._pull_records", mock_pull)
 
 		result = asyncio.run(ship_once(cfg))
 
 		assert isinstance(result, dict)
 		assert "logs" in result
 		assert "sessions" in result
-		assert "memories" in result
-		assert "memories_pulled" in result
-		assert result["memories_pulled"] == 0
+		assert "records" in result
+		assert "records_pulled" in result
+		assert result["records_pulled"] == 0
 
 	def test_serialization_with_sessions(self, tmp_path, monkeypatch):
 		"""Session rows are serialized correctly in POST payload."""
@@ -932,7 +920,7 @@ class TestShipOnce:
 			"""No-op pull."""
 			return 0
 
-		monkeypatch.setattr("lerim.cloud.shipper._pull_memories", mock_pull)
+		monkeypatch.setattr("lerim.cloud.shipper._pull_records", mock_pull)
 
 		captured = []
 

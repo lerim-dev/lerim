@@ -858,7 +858,7 @@ def test_run_maintain_once_dry_run(monkeypatch, tmp_path) -> None:
 
 	config_path = Path(tmp_path) / "test_config.toml"
 	config_path.write_text(
-		f'[data]\ndir = "{tmp_path}"\n\n[memory]\nscope = "global_only"\n',
+		f'[data]\ndir = "{tmp_path}"\n',
 		encoding="utf-8",
 	)
 	monkeypatch.setenv("LERIM_CONFIG", str(config_path))

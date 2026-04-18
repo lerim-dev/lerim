@@ -1,4 +1,4 @@
-"""Unit tests for ask/maintain agents and runtime helpers (PydanticAI-only)."""
+"""Unit tests for ask/maintain agents and runtime helpers (DB era)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from openai import RateLimitError
 
 from lerim.agents.ask import ASK_SYSTEM_PROMPT, AskResult, format_ask_hints, run_ask
 from lerim.agents.maintain import MAINTAIN_SYSTEM_PROMPT, MaintainResult, run_maintain
+from lerim.context.project_identity import resolve_project_identity
 from lerim.config.settings import RoleConfig
 from lerim.server.runtime import (
 	LerimRuntime,
@@ -30,55 +31,51 @@ def _make_rate_limit_error() -> RateLimitError:
 	)
 
 
-def test_ask_system_prompt_mentions_required_tools_and_layout() -> None:
-	"""Ask prompt should guide scan/read behavior and memory layout."""
-	assert "scan()" in ASK_SYSTEM_PROMPT
-	assert "read()" in ASK_SYSTEM_PROMPT
-	assert "summaries" in ASK_SYSTEM_PROMPT
-	assert "feedback_" in ASK_SYSTEM_PROMPT
+def test_ask_system_prompt_mentions_db_tools() -> None:
+	"""Ask prompt should guide the read-only DB retrieval flow."""
+	assert "context_search" in ASK_SYSTEM_PROMPT
+	assert "context_fetch" in ASK_SYSTEM_PROMPT
+	assert "retrieved records only" in ASK_SYSTEM_PROMPT
+	assert "historical truth" in ASK_SYSTEM_PROMPT
 
 
-def test_maintain_system_prompt_mentions_write_archive_and_verify() -> None:
-	"""Maintain prompt should include core mutation and validation steps."""
-	assert "write()" in MAINTAIN_SYSTEM_PROMPT
-	assert "archive()" in MAINTAIN_SYSTEM_PROMPT
-	assert "verify_index()" in MAINTAIN_SYSTEM_PROMPT
+def test_maintain_system_prompt_mentions_semantic_mutations() -> None:
+	"""Maintain prompt should talk about record mutations, not file edits."""
+	assert "context_search" in MAINTAIN_SYSTEM_PROMPT
+	assert "context_fetch" in MAINTAIN_SYSTEM_PROMPT
+	assert "context_apply" in MAINTAIN_SYSTEM_PROMPT
+	assert "storage layout" in MAINTAIN_SYSTEM_PROMPT
 
 
-def test_format_ask_hints_renders_hits_and_context_docs() -> None:
-	"""Hints formatter should include both pre-fetched hits and context docs."""
+def test_format_ask_hints_renders_hits() -> None:
+	"""Hints formatter should include compact retrieval hits."""
 	hints = format_ask_hints(
 		hits=[
 			{
-				"type": "project",
-				"name": "Auth",
-				"description": "JWT pattern",
-				"body": "Use short-lived access tokens and rotate refresh tokens.",
+				"kind": "decision",
+				"title": "Auth policy",
+				"summary": "Use short-lived access tokens and rotate refresh tokens.",
 			},
 		],
-		context_docs=[
-			{
-				"doc_id": "doc-1",
-				"title": "Login Flow",
-				"body": "Read this first when changing auth.",
-			},
-		],
+		context_docs=[],
 	)
-	assert "Auth" in hints
-	assert "doc-1" in hints
-	assert "Login Flow" in hints
+	assert "Auth policy" in hints
+	assert "decision" in hints
+	assert "rotate refresh tokens" in hints
 
 
 def test_format_ask_hints_empty_has_placeholders() -> None:
-	"""Empty inputs should still produce explicit placeholder sections."""
+	"""Empty inputs should still produce the DB-era placeholder text."""
 	hints = format_ask_hints(hits=[], context_docs=[])
-	assert "no relevant memories" in hints
-	assert "no context docs loaded" in hints
+	assert hints == "(no pre-fetched hints)"
 
 
 def test_run_ask_delegates_to_built_agent(monkeypatch, tmp_path) -> None:
 	"""run_ask should pass prompt/deps/limits and return AskResult output."""
 	captured: dict[str, object] = {}
+	project_root = tmp_path / "repo"
+	project_root.mkdir()
+	project_identity = resolve_project_identity(project_root)
 
 	class _FakeRunResult:
 		def __init__(self) -> None:
@@ -96,7 +93,10 @@ def test_run_ask_delegates_to_built_agent(monkeypatch, tmp_path) -> None:
 
 	monkeypatch.setattr("lerim.agents.ask.build_ask_agent", lambda _model: _FakeAgent())
 	result = run_ask(
-		memory_root=tmp_path,
+		context_db_path=tmp_path / "context.sqlite3",
+		project_identity=project_identity,
+		project_ids=[project_identity.project_id],
+		session_id="sess_ask",
 		model=object(),
 		question="What changed?",
 		hints="hint block",
@@ -106,11 +106,15 @@ def test_run_ask_delegates_to_built_agent(monkeypatch, tmp_path) -> None:
 	assert "What changed?" in str(captured["prompt"])
 	assert "hint block" in str(captured["prompt"])
 	assert captured["request_limit"] == 7
+	assert captured["deps"].session_id == "sess_ask"
 
 
 def test_run_maintain_delegates_to_built_agent(monkeypatch, tmp_path) -> None:
 	"""run_maintain should pass deps/limits and return MaintainResult output."""
 	captured: dict[str, object] = {}
+	project_root = tmp_path / "repo"
+	project_root.mkdir()
+	project_identity = resolve_project_identity(project_root)
 
 	class _FakeRunResult:
 		def __init__(self) -> None:
@@ -129,10 +133,17 @@ def test_run_maintain_delegates_to_built_agent(monkeypatch, tmp_path) -> None:
 	monkeypatch.setattr(
 		"lerim.agents.maintain.build_maintain_agent", lambda _model: _FakeAgent()
 	)
-	result = run_maintain(memory_root=tmp_path, model=object(), request_limit=9)
+	result = run_maintain(
+		context_db_path=tmp_path / "context.sqlite3",
+		project_identity=project_identity,
+		session_id="sess_maintain",
+		model=object(),
+		request_limit=9,
+	)
 	assert result.completion_summary == "merged 2"
-	assert "Maintain the memory store" in str(captured["prompt"])
+	assert "semantic DB mutations" in str(captured["prompt"])
 	assert captured["request_limit"] == 9
+	assert captured["deps"].session_id == "sess_maintain"
 
 
 def test_runtime_init_and_missing_trace(tmp_path, monkeypatch) -> None:

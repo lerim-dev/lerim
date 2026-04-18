@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import argparse
 import io
-from contextlib import redirect_stdout
 from dataclasses import replace
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
 
 from lerim.server import cli
-from lerim.config.project_scope import ScopeResolution
 from lerim.config.settings import reload_config
 from tests.helpers import make_config, run_cli, run_cli_json, write_test_config
 
@@ -29,7 +28,6 @@ def test_help_lists_minimal_commands() -> None:
         "maintain",
         "daemon",
         "dashboard",
-        "memory",
         "ask",
         "status",
     ):
@@ -38,7 +36,7 @@ def test_help_lists_minimal_commands() -> None:
     # Check the {connect,sync,...} subcommand choices section, not the full text
     # (description text may legitimately use these words).
     subcommand_choices = text.split("{")[1].split("}")[0] if "{" in text else ""
-    for removed in ("readiness", "admin", "sessions", "config"):
+    for removed in ("readiness", "admin", "sessions", "config", "memory"):
         assert removed not in subcommand_choices, (
             f"removed command '{removed}' still in subcommands"
         )
@@ -54,6 +52,25 @@ def test_sync_parser_accepts_canonical_flags() -> None:
     assert args.run_id == "run-1"
     assert args.agent == "claude,codex"
     assert args.window == "7d"
+
+
+def test_sync_help_uses_loaded_config_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_cfg = make_config(tmp_path / ".lerim")
+    monkeypatch.setattr(
+        cli,
+        "get_config",
+        lambda: replace(base_cfg, sync_window_days=11, sync_max_sessions=7),
+    )
+    parser = cli.build_parser()
+    out = io.StringIO()
+    with redirect_stdout(out), pytest.raises(SystemExit) as exc:
+        parser.parse_args(["sync", "--help"])
+    assert exc.value.code == 0
+    text = out.getvalue()
+    assert "currently 11d" in text
+    assert "currently 7)" in text
 
 
 def test_ask_parser_minimal_surface() -> None:
@@ -86,7 +103,7 @@ def test_status_json_output_shape(
         "timestamp": "2026-02-28T00:00:00+00:00",
         "connected_agents": ["claude"],
         "platforms": [],
-        "memory_count": 5,
+        "record_count": 5,
         "sessions_indexed_count": 10,
         "queue": {"pending": 0},
         "latest_sync": None,
@@ -105,7 +122,7 @@ def test_ask_forwards_to_api(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_response = {
         "answer": "Use bearer tokens.",
         "agent_session_id": "ses-1",
-        "memories_used": [],
+        "projects_used": [],
         "error": False,
     }
     monkeypatch.setattr(cli, "_api_post", lambda _path, _body: fake_response)
@@ -132,50 +149,10 @@ def test_ask_returns_nonzero_when_server_not_running(
     assert code == 1
 
 
-def test_memory_reset_recreates_project_and_global_roots(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    project_root = tmp_path / "project-data"
-    global_root = tmp_path / "global-data"
-
-    # Project: memory (knowledge)
-    (project_root / "memory").mkdir(parents=True, exist_ok=True)
-    (project_root / "memory" / "seed.md").write_text("seed", encoding="utf-8")
-
-    # Global: infrastructure (workspace, index, cache)
-    (global_root / "workspace").mkdir(parents=True, exist_ok=True)
-    (global_root / "workspace" / "sync-run").mkdir()
-    (global_root / "index").mkdir(parents=True, exist_ok=True)
-    (global_root / "index" / "fts.sqlite3").write_text("", encoding="utf-8")
-    (global_root / "cache").mkdir(parents=True, exist_ok=True)
-
-    base_cfg = make_config(global_root)
-    cfg = replace(base_cfg, data_dir=global_root, global_data_dir=global_root)
-
-    monkeypatch.setattr(cli, "get_config", lambda: cfg)
-    monkeypatch.setattr(
-        cli,
-        "resolve_data_dirs",
-        lambda **_kwargs: ScopeResolution(
-            project_root=tmp_path,
-            project_data_dir=project_root,
-            global_data_dir=global_root,
-            ordered_data_dirs=[project_root, global_root],
-        ),
-    )
-
-    code, payload = run_cli_json(
-        ["memory", "reset", "--scope", "both", "--yes", "--json"]
-    )
-    assert code == 0
-    assert len(payload["reset"]) == 2
-    # Project: memory cleared and recreated
-    assert (project_root / "memory").exists()
-    assert not (project_root / "memory" / "seed.md").exists()
-    # Global: infrastructure cleared and recreated
-    assert (global_root / "workspace").exists()
-    assert (global_root / "index").exists()
-    assert not (global_root / "index" / "fts.sqlite3").exists()
+def test_memory_command_removed() -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["memory"])
+    assert exc.value.code == 2
 
 
 def test_json_flag_hoisting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,7 +164,7 @@ def test_json_flag_hoisting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         "timestamp": "2026-02-28T00:00:00+00:00",
         "connected_agents": [],
         "platforms": [],
-        "memory_count": 0,
+        "record_count": 0,
         "sessions_indexed_count": 0,
         "queue": {},
         "latest_sync": None,
@@ -202,20 +179,10 @@ def test_json_flag_hoisting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert set(payload1.keys()) == set(payload2.keys())
 
 
-def test_memory_list_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """'lerim memory list' outputs formatted memory entries."""
-    config_path = write_test_config(tmp_path)
-    monkeypatch.setenv("LERIM_CONFIG", str(config_path))
-    reload_config()
-    # Seed memory dir with a fixture file (flat layout)
-    memory_dir = tmp_path / "memory"
-    memory_dir.mkdir(parents=True, exist_ok=True)
-    (memory_dir / "test-decision.md").write_text(
-        "---\nid: test-decision\nname: Test Decision\ntype: project\ndescription: A test decision\n---\nBody.",
-        encoding="utf-8",
-    )
-    code, output = run_cli(["memory", "list", "--json"])
-    assert code == 0
+def test_memory_list_command_removed() -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["memory", "list"])
+    assert exc.value.code == 2
 
 
 def test_up_build_flag_accepted() -> None:

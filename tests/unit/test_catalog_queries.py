@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 from datetime import datetime, timezone
 
@@ -138,3 +139,14 @@ def test_changed_session_can_be_force_enqueued():
     )
     jobs2 = claim_session_jobs(limit=1, run_ids=["force-test"])
     assert len(jobs2) == 1
+
+
+def test_init_sessions_db_rejects_invalid_sqlite(tmp_path, monkeypatch):
+    """Invalid SQLite files now fail fast."""
+    db_file = tmp_path / "broken.sqlite3"
+    db_file.write_text("not a sqlite database", encoding="utf-8")
+    monkeypatch.setattr("lerim.sessions.catalog._DB_INITIALIZED_PATH", None)
+    monkeypatch.setattr("lerim.sessions.catalog._db_path", lambda: db_file)
+
+    with pytest.raises(sqlite3.DatabaseError):
+        init_sessions_db()

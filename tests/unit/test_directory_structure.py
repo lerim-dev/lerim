@@ -1,151 +1,128 @@
-"""Tests for the clean data directory structure.
+"""Tests for the DB-era Lerim storage layout.
 
-Verifies the separation of infrastructure (global ~/.lerim) from
-knowledge (per-project <project>/.lerim/memory/).
-
-Per-project .lerim/ should contain ONLY memory/ (with summaries/ and archived/).
-Global ~/.lerim/ should contain workspace/, index/, cache/, logs/.
+Durable context now lives in one global SQLite database. Project repositories
+should not need repo-local markdown context trees just to register, store, or
+query context records.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+import sqlite3
 
-from lerim.memory.repo import (
-	build_memory_paths,
-	ensure_global_infrastructure,
-	ensure_project_memory,
-)
+import pytest
 
-
-# ---------------------------------------------------------------------------
-# Project directory structure: memory only
-# ---------------------------------------------------------------------------
+from lerim.context.project_identity import resolve_project_identity
+from lerim.context.store import ContextStore
 
 
-def test_project_lerim_contains_only_memory(tmp_path):
-	"""Per-project .lerim/ should contain only memory/ after initialization."""
-	project_data = tmp_path / "project" / ".lerim"
-	project_data.mkdir(parents=True)
-	paths = build_memory_paths(project_data)
-	ensure_project_memory(paths)
-
-	top_level = {p.name for p in project_data.iterdir()}
-	assert top_level == {"memory"}, f"Expected only 'memory', got: {top_level}"
-
-
-def test_project_memory_has_correct_subdirs(tmp_path):
-	"""Per-project memory/ should have summaries/ and archived/."""
-	project_data = tmp_path / "project" / ".lerim"
-	project_data.mkdir(parents=True)
-	paths = build_memory_paths(project_data)
-	ensure_project_memory(paths)
-
-	memory_dir = project_data / "memory"
-	subdirs = {p.name for p in memory_dir.iterdir() if p.is_dir()}
-	assert "summaries" in subdirs
-	assert "archived" in subdirs
+EXPECTED_TABLES = {
+	"schema_meta",
+	"projects",
+	"sessions",
+	"records",
+	"record_versions",
+	"record_links",
+	"evidence",
+	"session_findings",
+	"record_embeddings",
+	"records_fts",
+}
 
 
-def test_project_lerim_no_workspace(tmp_path):
-	"""Per-project .lerim/ must NOT have workspace/ directory."""
-	project_data = tmp_path / "project" / ".lerim"
-	project_data.mkdir(parents=True)
-	paths = build_memory_paths(project_data)
-	ensure_project_memory(paths)
-
-	assert not (project_data / "workspace").exists()
-
-
-def test_project_lerim_no_index(tmp_path):
-	"""Per-project .lerim/ must NOT have index/ directory."""
-	project_data = tmp_path / "project" / ".lerim"
-	project_data.mkdir(parents=True)
-	paths = build_memory_paths(project_data)
-	ensure_project_memory(paths)
-
-	assert not (project_data / "index").exists()
+def _table_names(db_path) -> set[str]:
+	"""Return all SQLite table names for the current database file."""
+	with sqlite3.connect(db_path) as conn:
+		rows = conn.execute(
+			"SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+		).fetchall()
+	return {str(row[0]) for row in rows}
 
 
-def test_project_lerim_no_cache(tmp_path):
-	"""Per-project .lerim/ must NOT have cache/ directory."""
-	project_data = tmp_path / "project" / ".lerim"
-	project_data.mkdir(parents=True)
-	paths = build_memory_paths(project_data)
-	ensure_project_memory(paths)
+def test_context_store_initialize_creates_global_sqlite_db(tmp_path):
+	"""Context store initialization creates the canonical global DB file."""
+	db_path = tmp_path / ".lerim" / "context.sqlite3"
+	store = ContextStore(db_path)
 
-	assert not (project_data / "cache").exists()
+	store.initialize()
 
-
-# ---------------------------------------------------------------------------
-# Global directory structure: infrastructure
-# ---------------------------------------------------------------------------
+	assert db_path.is_file()
+	assert EXPECTED_TABLES.issubset(_table_names(db_path))
 
 
-def test_global_infrastructure_dirs(tmp_path):
-	"""Global ~/.lerim/ should have workspace/, index/, cache/, logs/."""
-	ensure_global_infrastructure(tmp_path)
+def test_register_project_uses_one_global_db_without_project_memory_dirs(tmp_path):
+	"""Multiple repos register into one DB without creating repo-local markdown trees."""
+	db_path = tmp_path / ".lerim" / "context.sqlite3"
+	store = ContextStore(db_path)
+	repo_a = tmp_path / "repo-a"
+	repo_b = tmp_path / "repo-b"
+	repo_a.mkdir()
+	repo_b.mkdir()
 
-	expected = {"workspace", "index", "cache", "logs"}
-	actual = {p.name for p in tmp_path.iterdir() if p.is_dir()}
-	assert expected.issubset(actual), f"Missing: {expected - actual}"
+	project_a = store.register_project(resolve_project_identity(repo_a))
+	project_b = store.register_project(resolve_project_identity(repo_b))
 
+	assert project_a["project_id"] != project_b["project_id"]
 
-def test_global_no_memory_created_by_infrastructure(tmp_path):
-	"""ensure_global_infrastructure should NOT create memory/ dir."""
-	ensure_global_infrastructure(tmp_path)
-	assert not (tmp_path / "memory").exists()
+	with sqlite3.connect(db_path) as conn:
+		project_rows = conn.execute(
+			"SELECT project_id, repo_path FROM projects ORDER BY project_id"
+		).fetchall()
 
-
-# ---------------------------------------------------------------------------
-# Combined: verify full structure after both init calls
-# ---------------------------------------------------------------------------
-
-EXPECTED_GLOBAL_DIRS = {"workspace", "index", "cache", "logs"}
-FORBIDDEN_PROJECT_DIRS = {"workspace", "index", "cache", "logs", "config.toml"}
-
-
-def verify_directory_structure(
-	global_dir: Path,
-	project_dir: Path,
-) -> list[str]:
-	"""Verify both directories match the expected clean structure.
-
-	Returns a list of issues found (empty = pass).
-	"""
-	issues: list[str] = []
-
-	# Global checks
-	for name in EXPECTED_GLOBAL_DIRS:
-		if not (global_dir / name).is_dir():
-			issues.append(f"Global missing: {name}/")
-
-	# Project checks: must have memory/
-	if not (project_dir / "memory").is_dir():
-		issues.append("Project missing: memory/")
-	if not (project_dir / "memory" / "summaries").is_dir():
-		issues.append("Project missing: memory/summaries/")
-	if not (project_dir / "memory" / "archived").is_dir():
-		issues.append("Project missing: memory/archived/")
-
-	# Project must NOT have infrastructure dirs
-	for name in FORBIDDEN_PROJECT_DIRS:
-		path = project_dir / name
-		if path.exists():
-			issues.append(f"Project has forbidden: {name}")
-
-	return issues
+	assert len(project_rows) == 2
+	assert {str(row[1]) for row in project_rows} == {
+		str(repo_a.resolve()),
+		str(repo_b.resolve()),
+	}
+	assert not (repo_a / ".lerim" / "memory").exists()
+	assert not (repo_b / ".lerim" / "memory").exists()
 
 
-def test_full_structure_verification(tmp_path):
-	"""After both init calls, the structure should be clean."""
-	global_dir = tmp_path / "global"
-	global_dir.mkdir()
-	project_dir = tmp_path / "project"
-	project_dir.mkdir()
+def test_records_live_in_context_db_not_in_project_markdown_tree(tmp_path):
+	"""Writing a record persists into context.sqlite3 and not into repo folders."""
+	db_path = tmp_path / ".lerim" / "context.sqlite3"
+	store = ContextStore(db_path)
+	repo = tmp_path / "repo"
+	repo.mkdir()
+	identity = resolve_project_identity(repo)
 
-	ensure_global_infrastructure(global_dir)
-	ensure_project_memory(build_memory_paths(project_dir))
+	store.register_project(identity)
+	record = store.create_record(
+		project_id=identity.project_id,
+		session_id=None,
+		kind="decision",
+		domain="project",
+		title="Use one global context DB",
+		summary="Store durable Lerim context in the global SQLite database.",
+		structured={
+			"decision": "Use one global context DB",
+			"why": "Shared retrieval and history should live in one canonical store.",
+		},
+	)
 
-	issues = verify_directory_structure(global_dir, project_dir)
-	assert issues == [], f"Structure issues: {issues}"
+	with sqlite3.connect(db_path) as conn:
+		db_count = conn.execute(
+			"SELECT COUNT(*) FROM records WHERE project_id = ?",
+			(identity.project_id,),
+		).fetchone()[0]
+		content_md = conn.execute(
+			"SELECT content_md FROM records WHERE record_id = ?",
+			(record["record_id"],),
+		).fetchone()[0]
+
+	assert db_count == 1
+	assert "Use one global context DB" in str(content_md)
+	assert not (repo / ".lerim" / "memory").exists()
+
+
+def test_context_store_rejects_incompatible_db_schema(tmp_path):
+	"""Incompatible context DB files now fail fast."""
+	db_path = tmp_path / ".lerim" / "context.sqlite3"
+	db_path.parent.mkdir(parents=True, exist_ok=True)
+
+	with sqlite3.connect(db_path) as conn:
+		conn.execute("CREATE TABLE records (record_id TEXT PRIMARY KEY, title TEXT)")
+		conn.commit()
+
+	store = ContextStore(db_path)
+	with pytest.raises(sqlite3.Error):
+		store.initialize()

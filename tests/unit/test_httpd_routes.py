@@ -14,7 +14,6 @@ import urllib.request
 from http.server import HTTPServer
 from pathlib import Path
 from threading import Thread
-from typing import Any
 
 import pytest
 
@@ -197,7 +196,7 @@ def _seed_service_runs(db_path: Path) -> None:
 			"""INSERT INTO service_runs (job_type, status, started_at, completed_at, details)
 			VALUES (?, ?, ?, ?, ?)""",
 			("maintain", "completed", "2026-03-20T11:00:00Z", "2026-03-20T11:02:00Z",
-			 json.dumps({"memories_reviewed": 10})),
+			 json.dumps({"maintain_metrics": {"counts": {"merged": 1}}})),
 		)
 
 
@@ -216,30 +215,6 @@ def _seed_jobs(db_path: Path) -> None:
 		)
 
 
-def _write_memory_file(memory_dir: Path, slug: str, **frontmatter: Any) -> Path:
-	"""Write a minimal memory markdown file with frontmatter."""
-	fm = {
-		"id": slug,
-		"name": slug.replace("_", " ").title(),
-		"type": "learning",
-		"tags": ["test"],
-		**frontmatter,
-	}
-	lines = ["---"]
-	for key, value in fm.items():
-		if isinstance(value, list):
-			lines.append(f"{key}:")
-			for item in value:
-				lines.append(f"  - {item}")
-		else:
-			lines.append(f"{key}: {value}")
-	lines.append("---")
-	lines.append(f"Body content for {slug}.")
-	path = memory_dir / f"{slug}.md"
-	path.write_text("\n".join(lines), encoding="utf-8")
-	return path
-
-
 @pytest.fixture()
 def test_server(tmp_path, monkeypatch):
 	"""Start a DashboardHandler server with mocked config and catalog.
@@ -252,13 +227,6 @@ def test_server(tmp_path, monkeypatch):
 	_seed_sessions(db_path)
 	_seed_service_runs(db_path)
 	_seed_jobs(db_path)
-
-	# Create memory files
-	memory_dir = tmp_path / "memory"
-	memory_dir.mkdir(exist_ok=True)
-	_write_memory_file(memory_dir, "auth_decision", type="decision", tags=["auth", "security"])
-	_write_memory_file(memory_dir, "queue_fix", type="learning", tags=["queue"])
-	_write_memory_file(memory_dir, "project_setup", type="project", tags=["setup"])
 
 	# Platforms file
 	platforms_data = {
@@ -283,7 +251,7 @@ def test_server(tmp_path, monkeypatch):
 		"timestamp": "2026-03-20T10:00:00Z",
 		"connected_agents": ["claude"],
 		"platforms": [{"name": "claude", "path": "~/.claude/projects"}],
-		"memory_count": 3,
+		"record_count": 3,
 		"sessions_indexed_count": 100,
 		"queue": {"pending": 1, "dead_letter": 1},
 		"latest_sync": {"status": "completed"},
@@ -293,9 +261,9 @@ def test_server(tmp_path, monkeypatch):
 		{"name": "claude", "path": "~/.claude/projects"},
 	])
 	monkeypatch.setattr("lerim.server.httpd.api_project_list", lambda: [
-		{"name": "myproject", "path": "/tmp/myproject", "exists": True, "has_lerim": True},
+		{"name": "myproject", "path": "/tmp/myproject", "exists": True},
 	])
-	monkeypatch.setattr("lerim.server.httpd.api_queue_jobs", lambda status=None, project=None, project_like=None: {
+	monkeypatch.setattr("lerim.server.httpd.api_queue_jobs", lambda status=None, project=None: {
 		"jobs": [{"run_id": "run-0000", "status": "pending"}],
 		"total": 1,
 		"queue": {"pending": 1, "dead_letter": 1},
@@ -323,7 +291,7 @@ def test_server(tmp_path, monkeypatch):
 	monkeypatch.setattr("lerim.server.httpd.api_ask", lambda question: {
 		"answer": f"Mocked answer for: {question}",
 		"agent_session_id": "test-session-001",
-		"memories_used": [],
+		"projects_used": [],
 		"error": False,
 		"cost_usd": 0.001,
 	})
@@ -331,13 +299,13 @@ def test_server(tmp_path, monkeypatch):
 		"code": 0, "indexed": 5,
 	})
 	monkeypatch.setattr("lerim.server.httpd.api_maintain", lambda **kw: {
-		"code": 0, "memories_reviewed": 10,
+		"code": 0, "maintain_counts": {"merged": 1},
 	})
 	monkeypatch.setattr("lerim.server.httpd.api_connect", lambda platform, path=None: {
 		"name": platform, "connected": True,
 	})
 	monkeypatch.setattr("lerim.server.httpd.api_project_add", lambda path: {
-		"name": "added", "path": path, "created_lerim_dir": True,
+		"name": "added", "path": path,
 	})
 	monkeypatch.setattr("lerim.server.httpd.api_project_remove", lambda name: {
 		"name": name, "removed": True,
@@ -383,7 +351,7 @@ def test_get_status(test_server):
 	status, body = _api_get(port, "/api/status")
 	assert status == 200
 	assert "connected_agents" in body
-	assert "memory_count" in body
+	assert "record_count" in body
 	assert "queue" in body
 
 
@@ -394,51 +362,6 @@ def test_get_unscoped(test_server):
 	assert status == 200
 	assert "items" in body
 	assert "count_by_agent" in body
-
-
-def test_get_memories(test_server):
-	"""GET /api/memories returns 200 with memory items from disk."""
-	port, _, _ = test_server
-	status, body = _api_get(port, "/api/memories")
-	assert status == 200
-	assert "items" in body
-	assert "total" in body
-	assert body["total"] >= 3
-
-
-def test_get_memories_type_filter(test_server):
-	"""GET /api/memories?type=decision filters by memory type."""
-	port, _, _ = test_server
-	status, body = _api_get(port, "/api/memories?type=decision")
-	assert status == 200
-	assert body["total"] >= 1
-	for item in body["items"]:
-		assert item.get("type") == "decision"
-
-
-def test_get_memories_query_filter(test_server):
-	"""GET /api/memories?query=auth filters by search query."""
-	port, _, _ = test_server
-	status, body = _api_get(port, "/api/memories?query=auth")
-	assert status == 200
-	assert body["total"] >= 1
-
-
-def test_get_memory_detail(test_server):
-	"""GET /api/memories/<id> returns full memory with body."""
-	port, _, _ = test_server
-	status, body = _api_get(port, "/api/memories/auth_decision")
-	assert status == 200
-	assert "memory" in body
-	assert "body" in body["memory"]
-
-
-def test_get_memory_detail_not_found(test_server):
-	"""GET /api/memories/<nonexistent> returns 404."""
-	port, _, _ = test_server
-	status, body = _api_get_error(port, "/api/memories/nonexistent_id")
-	assert status == 404
-	assert "error" in body
 
 
 def test_get_config(test_server):
@@ -453,7 +376,7 @@ def test_get_config(test_server):
 	effective = body["effective"]
 	assert "server" in effective
 	assert "roles" in effective
-	assert "memory" in effective
+	assert "data" in effective
 
 
 def test_get_config_models(test_server):
@@ -531,12 +454,12 @@ def test_get_live(test_server):
 	assert "queue" in body
 
 
-def test_get_memory_graph_options(test_server):
-	"""GET /api/memory-graph/options returns filter option lists."""
+def test_get_memory_graph_options_route_removed(test_server):
+	"""GET /api/memory-graph/options now returns 404 after DB-only cleanup."""
 	port, _, _ = test_server
-	status, body = _api_get(port, "/api/memory-graph/options")
-	assert status == 200
-	assert "types" in body
+	status, body = _api_get_error(port, "/api/memory-graph/options")
+	assert status == 404
+	assert "error" in body
 
 
 def test_get_refine_report(test_server):
@@ -724,38 +647,25 @@ def test_post_job_skip(test_server):
 	assert body["run_id"] == "run-0001"
 
 
-def test_post_memory_graph_query(test_server):
-	"""POST /api/memory-graph/query returns graph payload."""
+def test_post_memory_graph_query_route_removed(test_server):
+	"""POST /api/memory-graph/query now returns 404 after DB-only cleanup."""
 	port, _, _ = test_server
-	status, body = _api_post(port, "/api/memory-graph/query", {
+	status, body = _api_post_error(port, "/api/memory-graph/query", {
 		"query": "",
 		"filters": {},
 	})
-	assert status == 200
-	assert "nodes" in body
-	assert "edges" in body
+	assert status == 404
+	assert "error" in body
 
 
-def test_post_memory_graph_expand(test_server):
-	"""POST /api/memory-graph/expand returns expanded graph."""
+def test_post_memory_graph_expand_route_removed(test_server):
+	"""POST /api/memory-graph/expand now returns 404 after DB-only cleanup."""
 	port, _, _ = test_server
-	status, body = _api_post(port, "/api/memory-graph/expand", {
+	status, body = _api_post_error(port, "/api/memory-graph/expand", {
 		"node_id": "mem:auth_decision",
 	})
-	assert status == 200
-	assert "nodes" in body
-	assert "edges" in body
-
-
-def test_post_memory_graph_expand_non_memory_node(test_server):
-	"""POST /api/memory-graph/expand with non-mem: node returns empty + warning."""
-	port, _, _ = test_server
-	status, body = _api_post(port, "/api/memory-graph/expand", {
-		"node_id": "type:learning",
-	})
-	assert status == 200
-	assert body["nodes"] == []
-	assert len(body["warnings"]) > 0
+	assert status == 404
+	assert "error" in body
 
 
 def test_post_config_save(test_server):
@@ -994,73 +904,6 @@ def test_query_param_extracts_first():
 	assert _query_param({"key": ["first", "second"]}, "key", "") == "first"
 
 
-def test_matches_any_field_case_insensitive():
-	"""_matches_any_field does case-insensitive matching."""
-	from lerim.server.httpd import _matches_any_field
-
-	item = {"name": "Auth Decision", "type": "decision"}
-	assert _matches_any_field(item, "auth", "name") is True
-	assert _matches_any_field(item, "missing", "name") is False
-
-
-def test_edge_id_deterministic():
-	"""_edge_id produces deterministic string from source/target/kind."""
-	from lerim.server.httpd import _edge_id
-
-	result = _edge_id("a", "b", "related")
-	assert result == "a|b|related"
-
-
-def test_graph_filter_values_normalizes():
-	"""_graph_filter_values handles scalar, list, and empty inputs."""
-	from lerim.server.httpd import _graph_filter_values
-
-	assert _graph_filter_values({"type": "decision"}, "type") == ["decision"]
-	assert _graph_filter_values({"type": ["a", "b"]}, "type") == ["a", "b"]
-	assert _graph_filter_values({}, "type") == []
-	assert _graph_filter_values({"type": ""}, "type") == []
-
-
-def test_graph_limits_defaults():
-	"""_graph_limits returns default values when no limits provided."""
-	from lerim.server.httpd import _graph_limits
-
-	nodes, edges = _graph_limits(
-		{}, default_nodes=200, default_edges=3000, minimum_edges=100
-	)
-	assert nodes == 200
-	assert edges == 3000
-
-
-def test_graph_limits_clamps():
-	"""_graph_limits clamps values to safe bounds."""
-	from lerim.server.httpd import _graph_limits
-
-	nodes, edges = _graph_limits(
-		{"limits": {"max_nodes": "1", "max_edges": "1"}},
-		default_nodes=200,
-		default_edges=3000,
-		minimum_edges=100,
-	)
-	assert nodes == 50  # minimum for nodes
-	assert edges == 100  # minimum_edges
-
-
-def test_memory_graph_options_returns_types():
-	"""_memory_graph_options extracts unique types from items."""
-	from lerim.server.httpd import _memory_graph_options
-
-	items = [
-		{"type": "decision", "_path": "/p/.lerim/memory/a.md"},
-		{"type": "learning", "_path": "/p/.lerim/memory/b.md"},
-		{"type": "decision", "_path": "/p/.lerim/memory/c.md"},
-	]
-	result = _memory_graph_options(items)
-	assert "decision" in result["types"]
-	assert "learning" in result["types"]
-	assert "p" in result["projects"]
-
-
 def test_serialize_full_config(tmp_path):
 	"""_serialize_full_config produces expected nested structure."""
 	from lerim.server.httpd import _serialize_full_config
@@ -1069,7 +912,7 @@ def test_serialize_full_config(tmp_path):
 	result = _serialize_full_config(config)
 	assert "server" in result
 	assert "roles" in result
-	assert "memory" in result
+	assert "data" in result
 	assert "mlflow_enabled" in result
 	assert result["server"]["port"] == 8765
 	assert "agent" in result["roles"]
@@ -1081,38 +924,3 @@ def test_load_messages_for_run_empty_path():
 
 	result = _load_messages_for_run({"session_path": ""})
 	assert result == []
-
-
-def test_build_memory_graph_payload_structure():
-	"""_build_memory_graph_payload builds correct node/edge structure."""
-	from lerim.server.httpd import _build_memory_graph_payload
-
-	selected = [
-		{"id": "mem1", "name": "Memory One", "type": "decision", "description": "", "_body": "Body one", "updated": "", "tags": []},
-		{"id": "mem2", "name": "Memory Two", "type": "learning", "description": "", "_body": "Body two", "updated": "", "tags": []},
-	]
-	result = _build_memory_graph_payload(
-		selected=selected, matched_memories=2, max_nodes=100, max_edges=100,
-	)
-	assert "nodes" in result
-	assert "edges" in result
-	assert result["total_memories"] == 2
-	# Should have memory nodes + type nodes
-	assert len(result["nodes"]) >= 2
-
-
-def test_build_memory_graph_payload_truncation():
-	"""_build_memory_graph_payload truncates when over limits."""
-	from lerim.server.httpd import _build_memory_graph_payload
-
-	selected = [
-		{"id": f"mem{i}", "name": f"M{i}", "type": "learning", "description": "", "_body": "", "updated": "", "tags": []}
-		for i in range(100)
-	]
-	# max_nodes=5 should trigger truncation
-	result = _build_memory_graph_payload(
-		selected=selected, matched_memories=100, max_nodes=5, max_edges=100,
-	)
-	assert result["truncated"] is True
-	assert len(result["nodes"]) <= 5
-	assert len(result["warnings"]) > 0

@@ -23,8 +23,8 @@ def test_load_default_toml():
     """Default TOML loads without error, produces valid Config."""
     cfg = get_config()
     assert isinstance(cfg, Config)
-    assert cfg.data_dir is not None
-    assert cfg.memory_dir is not None
+    assert cfg.global_data_dir is not None
+    assert cfg.context_db_path == cfg.global_data_dir / "context.sqlite3"
 
 
 def test_deep_merge_override():
@@ -131,6 +131,22 @@ def test_config_env_var_override(tmp_path, monkeypatch):
     monkeypatch.setenv("LERIM_CONFIG", str(config_path))
     cfg = reload_config()
     assert cfg.global_data_dir == tmp_path
+    assert cfg.context_db_path == tmp_path / "context.sqlite3"
+
+
+def test_config_context_db_path_user_override(tmp_path, monkeypatch):
+    """User config can override the canonical context DB path explicitly."""
+    override_path = tmp_path / "custom" / "ctx.sqlite3"
+    config_path = write_test_config(
+        tmp_path,
+        data={
+            "dir": str(tmp_path),
+            "context_db_path": str(override_path),
+        },
+    )
+    monkeypatch.setenv("LERIM_CONFIG", str(config_path))
+    cfg = reload_config()
+    assert cfg.context_db_path == override_path
 
 
 def test_config_public_dict(tmp_path):
@@ -143,4 +159,32 @@ def test_config_public_dict(tmp_path):
     assert "openai_api_key" not in d
     assert "zai_api_key" not in d
     # Should have public fields
-    assert "data_dir" in d
+    assert "global_data_dir" in d
+    assert d["context_db_path"] == str(tmp_path / "context.sqlite3")
+
+
+def test_config_rejects_unknown_role_keys(tmp_path, monkeypatch):
+    """Unknown config keys should fail fast instead of being silently ignored."""
+    config_path = tmp_path / "bad_config.toml"
+    config_path.write_text(
+        "[data]\n"
+        f'dir = "{tmp_path}"\n'
+        "\n[server]\n"
+        'host = "127.0.0.1"\n'
+        "port = 8765\n"
+        "sync_interval_minutes = 5\n"
+        "maintain_interval_minutes = 5\n"
+        "sync_window_days = 7\n"
+        "sync_max_sessions = 10\n"
+        "\n[roles.agent]\n"
+        'provider = "minimax"\n'
+        'model = "MiniMax-M2.7"\n'
+        "max_iters_sync = 15\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LERIM_CONFIG", str(config_path))
+
+    import pytest
+
+    with pytest.raises(ValueError, match="roles.agent"):
+        reload_config()

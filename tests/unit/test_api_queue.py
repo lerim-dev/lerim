@@ -89,20 +89,26 @@ def test_api_queue_jobs_returns_structure(monkeypatch):
 
 
 def test_api_queue_jobs_passes_filters(monkeypatch):
-	"""status and project params are forwarded to list_queue_jobs."""
+	"""status and registered project params are forwarded to list_queue_jobs."""
 	captured = {}
+	cfg = replace(
+		make_config(Path("/tmp/test-api-queue-filters")),
+		projects={"my-proj": "/tmp/repos/my-proj"},
+	)
 
 	def fake_list(**kwargs):
 		captured.update(kwargs)
 		return []
 
+	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
 	monkeypatch.setattr(api_mod, "list_queue_jobs", fake_list)
 	monkeypatch.setattr(api_mod, "count_session_jobs_by_status", lambda: QUEUE_COUNTS)
 
 	api_queue_jobs(status="failed", project="my-proj")
 
 	assert captured["status_filter"] == "failed"
-	assert captured["project_filter"] == "my-proj"
+	assert Path(str(captured["project_filter"])).resolve() == Path("/tmp/repos/my-proj").resolve()
+	assert captured["project_exact"] is True
 	assert captured["failed_only"] is True
 
 

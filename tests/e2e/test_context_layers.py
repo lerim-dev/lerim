@@ -17,7 +17,7 @@ class TestContextLayersE2E(unittest.TestCase):
         fake_response = {
             "answer": "answer",
             "agent_session_id": "sid-1",
-            "memories_used": [],
+            "projects_used": [],
             "error": False,
         }
         with patch("lerim.server.cli._api_post", return_value=fake_response):

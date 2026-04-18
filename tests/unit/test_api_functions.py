@@ -43,6 +43,25 @@ from lerim.server.daemon import SyncSummary
 from tests.helpers import make_config
 
 
+def _stub_status_catalog(monkeypatch) -> None:
+	"""Stub queue/catalog helpers so unit tests stay local."""
+	monkeypatch.setattr(
+		api_mod,
+		"queue_health_snapshot",
+		lambda: {
+			"degraded": False,
+			"stale_running_count": 0,
+			"dead_letter_count": 0,
+			"oldest_running_age_seconds": None,
+			"oldest_dead_letter_age_seconds": None,
+			"advice": "",
+		},
+	)
+	monkeypatch.setattr(api_mod, "count_unscoped_sessions_by_agent", lambda projects: {})
+	monkeypatch.setattr(api_mod, "list_session_jobs", lambda **kwargs: [])
+	monkeypatch.setattr(api_mod, "list_service_runs", lambda **kwargs: [])
+
+
 # ---------------------------------------------------------------------------
 # api_health
 # ---------------------------------------------------------------------------
@@ -192,6 +211,7 @@ def test_api_sync_returns_code_and_summary(monkeypatch, tmp_path) -> None:
 	)
 	monkeypatch.setattr(api_mod, "run_sync_once", lambda **kw: (0, summary))
 	monkeypatch.setattr(api_mod, "ollama_lifecycle", _noop_lifecycle)
+	_stub_status_catalog(monkeypatch)
 
 	result = api_sync(agent="claude", window="7d")
 
@@ -213,6 +233,7 @@ def test_api_sync_dry_run(monkeypatch, tmp_path) -> None:
 
 	monkeypatch.setattr(api_mod, "run_sync_once", fake_sync)
 	monkeypatch.setattr(api_mod, "ollama_lifecycle", _noop_lifecycle)
+	_stub_status_catalog(monkeypatch)
 
 	api_sync(dry_run=True)
 
@@ -233,6 +254,7 @@ def test_api_sync_force_flag(monkeypatch, tmp_path) -> None:
 
 	monkeypatch.setattr(api_mod, "run_sync_once", fake_sync)
 	monkeypatch.setattr(api_mod, "ollama_lifecycle", _noop_lifecycle)
+	_stub_status_catalog(monkeypatch)
 
 	api_sync(force=True)
 
@@ -271,6 +293,7 @@ def test_api_maintain_returns_code_and_payload(monkeypatch, tmp_path) -> None:
 		lambda **kw: (0, {"projects": {"test": {"counts": {}}}}),
 	)
 	monkeypatch.setattr(api_mod, "ollama_lifecycle", _noop_lifecycle)
+	_stub_status_catalog(monkeypatch)
 
 	result = api_maintain()
 
@@ -292,6 +315,7 @@ def test_api_maintain_dry_run(monkeypatch, tmp_path) -> None:
 
 	monkeypatch.setattr(api_mod, "run_maintain_once", fake_maintain)
 	monkeypatch.setattr(api_mod, "ollama_lifecycle", _noop_lifecycle)
+	_stub_status_catalog(monkeypatch)
 
 	api_maintain(dry_run=True)
 
@@ -323,9 +347,20 @@ def test_api_maintain_includes_queue_health_warning(monkeypatch, tmp_path) -> No
 
 def test_api_status_returns_expected_keys(monkeypatch, tmp_path) -> None:
 	"""api_status returns dict with all required status fields."""
-	cfg = make_config(tmp_path)
-	(tmp_path / "memory").mkdir(exist_ok=True)
-	(tmp_path / "memory" / "test.md").write_text("test", encoding="utf-8")
+	cfg = replace(make_config(tmp_path), projects={"repo": str(tmp_path)})
+	store = api_mod.ContextStore(cfg.context_db_path)
+	store.initialize()
+	identity = api_mod.resolve_project_identity(tmp_path)
+	store.register_project(identity)
+	store.create_record(
+		project_id=identity.project_id,
+		session_id=None,
+		kind="fact",
+		domain="project",
+		title="Canonical store",
+		summary="Context is stored in SQLite.",
+		structured={"content": "Context is stored in SQLite."},
+	)
 
 	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
 	monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])
@@ -335,33 +370,24 @@ def test_api_status_returns_expected_keys(monkeypatch, tmp_path) -> None:
 		lambda: {"pending": 0, "done": 3},
 	)
 	monkeypatch.setattr(api_mod, "latest_service_run", lambda svc: None)
-	monkeypatch.setattr(
-		api_mod, "queue_health_snapshot",
-		lambda: {
-			"degraded": False,
-			"stale_running_count": 0,
-			"dead_letter_count": 0,
-			"oldest_running_age_seconds": None,
-			"oldest_dead_letter_age_seconds": None,
-			"advice": "",
-		},
-	)
+	_stub_status_catalog(monkeypatch)
 
 	result = api_status()
 
 	assert "timestamp" in result
 	assert "connected_agents" in result
 	assert "platforms" in result
-	assert result["memory_count"] == 1
+	assert result["record_count"] == 1
 	assert result["sessions_indexed_count"] == 5
 	assert result["queue"] == {"pending": 0, "done": 3}
+	assert result["sync_window_days"] == cfg.sync_window_days
 	assert "queue_health" in result
 	assert result["scope"]["strict_project_only"] is True
 
 
-def test_api_status_no_memory_dir(monkeypatch, tmp_path) -> None:
-	"""api_status returns 0 memories when memory dir does not exist."""
-	cfg = replace(make_config(tmp_path), memory_dir=tmp_path / "nonexistent")
+def test_api_status_no_records(monkeypatch, tmp_path) -> None:
+	"""api_status returns 0 when no records exist yet."""
+	cfg = make_config(tmp_path)
 	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
 	monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])
 	monkeypatch.setattr(api_mod, "count_fts_indexed", lambda: 0)
@@ -369,20 +395,10 @@ def test_api_status_no_memory_dir(monkeypatch, tmp_path) -> None:
 		api_mod, "count_session_jobs_by_status", lambda: {}
 	)
 	monkeypatch.setattr(api_mod, "latest_service_run", lambda svc: None)
-	monkeypatch.setattr(
-		api_mod, "queue_health_snapshot",
-		lambda: {
-			"degraded": False,
-			"stale_running_count": 0,
-			"dead_letter_count": 0,
-			"oldest_running_age_seconds": None,
-			"oldest_dead_letter_age_seconds": None,
-			"advice": "",
-		},
-	)
+	_stub_status_catalog(monkeypatch)
 
 	result = api_status()
-	assert result["memory_count"] == 0
+	assert result["record_count"] == 0
 
 
 def test_api_status_scope_skipped_unscoped_from_latest_sync(monkeypatch, tmp_path) -> None:
@@ -397,9 +413,7 @@ def test_api_status_scope_skipped_unscoped_from_latest_sync(monkeypatch, tmp_pat
 		"latest_service_run",
 		lambda svc: {"details": {"skipped_unscoped": 7}} if svc == "sync" else None,
 	)
-	monkeypatch.setattr(
-		api_mod, "queue_health_snapshot", lambda: {"degraded": False, "advice": ""}
-	)
+	_stub_status_catalog(monkeypatch)
 	result = api_status()
 	assert result["scope"]["skipped_unscoped"] == 7
 
@@ -422,7 +436,6 @@ def test_api_project_list_with_projects(monkeypatch, tmp_path) -> None:
 	"""api_project_list returns project info for registered projects."""
 	proj_dir = tmp_path / "myproject"
 	proj_dir.mkdir()
-	(proj_dir / ".lerim").mkdir()
 
 	cfg = replace(make_config(tmp_path), projects={"myproject": str(proj_dir)})
 	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
@@ -431,28 +444,27 @@ def test_api_project_list_with_projects(monkeypatch, tmp_path) -> None:
 	assert len(result) == 1
 	assert result[0]["name"] == "myproject"
 	assert result[0]["exists"] is True
-	assert result[0]["has_lerim"] is True
+	assert "has_lerim" not in result[0]
 
 
-def test_api_project_add_creates_memory_layout(monkeypatch, tmp_path) -> None:
-	"""api_project_add creates canonical .lerim/memory layout and saves config."""
+def test_api_project_add_registers_project_in_context_db(monkeypatch, tmp_path) -> None:
+	"""api_project_add registers project metadata in the global context DB."""
 	proj_dir = tmp_path / "newproject"
 	proj_dir.mkdir()
+	cfg = replace(make_config(tmp_path), projects={})
 
 	saved: list[dict] = []
 	monkeypatch.setattr(
 		api_mod, "save_config_patch", lambda patch: saved.append(patch)
 	)
+	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
 
 	result = api_project_add(str(proj_dir))
 
 	assert result["name"] == "newproject"
-	assert result["created_lerim_dir"] is True
-	assert (proj_dir / ".lerim").is_dir()
-	assert (proj_dir / ".lerim" / "memory").is_dir()
-	assert (proj_dir / ".lerim" / "memory" / "summaries").is_dir()
-	assert (proj_dir / ".lerim" / "memory" / "archived").is_dir()
-	assert (proj_dir / ".lerim" / "memory" / "index.md").is_file()
+	assert result["context_db_path"] == str(cfg.context_db_path)
+	assert "project_id" in result
+	assert not (proj_dir / ".lerim").exists()
 	assert len(saved) == 1
 	assert "newproject" in saved[0]["projects"]
 
@@ -461,16 +473,27 @@ def test_api_status_reports_projects_and_unscoped(monkeypatch, tmp_path) -> None
 	"""api_status includes per-project payloads and unscoped counts."""
 	project_a = tmp_path / "proj-a"
 	project_b = tmp_path / "proj-b"
-	for project in (project_a, project_b):
-		(project / ".lerim" / "memory").mkdir(parents=True)
-		(project / ".lerim" / "memory" / "index.md").write_text("# Memory Index\n", encoding="utf-8")
-	(project_a / ".lerim" / "memory" / "a.md").write_text("a", encoding="utf-8")
-	(project_b / ".lerim" / "memory" / "b.md").write_text("b", encoding="utf-8")
+	project_a.mkdir()
+	project_b.mkdir()
 
 	cfg = replace(
 		make_config(tmp_path),
 		projects={"proj-a": str(project_a), "proj-b": str(project_b)},
 	)
+	store = api_mod.ContextStore(cfg.context_db_path)
+	store.initialize()
+	for path, title in ((project_a, "A record"), (project_b, "B record")):
+		identity = api_mod.resolve_project_identity(path)
+		store.register_project(identity)
+		store.create_record(
+			project_id=identity.project_id,
+			session_id=None,
+			kind="fact",
+			domain="project",
+			title=title,
+			summary=title,
+			structured={"content": title},
+		)
 	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
 	monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])
 	monkeypatch.setattr(api_mod, "count_fts_indexed", lambda: 11)
@@ -487,10 +510,14 @@ def test_api_status_reports_projects_and_unscoped(monkeypatch, tmp_path) -> None
 		"count_unscoped_sessions_by_agent",
 		lambda projects: {"cursor": 3, "codex": 1},
 	)
+	monkeypatch.setattr(api_mod, "list_session_jobs", lambda **kwargs: [])
+	monkeypatch.setattr(api_mod, "list_service_runs", lambda **kwargs: [])
 
 	result = api_status()
-	assert result["memory_count"] == 4  # 2 index + 2 memory files
+	assert result["record_count"] == 2
 	assert len(result["projects"]) == 2
+	assert all("indexed_sessions_count" in item for item in result["projects"])
+	assert all("latest_session_start_time" in item for item in result["projects"])
 	assert result["unscoped_sessions"]["total"] == 4
 	assert result["unscoped_sessions"]["by_agent"]["cursor"] == 3
 

@@ -14,11 +14,9 @@ from lerim.config.settings import Config, RoleConfig
 def make_config(base: Path) -> Config:
     """Build a deterministic Config object rooted at ``base`` for tests."""
     return Config(
-        data_dir=base,
         global_data_dir=base,
-        memory_dir=base / "memory",
-        index_dir=base / "index",
         sessions_db_path=base / "index" / "sessions.sqlite3",
+        context_db_path=base / "context.sqlite3",
         platforms_path=base / "platforms.json",
         server_host="127.0.0.1",
         server_port=8765,

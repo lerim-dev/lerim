@@ -7,6 +7,7 @@ Docker-unavailable and missing-Dockerfile scenarios gracefully.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,12 @@ def test_compose_has_read_only_root() -> None:
     assert "read_only: true" in content
 
 
+def test_compose_runs_as_host_uid_gid() -> None:
+    """Container should write ~/.lerim as the host user, not root."""
+    content = _generate_compose_yml(build_local=False)
+    assert f'user: "{os.getuid()}:{os.getgid()}"' in content
+
+
 def test_compose_drops_all_capabilities() -> None:
     """Container should drop all Linux capabilities."""
     content = _generate_compose_yml(build_local=False)
@@ -122,20 +129,36 @@ def test_compose_has_tmpfs() -> None:
     assert "/tmp:" in content
 
 
-def test_compose_mounts_lerim_dirs_only(tmp_path, monkeypatch) -> None:
-    """Project mounts should be .lerim subdirs, not entire project directories."""
+def test_compose_mounts_only_global_lerim_and_agent_dirs(tmp_path, monkeypatch) -> None:
+    """Compose should mount global Lerim state, not per-project local folders."""
     from dataclasses import replace
     cfg = make_config(tmp_path)
     cfg = replace(cfg, projects={"test": str(tmp_path / "myproject")})
     monkeypatch.setattr("lerim.server.api.reload_config", lambda: cfg)
 
     content = _generate_compose_yml(build_local=False)
-    # Should mount project/.lerim, not project/ directly
-    assert ".lerim" in content
-    # The project path without .lerim should NOT appear as a standalone mount
-    lerim_path = str(tmp_path / "myproject" / ".lerim")
-    # lerim_path should be in volumes, bare project_path should not be a mount target
-    assert lerim_path in content
+    assert f"{Path.home() / '.lerim'}:{Path.home() / '.lerim'}" in content
+    assert str(tmp_path / "myproject" / ".lerim") not in content
+    assert str(tmp_path / "myproject") not in content
+
+
+def test_compose_does_not_set_project_local_working_dir(tmp_path, monkeypatch) -> None:
+    """Compose should keep the container working directory on the global runtime path."""
+    from dataclasses import replace
+
+    cfg = make_config(tmp_path)
+    cfg = replace(cfg, projects={"test": str(tmp_path / "myproject")})
+    monkeypatch.setattr("lerim.server.api.reload_config", lambda: cfg)
+
+    content = _generate_compose_yml(build_local=False)
+    assert "working_dir:" not in content
+    assert str(tmp_path / "myproject" / ".lerim") not in content
+
+
+def test_compose_does_not_pin_container_name() -> None:
+    """Compose should let Docker Compose manage container naming."""
+    content = _generate_compose_yml(build_local=False)
+    assert "container_name:" not in content
 
 
 def test_compose_agent_dirs_read_only(tmp_path, monkeypatch) -> None:
