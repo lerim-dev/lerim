@@ -22,6 +22,11 @@ dependencies = [
     "openrouter==0.7.11",
     "mlflow>=3.10.1",
     "rich==14.3.3",
+    "numpy>=2.0",
+    "onnxruntime>=1.22.0",
+    "huggingface-hub>=0.35.0",
+    "tokenizers>=0.21.0",
+    "sqlite-vec>=0.1.6",
 ]
 
 [project.urls]
