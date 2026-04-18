@@ -6,6 +6,7 @@ description: Persistent memory for coding agents. Query past decisions and learn
 # Lerim
 
 Lerim gives you persistent memory across sessions. It watches your conversations, extracts decisions and learnings, and stores them in the global context database at `~/.lerim/context.sqlite3`.
+Hybrid retrieval is local: ONNX embeddings from `mixedbread-ai/mxbai-embed-xsmall-v1`, `sqlite-vec` vector search, SQLite FTS5, and RRF fusion.
 
 ## Start here
 
@@ -40,9 +41,13 @@ Your job is to read and query existing context records when they are relevant. Y
 The DB-era tool surface is small on purpose.
 
 - `trace_read`: read bounded trace chunks during extract
-- `context_search`: retrieve candidate records with hybrid search
-- `context_fetch`: load selected records in concise or detailed form
-- `context_apply`: apply semantic record mutations such as create, update, archive, supersede, and link
+- `search_records`: retrieve candidate records with local ONNX embeddings + `sqlite-vec` + FTS5 + RRF
+- `fetch_records`: load selected records in concise or detailed form
+- `create_record`: create a new durable record with explicit typed fields
+- `update_record`: repair or clarify a durable record
+- `archive_record`: archive a stale record
+- `supersede_record`: mark a weaker record as replaced by a stronger one
+- `context_query`: deterministic count/list queries for records, versions, and sessions
 - `note`: keep extract-time findings in run state
 - `prune`: reduce trace context pressure during long extract runs
 

@@ -18,12 +18,24 @@ uv pip install -e '.[test]'
 # Unit tests (no LLM keys needed)
 tests/run_tests.sh unit
 
-# Smoke tests (needs LLM API key in env)
+# Smoke tests (needs live agent provider + API key)
 tests/run_tests.sh smoke
+
+# Real integration tests (extract, maintain, ask)
+tests/run_tests.sh integration
+
+# End-to-end runtime flow
+tests/run_tests.sh e2e
 
 # Everything
 tests/run_tests.sh all
 ```
+
+Release note:
+
+- `smoke`, `integration`, and `e2e` are real suites now.
+- They must collect and run real tests.
+- “No tests collected” is a failure, not a pass.
 
 Lint before submitting:
 
@@ -89,6 +101,7 @@ Open a GitHub issue with:
 
 - [ ] `ruff check src/ tests/` passes with no errors.
 - [ ] `tests/run_tests.sh unit` passes.
+- [ ] Run the relevant live suite when runtime, agent tools, prompts, or DB behavior change.
 - [ ] New/changed files have top-level docstrings and function docstrings.
 - [ ] New source files include an `if __name__ == "__main__":` self-test when practical.
 - [ ] No mocking or stubbing in self-test flows.

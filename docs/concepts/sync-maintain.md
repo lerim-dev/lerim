@@ -20,7 +20,7 @@ records:
 2. **Index** -- new sessions are cataloged in `sessions.sqlite3`
 3. **Match to project** -- sessions matching a registered project are enqueued; unmatched sessions are indexed but not extracted
 4. **Compact** -- traces are compacted (tool outputs stripped) and cached
-5. **Extract flow** -- the PydanticAI extraction agent (`[roles.agent]`) reads the trace and uses `trace_read`, `note`, `prune`, `context_search`, `context_fetch`, and `context_apply` to write one episode record plus a small number of durable records into `~/.lerim/context.sqlite3`
+5. **Extract flow** -- the PydanticAI extraction agent (`[roles.agent]`) reads the trace and uses `trace_read`, `note`, `prune`, `search_records`, `fetch_records`, `create_record`, and `update_record` to write one episode record plus a small number of durable records into `~/.lerim/context.sqlite3`
 
 ### Time window
 
@@ -47,11 +47,11 @@ lerim sync --max-sessions 10         # limit batch size
 The maintain path runs offline refinement over stored context records,
 iterating over all registered projects:
 
-1. **Search** -- `context_search()` finds candidate active records in one project scope
-2. **Inspect** -- `context_fetch()` loads only the records that may change
-3. **Merge duplicates** -- `context_apply()` updates or supersedes redundant truth
-4. **Archive low-value** -- records move to archived status in the DB
-5. **Consolidate** -- the maintainer can add semantic links or improve summaries without touching repo-local files
+1. **Search** -- `search_records()` finds candidate active records in one project scope
+2. **Inspect** -- `fetch_records()` loads only the records that may change
+3. **Refine or supersede** -- `update_record()` and `supersede_record()` improve or replace redundant truth
+4. **Archive low-value** -- `archive_record()` moves junk or routine rows to archived status in the DB
+5. **Keep the store lean** -- the maintainer prefers stronger durable records over a noisy pile of routine episodes
 
 ### Request turn limits
 

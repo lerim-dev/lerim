@@ -59,8 +59,8 @@ Lerim fixes that by turning raw traces into reusable context records and making 
 - Local-first storage. Durable context lives in one global SQLite database at `~/.lerim/context.sqlite3`.
 - Shared across agents. What Claude Code learns can be reused by Codex, Cursor, or another supported agent later.
 - Background maintenance. `sync` ingests sessions, `maintain` consolidates overlap and archives stale records, `ask` retrieves relevant precedent.
-- Evidence-aware retrieval. Answers can cite the records and sessions they came from.
-- Clean agent tool surface. The runtime exposes semantic tools like `context_search`, `context_fetch`, and `context_apply` instead of file CRUD.
+- Hybrid retrieval. Lerim combines local ONNX embeddings stored through `sqlite-vec` with SQLite FTS5 and RRF fusion.
+- Clean agent tool surface. The runtime exposes semantic DB-era tools like `search_records`, `fetch_records`, `create_record`, `update_record`, and `context_query` instead of file CRUD.
 
 ## Quick Start
 
@@ -112,6 +112,13 @@ Lerim has three main flows:
 
 In practice, this means Lerim becomes the shared precedent store behind your agent workflows.
 
+Semantic retrieval is local:
+
+- ONNX model: `mixedbread-ai/mxbai-embed-xsmall-v1`
+- vector storage: `sqlite-vec`
+- lexical retrieval: SQLite FTS5
+- fusion: `RRF`
+
 ## Storage Model
 
 Global Lerim state lives under `~/.lerim/`:
@@ -119,9 +126,10 @@ Global Lerim state lives under `~/.lerim/`:
 - `context.sqlite3` — canonical durable context store
 - `index/sessions.sqlite3` — session catalog and queue
 - `workspace/` — sync and maintain run artifacts
+- `cache/embeddings/` — local embedding model cache
 - `config.toml` — user config
 - `platforms.json` — connected platform paths
-- `logs/` and `activity.log` — runtime logs
+- `logs/` — runtime logs including `activity.log`
 
 Project registration only stores host paths in config.
 Project separation happens inside the database by `project_id`.
@@ -133,9 +141,13 @@ There is no per-project durable store on disk.
 The agent-facing tool contract is intentionally small:
 
 - `trace_read`
-- `context_search`
-- `context_fetch`
-- `context_apply`
+- `search_records`
+- `fetch_records`
+- `create_record`
+- `update_record`
+- `archive_record`
+- `supersede_record`
+- `context_query`
 - `note`
 - `prune`
 
@@ -159,7 +171,16 @@ lerim ask "What decisions exist about caching?"
 uv venv && source .venv/bin/activate
 uv pip install -e '.[test]'
 tests/run_tests.sh unit
+tests/run_tests.sh smoke
+tests/run_tests.sh integration
+tests/run_tests.sh e2e
 ```
+
+Release-quality checks now include:
+
+- `tests/smoke/` — quick real-LLM extract sanity
+- `tests/integration/` — real extract, maintain, and semantic ask coverage
+- `tests/e2e/` — full runtime-cycle checks over sync, maintain, and ask
 
 Start here if you want to read the codebase:
 

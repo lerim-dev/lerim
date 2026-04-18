@@ -9,16 +9,17 @@ The flow is:
 1. adapters read raw agent sessions
 2. traces are normalized
 3. `sync` extracts durable context records
-4. `maintain` consolidates the record graph
+4. `maintain` cleans and supersedes records
 5. `ask` retrieves records and answers questions
 
 ## Storage
 
 Canonical storage is global:
 
-- `~/.lerim/context.sqlite3` — records, versions, links, evidence, findings
+- `~/.lerim/context.sqlite3` — projects, sessions, records, versions, embeddings, and FTS
 - `~/.lerim/index/sessions.sqlite3` — session catalog and queue
 - `~/.lerim/workspace/` — run artifacts and logs
+- `~/.lerim/cache/embeddings/` — local ONNX embedding model cache
 
 Projects are scoped by `project_id` inside the database.
 
@@ -29,14 +30,25 @@ Lerim does not expose raw SQL or file CRUD to the agent.
 The durable context tools are:
 
 - `trace_read`
-- `context_search`
-- `context_fetch`
-- `context_apply`
+- `search_records`
+- `fetch_records`
+- `create_record`
+- `update_record`
+- `archive_record`
+- `supersede_record`
+- `context_query`
 
 The extract flow also uses:
 
 - `note`
 - `prune`
+
+Retrieval is hybrid:
+
+- local ONNX embeddings from `mixedbread-ai/mxbai-embed-xsmall-v1`
+- vector storage and KNN lookup via `sqlite-vec`
+- lexical retrieval via SQLite FTS5
+- RRF fusion in the context store
 
 ## Why this design
 

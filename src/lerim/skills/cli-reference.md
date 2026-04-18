@@ -226,8 +226,38 @@ lerim ask "How is the database configured?"
 | `--project` | -- | Project name/path when `--scope=project` |
 
 Notes:
-- Ask uses context retrieval evidence.
+- Ask uses hybrid retrieval for explanatory questions: local ONNX embeddings, `sqlite-vec`, SQLite FTS5, and RRF.
+- Ask uses deterministic query tools for count/latest/date questions.
 - If provider auth fails, CLI returns exit code 1.
+
+### `lerim query`
+
+Deterministic count/list queries over records, versions, or sessions.
+
+```bash
+lerim query records count
+lerim query records list --kind decision --limit 10
+lerim query records list --created-since 2026-04-17T00:00:00+00:00
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `entity` | required | `records`, `versions`, or `sessions` |
+| `mode` | required | `list` or `count` |
+| `--scope` | `all` | Read scope: `all` or `project` |
+| `--project` | -- | Project name/path when `--scope=project` |
+| `--kind` | -- | Filter record/versions by kind |
+| `--status` | -- | Filter record/versions by status |
+| `--source-session-id` | -- | Filter by source session |
+| `--created-since` | -- | Lower bound for `created_at` |
+| `--created-until` | -- | Upper bound for `created_at` |
+| `--updated-since` | -- | Lower bound for `updated_at` |
+| `--updated-until` | -- | Upper bound for `updated_at` |
+| `--valid-at` | -- | Point-in-time validity filter |
+| `--order-by` | `created_at` | `created_at`, `updated_at`, or `valid_from` |
+| `--limit` | `20` | Page size for `list` |
+| `--offset` | `0` | Page offset for `list` |
+| `--include-total` | `false` | Include total matching rows for `list` |
 
 ### `lerim status`
 
