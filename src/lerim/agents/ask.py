@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
 
-from lerim.agents.tools import ContextDeps, context_fetch, context_search
+from lerim.agents.tools import ContextDeps, context_query, fetch_records, search_records
 from lerim.context.project_identity import ProjectIdentity
 
 
@@ -22,7 +23,7 @@ def format_ask_hints(hits: list[dict[str, Any]], context_docs: list[dict[str, An
     lines = []
     for hit in hits:
         lines.append(
-            f"- [{hit.get('kind', '?')}] {hit.get('title', '?')}: {hit.get('summary', '')}"
+            f"- [{hit.get('kind', '?')}] {hit.get('title', '?')}: {hit.get('body_preview', '')}"
         )
     return "\n".join(lines)
 
@@ -33,15 +34,16 @@ You are the Lerim ask agent.
 Answer questions from retrieved context records.
 
 Use:
-- `context_search` to retrieve candidate records
-- `context_fetch` to inspect the best candidates
+- `context_query` for deterministic count/list/date/latest questions
+- `search_records` to retrieve candidate records for semantic questions
+- `fetch_records` to inspect the best candidates
 
 Rules:
 - answer from retrieved records only
 - distinguish current truth from historical truth
 - say clearly when support is only episodic
 - keep the answer concise and evidence-backed
-- do not perform your own browsing strategy outside the two tools above
+- treat "learning" as a durable non-episode record unless the user says otherwise
 """
 
 
@@ -58,7 +60,7 @@ def build_ask_agent(model: Model) -> Agent[ContextDeps, AskResult]:
         deps_type=ContextDeps,
         output_type=AskResult,
         system_prompt=ASK_SYSTEM_PROMPT,
-        tools=[context_search, context_fetch],
+        tools=[context_query, search_records, fetch_records],
         retries=5,
         output_retries=2,
     )
@@ -84,7 +86,12 @@ def run_ask(
         session_id=session_id,
         project_ids=project_ids,
     )
-    prompt = f"Question:\n{question.strip()}\n\nHints:\n{hints.strip() or '(no hints)'}"
+    now_utc = datetime.now(timezone.utc).isoformat()
+    prompt = (
+        f"Current UTC time:\n{now_utc}\n\n"
+        f"Question:\n{question.strip()}\n\n"
+        f"Hints:\n{hints.strip() or '(no hints)'}"
+    )
     result = agent.run_sync(
         prompt,
         deps=deps,

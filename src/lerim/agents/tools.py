@@ -1,18 +1,4 @@
-"""Agent tools for Lerim's DB-only context architecture.
-
-This module defines the agent-facing tool surface for extract, maintain, and
-ask. Durable context operations are semantic and DB-backed:
-
-- `trace_read`
-- `context_search`
-- `context_fetch`
-- `context_apply`
-
-The extract flow also keeps two local reasoning tools:
-
-- `note`
-- `prune`
-"""
+"""Agent tools for Lerim's simplified DB-only context architecture."""
 
 from __future__ import annotations
 
@@ -25,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
-from pydantic_ai import RunContext
+from pydantic_ai import ModelRetry, RunContext
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -35,7 +21,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 
-from lerim.context import ContextStore, ProjectIdentity
+from lerim.context import ALLOWED_KINDS, ALLOWED_STATUSES, ContextStore, ProjectIdentity
 
 TRACE_MAX_LINES_PER_READ = 100
 TRACE_MAX_LINE_BYTES = 5_000
@@ -45,9 +31,6 @@ CONTEXT_SOFT_PRESSURE_PCT = 0.60
 CONTEXT_HARD_PRESSURE_PCT = 0.80
 _TOKENS_PER_CHAR = 0.25
 PRUNED_STUB = "[pruned]"
-_DEFAULT_DOMAIN_ALIASES = {"", "default"}
-
-
 class Finding(BaseModel):
     """Structured extract finding captured during trace scanning."""
 
@@ -89,14 +72,6 @@ def _trace_lines(trace_path: Path) -> list[str]:
     return trace_path.read_text(encoding="utf-8").splitlines()
 
 
-def _normalize_domain(value: Any) -> str:
-    """Normalize agent-facing domain values to canonical store enums."""
-    domain = str(value or "").strip().lower()
-    if domain in _DEFAULT_DOMAIN_ALIASES:
-        return "project"
-    return domain
-
-
 def trace_read(ctx: RunContext[ContextDeps], offset: int = 0, limit: int = 100) -> str:
     """Read normalized trace chunks with line numbers and bounded size."""
     trace_path = ctx.deps.trace_path
@@ -129,26 +104,60 @@ def trace_read(ctx: RunContext[ContextDeps], offset: int = 0, limit: int = 100) 
     return header + "\n" + "\n".join(numbered)
 
 
-def context_search(
+def search_records(
     ctx: RunContext[ContextDeps],
     query: str,
     kind_filters: list[str] | None = None,
-    domain_filters: list[str] | None = None,
-    as_of: str = "",
-    include_history: bool = False,
+    status_filters: list[str] | None = None,
+    valid_at: str = "",
+    include_archived: bool = False,
     limit: int = 8,
 ) -> str:
     """Search the context store with hybrid retrieval and compact results."""
-    if not str(query or "").strip():
-        return json.dumps({"count": 0, "hits": []}, indent=2)
     store = _store(ctx)
+    trimmed_query = str(query or "").strip()
+    if trimmed_query in {"", "*"}:
+        listing = store.query(
+            entity="records",
+            mode="list",
+            project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
+            kind=_normalize_kind(kind_filters[0]) if kind_filters and len(kind_filters) == 1 else None,
+            status=_normalize_status(status_filters[0]) if status_filters and len(status_filters) == 1 else None,
+            valid_at=valid_at.strip() or None,
+            order_by="updated_at",
+            limit=max(1, min(int(limit), 8)),
+            include_total=False,
+        )
+        rows = listing["rows"]
+        if not include_archived:
+            rows = [row for row in rows if str(row.get("status") or "") == "active"]
+        payload = {
+            "count": len(rows),
+            "hits": [
+                {
+                    "record_id": row["record_id"],
+                    "kind": row["kind"],
+                    "title": row["title"],
+                    "body_preview": str(row["body"])[:280],
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                    "valid_from": row["valid_from"],
+                    "valid_until": row["valid_until"],
+                    "score": None,
+                    "sources": ["recent-list"],
+                }
+                for row in rows
+            ],
+        }
+        return json.dumps(payload, ensure_ascii=True, indent=2)
     hits = store.search(
         project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
-        query=query,
+        query=trimmed_query,
         kind_filters=kind_filters or None,
-        domain_filters=domain_filters or None,
-        as_of=as_of.strip() or None,
-        include_history=bool(include_history),
+        statuses=status_filters or None,
+        valid_at=valid_at.strip() or None,
+        include_archived=bool(include_archived),
         limit=max(1, min(int(limit), 8)),
     )
     payload = {
@@ -157,10 +166,13 @@ def context_search(
             {
                 "record_id": hit.record_id,
                 "kind": hit.kind,
-                "domain": hit.domain,
                 "title": hit.title,
-                "summary": hit.summary,
+                "body_preview": hit.body[:280],
                 "status": hit.status,
+                "created_at": hit.created_at,
+                "updated_at": hit.updated_at,
+                "valid_from": hit.valid_from,
+                "valid_until": hit.valid_until,
                 "score": round(hit.score, 6),
                 "sources": hit.sources,
             }
@@ -170,13 +182,11 @@ def context_search(
     return json.dumps(payload, ensure_ascii=True, indent=2)
 
 
-def context_fetch(
+def fetch_records(
     ctx: RunContext[ContextDeps],
     record_ids: list[str],
     include_versions: bool = False,
-    include_evidence: bool = False,
-    include_links: bool = False,
-    response_format: str = "concise",
+    response_format: str = "detailed",
 ) -> str:
     """Fetch canonical records by ID with concise or detailed response formats."""
     mode = (response_format or "concise").strip().lower()
@@ -192,8 +202,6 @@ def context_fetch(
             record_id,
             project_ids=allowed_project_ids,
             include_versions=bool(include_versions),
-            include_evidence=bool(include_evidence),
-            include_links=bool(include_links),
         )
         if record is None:
             continue
@@ -202,11 +210,21 @@ def context_fetch(
                 {
                     "record_id": record["record_id"],
                     "kind": record["kind"],
-                    "domain": record["domain"],
                     "title": record["title"],
-                    "summary": record["summary"],
-                    "content_md": record["content_md"][:2000],
+                    "body": record["body"][:2000],
                     "status": record["status"],
+                    "created_at": record["created_at"],
+                    "updated_at": record["updated_at"],
+                    "valid_from": record["valid_from"],
+                    "valid_until": record["valid_until"],
+                    "decision": record["decision"],
+                    "why": record["why"],
+                    "alternatives": record["alternatives"],
+                    "consequences": record["consequences"],
+                    "user_intent": record["user_intent"],
+                    "what_happened": record["what_happened"],
+                    "outcomes": record["outcomes"],
+                    "superseded_by_record_id": record["superseded_by_record_id"],
                 }
             )
             continue
@@ -214,80 +232,189 @@ def context_fetch(
     return json.dumps({"count": len(records), "records": records}, ensure_ascii=True, indent=2)
 
 
-def context_apply(ctx: RunContext[ContextDeps], op: str, payload: dict[str, Any]) -> str:
-    """Apply one semantic mutation to the context store."""
-    operation = (op or "").strip()
-    if not operation:
-        return "Error: op is required"
-    if not isinstance(payload, dict):
-        return "Error: payload must be an object"
+def _normalize_kind(kind: str) -> str:
+    """Normalize kind names before store validation."""
+    return str(kind or "").strip().lower()
+
+
+def _normalize_status(status: str) -> str:
+    """Normalize status names before store validation."""
+    return str(status or "active").strip().lower()
+
+
+def create_record(
+    ctx: RunContext[ContextDeps],
+    kind: str,
+    title: str,
+    body: str,
+    status: str = "active",
+    valid_from: str = "",
+    valid_until: str = "",
+    decision: str = "",
+    why: str = "",
+    alternatives: str = "",
+    consequences: str = "",
+    user_intent: str = "",
+    what_happened: str = "",
+    outcomes: str = "",
+    change_reason: str = "",
+) -> str:
+    """Create one durable record with explicit typed fields."""
     store = _store(ctx)
     project_id = ctx.deps.project_identity.project_id
     session_id = ctx.deps.session_id
+    result = store.create_record(
+        project_id=project_id,
+        session_id=session_id,
+        kind=_normalize_kind(kind),
+        title=title,
+        body=body,
+        status=_normalize_status(status),
+        valid_from=valid_from.strip() or None,
+        valid_until=valid_until.strip() or None,
+        decision=decision.strip() or None,
+        why=why.strip() or None,
+        alternatives=alternatives.strip() or None,
+        consequences=consequences.strip() or None,
+        user_intent=user_intent.strip() or None,
+        what_happened=what_happened.strip() or None,
+        outcomes=outcomes.strip() or None,
+        change_reason=change_reason.strip() or None,
+    )
+    return json.dumps({"ok": True, "result": result}, ensure_ascii=True, indent=2)
+
+
+def update_record(
+    ctx: RunContext[ContextDeps],
+    record_id: str,
+    title: str = "",
+    body: str = "",
+    status: str = "",
+    valid_from: str = "",
+    valid_until: str = "",
+    superseded_by_record_id: str = "",
+    decision: str = "",
+    why: str = "",
+    alternatives: str = "",
+    consequences: str = "",
+    user_intent: str = "",
+    what_happened: str = "",
+    outcomes: str = "",
+    change_reason: str = "",
+) -> str:
+    """Update one durable record with explicit typed fields."""
+    changes: dict[str, Any] = {}
+    for key, value in {
+        "title": title,
+        "body": body,
+        "valid_from": valid_from,
+        "valid_until": valid_until,
+        "superseded_by_record_id": superseded_by_record_id,
+        "decision": decision,
+        "why": why,
+        "alternatives": alternatives,
+        "consequences": consequences,
+        "user_intent": user_intent,
+        "what_happened": what_happened,
+        "outcomes": outcomes,
+    }.items():
+        stripped = str(value or "").strip()
+        if stripped:
+            changes[key] = stripped
+    if str(status or "").strip():
+        changes["status"] = _normalize_status(status)
+    store = _store(ctx)
+    result = store.update_record(
+        record_id=str(record_id or "").strip(),
+        session_id=ctx.deps.session_id,
+        project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
+        changes=changes,
+        change_reason=str(change_reason or "").strip() or None,
+    )
+    return json.dumps({"ok": True, "result": result}, ensure_ascii=True, indent=2)
+
+
+def archive_record(
+    ctx: RunContext[ContextDeps],
+    record_id: str,
+    reason: str = "",
+) -> str:
+    """Archive one durable record."""
+    store = _store(ctx)
     try:
-        if operation == "create_record":
-            result = store.create_record(
-                project_id=project_id,
-                session_id=session_id,
-                kind=str(payload.get("kind") or "").strip(),
-                domain=_normalize_domain(payload.get("domain")),
-                title=str(payload.get("title") or "").strip(),
-                summary=str(payload.get("summary") or "").strip(),
-                structured=dict(payload.get("structured") or {}),
-                status=str(payload.get("status") or "active").strip(),
-                confidence=payload.get("confidence"),
-                valid_from=str(payload.get("valid_from") or "").strip() or None,
-                valid_until=payload.get("valid_until"),
-                links=list(payload.get("links") or []),
-                evidence=list(payload.get("evidence") or []),
-                change_reason=str(payload.get("change_reason") or "").strip() or None,
-            )
-        elif operation == "update_record":
-            result = store.update_record(
-                record_id=str(payload.get("record_id") or "").strip(),
-                session_id=session_id,
-                changes={
-                    **dict(payload.get("changes") or {}),
-                    **(
-                        {"domain": _normalize_domain(dict(payload.get("changes") or {}).get("domain"))}
-                        if "domain" in dict(payload.get("changes") or {})
-                        else {}
-                    ),
-                },
-                change_reason=str(payload.get("change_reason") or "").strip() or None,
-            )
-        elif operation == "archive_record":
-            result = store.archive_record(
-                record_id=str(payload.get("record_id") or "").strip(),
-                session_id=session_id,
-                reason=str(payload.get("reason") or "").strip() or None,
-            )
-        elif operation == "supersede_record":
-            result = store.supersede_record(
-                record_id=str(payload.get("record_id") or "").strip(),
-                session_id=session_id,
-                replacement_record_id=str(payload.get("replacement_record_id") or "").strip(),
-                reason=str(payload.get("reason") or "").strip() or None,
-                valid_until=str(payload.get("valid_until") or "").strip() or None,
-            )
-        elif operation == "link_records":
-            result = store.link_records(
-                project_id=project_id,
-                from_record_id=str(payload.get("from_record_id") or "").strip(),
-                to_record_id=str(payload.get("to_record_id") or "").strip(),
-                relation=str(payload.get("relation") or "").strip(),
-                reason=str(payload.get("reason") or "").strip() or None,
-                session_id=session_id,
-            )
-        else:
-            return (
-                "Error: op must be one of "
-                "'create_record', 'update_record', 'archive_record', "
-                "'supersede_record', or 'link_records'"
-            )
-    except Exception as exc:
-        return f"Error: {exc}"
-    return json.dumps({"ok": True, "op": operation, "result": result}, ensure_ascii=True, indent=2)
+        result = store.archive_record(
+            record_id=str(record_id or "").strip(),
+            session_id=ctx.deps.session_id,
+            project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
+            reason=str(reason or "").strip() or None,
+        )
+    except ValueError as exc:
+        if str(exc).startswith("refuse_archive_recent_active_record:"):
+            raise ModelRetry(
+                "Do not archive a fresh active fact or decision directly. "
+                "Use supersede_record when it is a duplicate, or leave it active."
+            ) from exc
+        raise
+    return json.dumps({"ok": True, "result": result}, ensure_ascii=True, indent=2)
+
+
+def supersede_record(
+    ctx: RunContext[ContextDeps],
+    record_id: str,
+    replacement_record_id: str,
+    reason: str = "",
+    valid_until: str = "",
+) -> str:
+    """Mark one durable record as superseded by another."""
+    store = _store(ctx)
+    result = store.supersede_record(
+        record_id=str(record_id or "").strip(),
+        session_id=ctx.deps.session_id,
+        project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
+        replacement_record_id=str(replacement_record_id or "").strip(),
+        reason=str(reason or "").strip() or None,
+        valid_until=str(valid_until or "").strip() or None,
+    )
+    return json.dumps({"ok": True, "result": result}, ensure_ascii=True, indent=2)
+
+
+def context_query(
+    ctx: RunContext[ContextDeps],
+    entity: str,
+    mode: str,
+    kind: str = "",
+    status: str = "",
+    source_session_id: str = "",
+    created_since: str = "",
+    created_until: str = "",
+    updated_since: str = "",
+    updated_until: str = "",
+    valid_at: str = "",
+    order_by: str = "created_at",
+    limit: int = 20,
+    offset: int = 0,
+    include_total: bool = False,
+) -> str:
+    """Run deterministic count/list queries over records, versions, or sessions."""
+    store = _store(ctx)
+    payload = store.query(
+        entity=str(entity or "").strip().lower(),
+        mode=str(mode or "").strip().lower(),
+        project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
+        kind=_normalize_kind(kind) or None,
+        status=_normalize_status(status) if str(status or "").strip() else None,
+        source_session_id=str(source_session_id or "").strip() or None,
+        created_since=str(created_since or "").strip() or None,
+        created_until=str(created_until or "").strip() or None,
+        updated_since=str(updated_since or "").strip() or None,
+        updated_until=str(updated_until or "").strip() or None,
+        valid_at=str(valid_at or "").strip() or None,
+        order_by=str(order_by or "created_at").strip(),
+        limit=max(1, min(int(limit), 100)),
+        offset=max(0, int(offset)),
+        include_total=bool(include_total),
+    )
+    return json.dumps(payload, ensure_ascii=True, indent=2)
 
 
 def note(ctx: RunContext[ContextDeps], findings: list[Finding]) -> str:
@@ -295,12 +422,6 @@ def note(ctx: RunContext[ContextDeps], findings: list[Finding]) -> str:
     if not findings:
         return "No findings recorded."
     ctx.deps.notes.extend(findings)
-    store = _store(ctx)
-    store.add_session_findings(
-        project_id=ctx.deps.project_identity.project_id,
-        session_id=ctx.deps.session_id,
-        findings=[finding.model_dump(mode="json") for finding in findings],
-    )
     total = len(ctx.deps.notes)
     return f"Noted {len(findings)} findings (total {total} so far)."
 

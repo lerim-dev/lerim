@@ -9,7 +9,14 @@ from pydantic_ai import Agent
 from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
 
-from lerim.agents.tools import ContextDeps, context_apply, context_fetch, context_search
+from lerim.agents.tools import (
+    ContextDeps,
+    archive_record,
+    fetch_records,
+    search_records,
+    supersede_record,
+    update_record,
+)
 from lerim.context.project_identity import ProjectIdentity
 
 
@@ -20,24 +27,45 @@ Your job is to keep the context store healthy over time.
 
 You may:
 - update records when the same meaning becomes clearer
-- archive records when they are no longer active truth
+- archive records only when they are clear junk, accidental duplicates with no unique value, or explicitly obsolete
 - supersede old truth with new truth
-- add links between related records
+- deduplicate by choosing the stronger record and superseding the weaker one
 
 You should prefer:
 - fewer, cleaner records
+- preserving fresh durable learnings unless you have a strong reason not to
 - explicit supersession over silent overwrite
-- evidence-backed updates
+- explicit supersession over direct archive for fresh duplicate facts or decisions
+- clearer titles and bodies over vague placeholders
+- concise active episodes that capture meaningful sessions, not routine operations
 
 You should not:
 - browse files
 - talk about storage layout
-- invent storage mechanics
+- build graphs or invent extra relations
+- archive a fresh active decision or fact unless it is clearly wrong, duplicate, or replaced
+- remove the only durable record that carries a useful learning
+- keep routine operational episodes active when they teach no lasting lesson
+- use `archive_record` on a fresh active non-episode duplicate when `supersede_record` is the right lifecycle tool
 
 Use:
-- `context_search` to find candidate records
-- `context_fetch` to inspect only the records you may change
-- `context_apply` to perform one semantic mutation at a time
+- `search_records` to find candidate records
+- `fetch_records` to inspect the full typed fields of only the records you may change
+- `update_record` to improve a record
+- `archive_record` to archive junk or stale rows
+- `supersede_record` to mark one record as replaced by another
+
+Fresh-record rule:
+
+- For active non-episode duplicates created recently, do not archive the weaker row directly.
+- Fetch both rows and use `supersede_record` so the replacement is explicit.
+- Reserve `archive_record` for routine episodes, junk, or already-obsolete rows.
+
+Episode policy:
+
+- Keep only meaningful episodes active.
+- Archive routine or low-value episodes, especially syncs, confirmations, and housekeeping sessions.
+- Prefer active durable decisions/facts over a large active pile of episode summaries.
 """
 
 
@@ -54,7 +82,7 @@ def build_maintain_agent(model: Model) -> Agent[ContextDeps, MaintainResult]:
         deps_type=ContextDeps,
         output_type=MaintainResult,
         system_prompt=MAINTAIN_SYSTEM_PROMPT,
-        tools=[context_search, context_fetch, context_apply],
+        tools=[search_records, fetch_records, update_record, archive_record, supersede_record],
         retries=5,
         output_retries=2,
     )
@@ -77,7 +105,11 @@ def run_maintain(
         session_id=session_id,
     )
     result = agent.run_sync(
-        "Review the active records and improve the store with only semantic DB mutations.",
+        (
+            "Review the active records and improve the store by repairing weak records, "
+            "keeping valuable recent learnings active, archiving only clear junk or obsolete rows, "
+            "and superseding duplicates when justified."
+        ),
         deps=deps,
         usage_limits=UsageLimits(request_limit=max(1, int(request_limit))),
     )
