@@ -134,11 +134,14 @@ Implementation details alone are not durable records.
 - Bad durable titles: "Review of X", "Task audit", "Session summary".
 - Good durable titles: "No raw SQL for normal Lerim agents", "Keep context and session DBs separate".
 - Durable bodies should be compact and operational.
+- Rewrite memories into neutral standalone language. A future reader should understand the memory without needing the original conversation.
 - Prefer this structure for durable records:
   1. the durable point
   2. why it matters
   3. how to apply it later
 - Do not start durable bodies with session narration like "The user asked" or "Task was".
+- Do not preserve trace-local directives, negotiation phrasing, or conversational commands inside durable records.
+- When updating an existing record, keep the durable meaning and improved rationale, but rewrite away trace-specific wording so the result reads like canonical project memory.
 - Do not copy implementation checklists, commit logs, or meeting recap prose into durable records.
 </durable_record_writing_rules>
 
@@ -446,6 +449,28 @@ Fact, preference, constraint, and reference records should usually only fill:
 <why_bad>
 - on long traces, `note` is the compression step that preserves evidence before writing
 - skipping `note` after repeated reads makes the extract flow unstable and easier to regress
+</why_bad>
+</example>
+
+<example id="8">
+<label>Update existing memory by rewriting it into canonical language</label>
+<expected_durable_extraction_count>`1 updated record`</expected_durable_extraction_count>
+<trace_snippet>
+- existing memory already says product state and queue runtime state should stay separate
+- user: "The current memory has the right idea. Tighten it. The real reason is that these states have different lifecycle and recovery semantics."
+- assistant: "Understood. Same durable decision, better rationale."
+- user: "Do not create a duplicate. Improve the existing memory so future sessions understand the boundary."
+</trace_snippet>
+<good_extraction>
+- action: `search_records`, `fetch_records`, `update_record`
+- updated decision body: `Keep product state and queue runtime state separate. **Why:** they have different lifecycle and recovery semantics and fail or recover differently. **How to apply:** persistence and recovery boundaries should preserve that separation in future designs.`
+</good_extraction>
+<bad_extraction>
+- updated decision body: `The memory is right, do not split it or create a duplicate. Keep the same rule but tighten it.`
+</bad_extraction>
+<why_bad>
+- a durable update should preserve the meaning, not the conversation around the edit
+- trace-local directives like duplicate avoidance or rewrite instructions should not appear in the final memory
 </why_bad>
 </example>
 </few_shot_examples>
