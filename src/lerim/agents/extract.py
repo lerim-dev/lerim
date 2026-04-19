@@ -82,6 +82,8 @@ Implementation details alone are not durable records.
 4. Validate candidates before any write:
    - is this reusable beyond this trace?
    - is it independent, or just another angle on the same idea?
+   - if two candidates share the same core claim, merge them into one record
+   - if one candidate is only the application rule or routing consequence of another, keep it inside the stronger record
    - is it non-derivable from code/git/current repo state?
    - is it existing-memory refinement rather than a new record?
    - if updating, did you inspect the full existing record first with `fetch_records`?
@@ -110,6 +112,7 @@ Implementation details alone are not durable records.
 - Prefer `0` or `1` durable records. Use `2` only when the trace clearly contains two independent durable learnings.
 - Single-run observations need clear cross-task scope before they become durable memory.
 - If a candidate memory is mainly about this trace's commands, files, or timeline, reject it.
+- Do not split one architectural decision into a second record just because the trace also mentions its direct application or routing rule.
 - Duplicates are worse than gaps. Skip uncertain candidates rather than spraying near-duplicates.
 </selection_calibration>
 
@@ -193,6 +196,9 @@ Fact, preference, constraint, and reference records should usually only fill:
 
     user: we are not introducing raw SQL access for product agents; keep DB rules in typed tools
     assistant: [creates decision record: do not expose raw SQL to normal product agents. Why: project invariants belong in typed tools, not prompt luck]
+
+    user: product agents should query the context store while operational sync uses the sessions store
+    assistant: [do not create a second decision record if this is only the application of an existing DB-boundary decision; keep the routing guidance inside the stronger architectural decision]
     </examples>
 </type>
 <type>
