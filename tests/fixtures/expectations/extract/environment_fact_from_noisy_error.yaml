@@ -1,0 +1,26 @@
+case: environment_fact_from_noisy_error
+summary: A noisy failure trace should produce one environment fact, not a raw error memory.
+
+expected:
+  episode_count: 1
+  durable_count: 1
+  fact_count: 1
+  must_use_tools:
+    - trace_read
+    - create_record
+  must_not_use_tools:
+    - update_record
+    - prune
+  fact_text_must_include_all:
+    - wkhtmltopdf
+    - pdf
+  fact_text_must_include_any:
+    - runtime image
+    - ci
+    - installed
+    - dependency
+  fact_text_must_not_include:
+    - oserror
+    - temporary debug print
+    - retried command
+    - helper
