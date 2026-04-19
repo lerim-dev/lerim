@@ -112,6 +112,7 @@ def test_system_prompt_mentions_simplified_flow() -> None:
     assert "create_record" in SYSTEM_PROMPT
     assert "update_record" in SYSTEM_PROMPT
     assert "graph links" in SYSTEM_PROMPT.lower()
+    assert "if you need more than one `trace_read`" in SYSTEM_PROMPT.lower()
 
 
 def test_run_extraction_signature_matches_db_inputs() -> None:

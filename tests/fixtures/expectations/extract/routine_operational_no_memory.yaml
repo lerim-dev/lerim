@@ -1,0 +1,18 @@
+case: routine_operational_no_memory
+summary: Routine maintenance should create only an archived episode and no durable records.
+
+expected:
+  episode_count: 1
+  durable_count: 0
+  must_use_tools:
+    - trace_read
+    - create_record
+  must_not_use_tools:
+    - update_record
+    - fetch_records
+    - prune
+  episode_text_must_include_any:
+    - routine
+    - cleanup
+    - lint
+    - formatting
