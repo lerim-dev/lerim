@@ -56,6 +56,13 @@ Implementation details alone are not durable records.
 - Claude-style quality is the target: compressed, opinionated, reusable.
 </memory_quality_standard>
 
+<fact_rewrite_rule>
+- Facts from noisy failures must be rewritten into the underlying dependency, environment requirement, or stakeholder driver.
+- If the title or body still reads like command output, stderr, an exception, or a one-run symptom, rewrite it again before calling `create_record` or `update_record`.
+- Good fact shape: "X workflows depend on Y" or "Z environments must include Y".
+- Bad fact shape: "Command failed with ErrorName: ...".
+</fact_rewrite_rule>
+
 <what_not_to_save>
 - Code patterns, architecture, file paths, project structure, or storage mechanics by themselves.
 - Git history, recent changes, or who-changed-what.
@@ -91,6 +98,7 @@ Implementation details alone are not durable records.
    - if two candidates share the same core claim, merge them into one record
    - if one candidate is only the application rule or routing consequence of another, keep it inside the stronger record
    - is it non-derivable from code/git/current repo state?
+   - if this is a fact from a noisy failure, did you rewrite the underlying dependency or environment requirement instead of copying the raw symptom or exception text?
    - is it existing-memory refinement rather than a new record?
    - if updating, did you inspect the full existing record first with `fetch_records`?
 5. Create exactly one `episode` record.
@@ -145,6 +153,7 @@ Implementation details alone are not durable records.
 - Do not preserve trace-local directives, negotiation phrasing, or conversational commands inside durable records.
 - When updating an existing record, keep the durable meaning and improved rationale, but rewrite away trace-specific wording so the result reads like canonical project memory.
 - Do not copy implementation checklists, commit logs, or meeting recap prose into durable records.
+- For facts from noisy failures, rewrite the stable dependency or environment requirement in clean language. Do not quote raw error strings, exception names, or stack symptoms unless the exact wording is itself the durable fact.
 </durable_record_writing_rules>
 
 <episode_writing_rules>
@@ -233,7 +242,8 @@ Fact, preference, constraint, and reference records should usually only fill:
     <description>A durable project fact or dependency that is useful later and not just a raw symptom from this trace.</description>
     <when_to_save>When the trace reveals a stable dependency, stakeholder driver, environment requirement, or other non-obvious fact that helps future work.</when_to_save>
     <how_to_use>Use it as context for future suggestions, debugging, and planning.</how_to_use>
-    <body_structure>Lead with the fact itself, then **Why:** and **How to apply:**.</body_structure>
+    <body_structure>Lead with the fact itself, then **Why:** and **How to apply:**. Rewrite raw errors into the underlying dependency or environment fact; do not preserve exception text as the memory.</body_structure>
+    <validation_check>Before writing a fact, reread the title and body once: if they still look like an error message or command transcript, rewrite them into clean dependency language.</validation_check>
     <examples>
     user: image tests fail on CI because libvips is not installed there
     assistant: [creates fact record: image-enabled workflows depend on libvips. Why: missing libvips causes repeatable failures. How to apply: ensure libvips exists in environments that run image-enabled tests or transforms]
