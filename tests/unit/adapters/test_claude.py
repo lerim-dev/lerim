@@ -13,7 +13,7 @@ from lerim.adapters.claude import (
     iter_sessions,
 )
 
-FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "traces"
+FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures" / "traces" / "unit"
 
 
 def _write_claude_jsonl(path: Path, entries: list[dict]) -> Path:
@@ -56,9 +56,17 @@ def test_iter_sessions_skips_known_ids(tmp_path):
     """iter_sessions skips sessions whose run_id is already known."""
     # Sessions need >= 6 conversation turns to pass the min-turn filter
     _turns = [
-        {"type": "user", "message": {"content": f"msg {i}"}, "timestamp": "2026-02-20T10:00:00Z"}
-        if i % 2 == 0 else
-        {"type": "assistant", "message": {"content": f"reply {i}"}, "timestamp": "2026-02-20T10:00:00Z"}
+        {
+            "type": "user",
+            "message": {"content": f"msg {i}"},
+            "timestamp": "2026-02-20T10:00:00Z",
+        }
+        if i % 2 == 0
+        else {
+            "type": "assistant",
+            "message": {"content": f"reply {i}"},
+            "timestamp": "2026-02-20T10:00:00Z",
+        }
         for i in range(8)
     ]
     _write_claude_jsonl(tmp_path / "known.jsonl", _turns)

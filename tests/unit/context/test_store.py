@@ -1,0 +1,1399 @@
+"""Unit tests for src/lerim/context/store.py."""
+
+from __future__ import annotations
+
+import sqlite3
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock
+
+import pytest
+
+from lerim.context.store import (
+    ALLOWED_CHANGE_KINDS,
+    ALLOWED_KINDS,
+    ALLOWED_STATUSES,
+    MAX_DURABLE_BODY_CHARS,
+    MAX_EPISODE_BODY_CHARS,
+    MAX_EPISODE_OUTCOMES_CHARS,
+    MAX_EPISODE_USER_INTENT_CHARS,
+    MAX_EPISODE_WHAT_HAPPENED_CHARS,
+    MAX_RECORD_TITLE_CHARS,
+    QUERY_ENTITY_ALIASES,
+    QUERY_MODE_ALIASES,
+    QUERY_ORDER_FIELDS,
+    RRF_K,
+    SCHEMA_VERSION,
+    ContextStore,
+    _new_id,
+    _normalize_optional_text,
+    _parse_iso_utc,
+    _utc_now,
+)
+
+
+@pytest.fixture
+def mock_embeddings(monkeypatch):
+    provider = MagicMock()
+    provider.embedding_dims = 384
+    provider.model_id = "test-model"
+    provider.embed_document.return_value = [0.1] * 384
+    provider.embed_query.return_value = [0.1] * 384
+    monkeypatch.setattr("lerim.context.store.get_embedding_provider", lambda: provider)
+    return provider
+
+
+@pytest.fixture
+def mock_store(tmp_path, mock_embeddings):
+    db_path = tmp_path / "context.sqlite3"
+    s = ContextStore(db_path)
+    s.initialize()
+    return s
+
+
+@pytest.fixture
+def project_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "lerim.config.project_scope.git_root_for",
+        lambda _p=None: tmp_path,
+    )
+    from lerim.context.project_identity import resolve_project_identity
+
+    identity = resolve_project_identity(tmp_path)
+    return identity
+
+
+@pytest.fixture
+def mock_seeded(mock_store, project_id):
+    mock_store.register_project(project_id)
+    mock_store.upsert_session(
+        project_id=project_id.project_id,
+        session_id="sess_test",
+        agent_type="test",
+        source_trace_ref="test.jsonl",
+        repo_path=str(project_id.repo_path),
+        cwd=str(project_id.repo_path),
+        started_at="2026-01-01T00:00:00Z",
+        model_name="test-model",
+        instructions_text=None,
+        prompt_text=None,
+    )
+    return mock_store, project_id.project_id
+
+
+def _make_decision(store, project_id, **overrides):
+    defaults = dict(
+        project_id=project_id,
+        session_id="sess_test",
+        kind="decision",
+        title="Use SQLite",
+        body="One global context database.",
+        decision="Use SQLite",
+        why="Simplicity and reliability.",
+    )
+    defaults.update(overrides)
+    return store.create_record(**defaults)
+
+
+def _make_episode(store, project_id, **overrides):
+    defaults = dict(
+        project_id=project_id,
+        session_id="sess_test",
+        kind="episode",
+        title="Debugging session",
+        body="Found and fixed a race condition.",
+        user_intent="Fix the flaky test",
+        what_happened="Identified race condition in worker pool",
+    )
+    defaults.update(overrides)
+    return store.create_record(**defaults)
+
+
+class TestUtcNow:
+    def test_returns_iso_string(self):
+        result = _utc_now()
+        assert isinstance(result, str)
+        datetime.fromisoformat(result)
+
+    def test_has_utc_timezone(self):
+        parsed = datetime.fromisoformat(_utc_now())
+        assert parsed.tzinfo is not None
+
+
+class TestParseIsoUtc:
+    def test_valid_iso_string(self):
+        result = _parse_iso_utc("2026-01-15T10:30:00+00:00")
+        assert result is not None
+        assert result.year == 2026
+        assert result.hour == 10
+
+    def test_none_returns_none(self):
+        assert _parse_iso_utc(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert _parse_iso_utc("") is None
+
+    def test_whitespace_returns_none(self):
+        assert _parse_iso_utc("   ") is None
+
+    def test_naive_datetime_gets_utc(self):
+        result = _parse_iso_utc("2026-03-01T12:00:00")
+        assert result is not None
+        assert result.tzinfo is not None
+        assert result.utcoffset() == timedelta(0)
+
+    def test_invalid_string_returns_none(self):
+        assert _parse_iso_utc("not-a-date") is None
+
+
+class TestNewId:
+    def test_has_prefix(self):
+        assert _new_id("rec").startswith("rec_")
+
+    def test_has_12_hex_chars_after_prefix(self):
+        parts = _new_id("rec").split("_", 1)
+        assert len(parts) == 2
+        assert len(parts[1]) == 12
+
+    def test_generates_unique_ids(self):
+        ids = {_new_id("rec") for _ in range(100)}
+        assert len(ids) == 100
+
+
+class TestNormalizeOptionalText:
+    def test_strips_whitespace(self):
+        assert _normalize_optional_text("  hello  ") == "hello"
+
+    def test_none_returns_none(self):
+        assert _normalize_optional_text(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert _normalize_optional_text("") is None
+
+    def test_whitespace_only_returns_none(self):
+        assert _normalize_optional_text("   ") is None
+
+    def test_integer_becomes_string(self):
+        assert _normalize_optional_text(42) == "42"
+
+
+class TestConstants:
+    def test_allowed_kinds(self):
+        assert ALLOWED_KINDS == (
+            "decision",
+            "preference",
+            "constraint",
+            "fact",
+            "reference",
+            "episode",
+        )
+
+    def test_allowed_statuses(self):
+        assert ALLOWED_STATUSES == ("active", "archived")
+
+    def test_allowed_change_kinds(self):
+        assert ALLOWED_CHANGE_KINDS == (
+            "create",
+            "update",
+            "archive",
+            "supersede",
+            "migrate",
+        )
+
+    def test_max_record_title_chars(self):
+        assert MAX_RECORD_TITLE_CHARS == 120
+
+    def test_max_episode_body_chars(self):
+        assert MAX_EPISODE_BODY_CHARS == 420
+
+    def test_max_durable_body_chars(self):
+        assert MAX_DURABLE_BODY_CHARS == 850
+
+    def test_max_episode_user_intent_chars(self):
+        assert MAX_EPISODE_USER_INTENT_CHARS == 180
+
+    def test_max_episode_what_happened_chars(self):
+        assert MAX_EPISODE_WHAT_HAPPENED_CHARS == 260
+
+    def test_max_episode_outcomes_chars(self):
+        assert MAX_EPISODE_OUTCOMES_CHARS == 180
+
+    def test_query_entity_aliases(self):
+        assert QUERY_ENTITY_ALIASES["memory"] == "records"
+        assert QUERY_ENTITY_ALIASES["memories"] == "records"
+        assert QUERY_ENTITY_ALIASES["learning"] == "records"
+        assert QUERY_ENTITY_ALIASES["learnings"] == "records"
+        assert QUERY_ENTITY_ALIASES["record"] == "records"
+        assert QUERY_ENTITY_ALIASES["version"] == "versions"
+        assert QUERY_ENTITY_ALIASES["session"] == "sessions"
+
+    def test_query_mode_aliases(self):
+        assert QUERY_MODE_ALIASES["list"] == "list"
+        assert QUERY_MODE_ALIASES["count"] == "count"
+        assert QUERY_MODE_ALIASES["counts"] == "count"
+
+    def test_query_order_fields(self):
+        assert QUERY_ORDER_FIELDS == ("created_at", "updated_at", "valid_from")
+
+    def test_rrf_k(self):
+        assert RRF_K == 60
+
+
+class TestContextStoreInit:
+    def test_creates_parent_dir(self, tmp_path):
+        db_path = tmp_path / "nested" / "dir" / "test.db"
+        ContextStore(db_path)
+        assert db_path.parent.exists()
+
+    def test_resolves_path(self, tmp_path):
+        store = ContextStore(tmp_path / "test.db")
+        assert store.db_path.is_absolute()
+
+    def test_connect_yields_connection(self, mock_store):
+        with mock_store.connect() as conn:
+            assert isinstance(conn, sqlite3.Connection)
+
+    def test_connect_enables_foreign_keys(self, mock_store):
+        with mock_store.connect() as conn:
+            fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        assert fk == 1
+
+    def test_initialize_creates_tables(self, mock_store):
+        with mock_store.connect() as conn:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+        for expected in (
+            "records",
+            "record_versions",
+            "projects",
+            "sessions",
+            "schema_meta",
+        ):
+            assert expected in tables
+
+    def test_initialize_sets_schema_version(self, mock_store):
+        with mock_store.connect() as conn:
+            ver = conn.execute(
+                "SELECT value FROM schema_meta WHERE key='schema_version'"
+            ).fetchone()
+        assert ver is not None and ver[0] == SCHEMA_VERSION
+
+    def test_initialize_idempotent(self, mock_store):
+        mock_store.initialize()
+        mock_store.initialize()
+        with mock_store.connect() as conn:
+            n = conn.execute(
+                "SELECT COUNT(*) FROM schema_meta WHERE key='schema_version'"
+            ).fetchone()[0]
+        assert n == 1
+
+    def test_validate_schema_detects_missing_columns(self, tmp_path, mock_embeddings):
+        db_path = tmp_path / "bad.db"
+        with sqlite3.connect(db_path) as raw:
+            raw.execute(
+                "CREATE TABLE records ("
+                "record_id TEXT PRIMARY KEY, project_id TEXT, kind TEXT, "
+                "status TEXT, created_at TEXT, updated_at TEXT, "
+                "valid_from TEXT, source_session_id TEXT)"
+            )
+            raw.commit()
+        store = ContextStore(db_path)
+        with pytest.raises(
+            sqlite3.OperationalError, match="context schema incompatible"
+        ):
+            store.initialize()
+
+    def test_repair_archived_validity_fills_valid_until(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        with store.connect() as conn:
+            conn.execute(
+                "UPDATE records SET status='archived', valid_until=NULL WHERE record_id=?",
+                (rec["record_id"],),
+            )
+        store.initialize()
+        with store.connect() as conn:
+            vu = conn.execute(
+                "SELECT valid_until FROM records WHERE record_id=?",
+                (rec["record_id"],),
+            ).fetchone()["valid_until"]
+        assert vu is not None
+
+
+class TestRegisterProject:
+    def test_register_project_inserts_row(self, mock_store, project_id):
+        result = mock_store.register_project(project_id)
+        assert result["project_id"] == project_id.project_id
+        assert result["project_slug"] == project_id.project_slug
+        with mock_store.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM projects WHERE project_id=?",
+                (project_id.project_id,),
+            ).fetchone()
+        assert row is not None
+        assert row["project_slug"] == project_id.project_slug
+
+    def test_register_project_upsert_updates(self, mock_store, project_id):
+        mock_store.register_project(project_id)
+        updated = project_id.__class__(
+            project_id=project_id.project_id,
+            project_slug="new-slug",
+            repo_path=project_id.repo_path,
+        )
+        result = mock_store.register_project(updated)
+        assert result["project_slug"] == "new-slug"
+
+    def test_upsert_session_inserts_row(self, mock_store, project_id):
+        mock_store.register_project(project_id)
+        result = mock_store.upsert_session(
+            project_id=project_id.project_id,
+            session_id="sess_001",
+            agent_type="codex",
+            source_trace_ref="trace.jsonl",
+            repo_path="/tmp/repo",
+            cwd="/tmp/repo",
+            started_at="2026-01-01T00:00:00Z",
+            model_name="gpt-4",
+            instructions_text=None,
+            prompt_text=None,
+        )
+        assert result["session_id"] == "sess_001"
+        with mock_store.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE session_id=?", ("sess_001",)
+            ).fetchone()
+        assert row is not None
+        assert row["agent_type"] == "codex"
+
+    def test_upsert_session_updates_existing(self, mock_store, project_id):
+        mock_store.register_project(project_id)
+        mock_store.upsert_session(
+            project_id=project_id.project_id,
+            session_id="sess_001",
+            agent_type="codex",
+            source_trace_ref="old.jsonl",
+            repo_path=None,
+            cwd=None,
+            started_at=None,
+            model_name=None,
+            instructions_text=None,
+            prompt_text=None,
+        )
+        mock_store.upsert_session(
+            project_id=project_id.project_id,
+            session_id="sess_001",
+            agent_type="claude",
+            source_trace_ref="new.jsonl",
+            repo_path=None,
+            cwd=None,
+            started_at=None,
+            model_name=None,
+            instructions_text=None,
+            prompt_text=None,
+        )
+        with mock_store.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE session_id=?", ("sess_001",)
+            ).fetchone()
+        assert row["agent_type"] == "claude"
+        assert row["source_trace_ref"] == "new.jsonl"
+
+
+class TestCreateRecord:
+    def test_create_decision(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        assert rec["kind"] == "decision"
+        assert rec["decision"] == "Use SQLite"
+        assert rec["why"] == "Simplicity and reliability."
+        assert rec["status"] == "active"
+
+    def test_create_preference(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="preference",
+            title="Prefer explicit errors",
+            body="Always raise explicit exceptions.",
+        )
+        assert rec["kind"] == "preference"
+        assert rec["decision"] is None
+        assert rec["user_intent"] is None
+
+    def test_create_constraint(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="constraint",
+            title="No raw SQL",
+            body="Never expose raw SQL as a tool.",
+        )
+        assert rec["kind"] == "constraint"
+
+    def test_create_fact(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="fact",
+            title="Python 3.12 required",
+            body="Runtime uses features from 3.12.",
+        )
+        assert rec["kind"] == "fact"
+
+    def test_create_reference(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="reference",
+            title="sqlite-vec docs",
+            body="Virtual table API for vector search.",
+        )
+        assert rec["kind"] == "reference"
+
+    def test_create_episode(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_episode(store, pid)
+        assert rec["kind"] == "episode"
+        assert rec["user_intent"] == "Fix the flaky test"
+        assert rec["what_happened"] == "Identified race condition in worker pool"
+
+    def test_invalid_kind(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="invalid_kind"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="bad",
+                title="T",
+                body="B",
+            )
+
+    def test_invalid_status(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="invalid_status"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="fact",
+                title="T",
+                body="B",
+                status="pending",
+            )
+
+    def test_title_required(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="title_required"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="fact",
+                title="",
+                body="B",
+            )
+
+    def test_body_required(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="body_required"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="fact",
+                title="T",
+                body="  ",
+            )
+
+    def test_title_too_long(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="title_too_long"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="fact",
+                title="x" * (MAX_RECORD_TITLE_CHARS + 1),
+                body="B",
+            )
+
+    def test_episode_body_too_long(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="episode_body_too_long"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="episode",
+                title="T",
+                body="b" * (MAX_EPISODE_BODY_CHARS + 1),
+                user_intent="i",
+                what_happened="h",
+            )
+
+    def test_durable_body_too_long(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="record_body_too_long"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="fact",
+                title="T",
+                body="b" * (MAX_DURABLE_BODY_CHARS + 1),
+            )
+
+    def test_episode_user_intent_too_long(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="episode_user_intent_too_long"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="episode",
+                title="T",
+                body="B",
+                user_intent="u" * (MAX_EPISODE_USER_INTENT_CHARS + 1),
+                what_happened="h",
+            )
+
+    def test_episode_what_happened_too_long(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="episode_what_happened_too_long"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="episode",
+                title="T",
+                body="B",
+                user_intent="i",
+                what_happened="w" * (MAX_EPISODE_WHAT_HAPPENED_CHARS + 1),
+            )
+
+    def test_episode_outcomes_too_long(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="episode_outcomes_too_long"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="episode",
+                title="T",
+                body="B",
+                user_intent="i",
+                what_happened="h",
+                outcomes="o" * (MAX_EPISODE_OUTCOMES_CHARS + 1),
+            )
+
+    def test_decision_requires_decision_and_why(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="decision_requires_decision_and_why"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="decision",
+                title="T",
+                body="B",
+                decision="yes",
+                why=None,
+            )
+
+    def test_decision_requires_both_decision_and_why(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="decision_requires_decision_and_why"):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="decision",
+                title="T",
+                body="B",
+                decision=None,
+                why="reason",
+            )
+
+    def test_episode_requires_user_intent_and_what_happened(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(
+            ValueError, match="episode_requires_user_intent_and_what_happened"
+        ):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="episode",
+                title="T",
+                body="B",
+                user_intent=None,
+                what_happened=None,
+            )
+
+    def test_episode_requires_session_id(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="episode_requires_session_id"):
+            store.create_record(
+                project_id=pid,
+                session_id=None,
+                kind="episode",
+                title="T",
+                body="B",
+                user_intent="i",
+                what_happened="h",
+            )
+
+    def test_duplicate_episode_for_session(self, mock_seeded):
+        store, pid = mock_seeded
+        _make_episode(store, pid)
+        with pytest.raises(ValueError, match="duplicate_episode_for_session"):
+            _make_episode(store, pid)
+
+    def test_creates_first_version(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        assert "versions" in rec
+        assert len(rec["versions"]) == 1
+        assert rec["versions"][0]["version_no"] == 1
+        assert rec["versions"][0]["change_kind"] == "create"
+
+    def test_custom_record_id(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="fact",
+            title="T",
+            body="B",
+            record_id="rec_custom_123",
+        )
+        assert rec["record_id"] == "rec_custom_123"
+
+    def test_case_insensitive_kind_and_status(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="DECISION",
+            title="T",
+            body="B",
+            status="ACTIVE",
+            decision="D",
+            why="W",
+        )
+        assert rec["kind"] == "decision"
+        assert rec["status"] == "active"
+
+
+class TestUpdateRecord:
+    def test_partial_title_update(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        updated = store.update_record(
+            record_id=rec["record_id"],
+            session_id="sess_test",
+            project_ids=[pid],
+            changes={"title": "Updated title"},
+        )
+        assert updated["title"] == "Updated title"
+        assert updated["body"] == rec["body"]
+
+    def test_appends_version(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        updated = store.update_record(
+            record_id=rec["record_id"],
+            session_id="sess_test",
+            project_ids=[pid],
+            changes={"title": "V2 title"},
+        )
+        assert len(updated["versions"]) == 2
+        vs = sorted(updated["versions"], key=lambda v: v["version_no"])
+        assert vs[0]["version_no"] == 1
+        assert vs[0]["change_kind"] == "create"
+        assert vs[1]["version_no"] == 2
+        assert vs[1]["change_kind"] == "update"
+        assert vs[1]["title"] == "V2 title"
+
+    def test_not_found_raises(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="record_not_found"):
+            store.update_record(
+                record_id="rec_nonexistent",
+                session_id=None,
+                project_ids=[pid],
+                changes={"title": "X"},
+            )
+
+    def test_out_of_scope_raises(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        with pytest.raises(ValueError, match="record_out_of_scope"):
+            store.update_record(
+                record_id=rec["record_id"],
+                session_id=None,
+                project_ids=["proj_other"],
+                changes={"title": "X"},
+            )
+
+    def test_none_project_ids_skips_scope_check(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        updated = store.update_record(
+            record_id=rec["record_id"],
+            session_id="sess_test",
+            project_ids=None,
+            changes={"title": "New title"},
+        )
+        assert updated["title"] == "New title"
+
+    def test_change_reason_recorded(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        updated = store.update_record(
+            record_id=rec["record_id"],
+            session_id="sess_test",
+            project_ids=[pid],
+            changes={"title": "V2"},
+            change_reason="correcting typo",
+        )
+        v2 = [v for v in updated["versions"] if v["version_no"] == 2][0]
+        assert v2["change_reason"] == "correcting typo"
+
+
+class TestArchiveRecord:
+    def test_recent_active_non_episode_raises(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        with pytest.raises(ValueError, match="refuse_archive_recent_active_record"):
+            store.archive_record(
+                record_id=rec["record_id"],
+                session_id=None,
+                project_ids=[pid],
+            )
+
+    def test_episode_exempt_from_fresh_protection(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_episode(store, pid)
+        result = store.archive_record(
+            record_id=rec["record_id"],
+            session_id=None,
+            project_ids=[pid],
+        )
+        assert result["status"] == "archived"
+
+    def test_superseded_exempt_from_fresh_protection(self, mock_seeded):
+        store, pid = mock_seeded
+        rec_a = _make_decision(store, pid)
+        rec_b = store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="fact",
+            title="Replacement",
+            body="B",
+        )
+        store.supersede_record(
+            record_id=rec_a["record_id"],
+            session_id=None,
+            project_ids=[pid],
+            replacement_record_id=rec_b["record_id"],
+        )
+        result = store.archive_record(
+            record_id=rec_a["record_id"],
+            session_id=None,
+            project_ids=[pid],
+        )
+        assert result["status"] == "archived"
+
+    def test_not_found_raises(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="record_not_found"):
+            store.archive_record(
+                record_id="rec_missing",
+                session_id=None,
+                project_ids=[pid],
+            )
+
+    def test_old_record_archives_ok(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        with store.connect() as conn:
+            conn.execute(
+                "UPDATE records SET created_at=? WHERE record_id=?",
+                (old_ts, rec["record_id"]),
+            )
+        result = store.archive_record(
+            record_id=rec["record_id"],
+            session_id=None,
+            project_ids=[pid],
+        )
+        assert result["status"] == "archived"
+        assert result["valid_until"] is not None
+
+
+class TestSupersedeRecord:
+    def test_happy_path(self, mock_seeded):
+        store, pid = mock_seeded
+        rec_a = _make_decision(store, pid)
+        rec_b = store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="decision",
+            title="New decision",
+            body="B",
+            decision="D",
+            why="W",
+        )
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        with store.connect() as conn:
+            conn.execute(
+                "UPDATE records SET created_at=? WHERE record_id=?",
+                (old_ts, rec_a["record_id"]),
+            )
+        result = store.supersede_record(
+            record_id=rec_a["record_id"],
+            session_id=None,
+            project_ids=[pid],
+            replacement_record_id=rec_b["record_id"],
+        )
+        assert result["superseded_by_record_id"] == rec_b["record_id"]
+        assert result["valid_until"] is not None
+
+    def test_replacement_not_found_raises(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        with pytest.raises(ValueError, match="replacement_record_not_found"):
+            store.supersede_record(
+                record_id=rec["record_id"],
+                session_id=None,
+                project_ids=[pid],
+                replacement_record_id="rec_ghost",
+            )
+
+
+class TestFetchRecord:
+    def test_found(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        fetched = store.fetch_record(rec["record_id"])
+        assert fetched is not None
+        assert fetched["record_id"] == rec["record_id"]
+
+    def test_not_found(self, mock_seeded):
+        store, pid = mock_seeded
+        assert store.fetch_record("rec_missing") is None
+
+    def test_with_versions(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        fetched = store.fetch_record(rec["record_id"], include_versions=True)
+        assert "versions" in fetched
+        assert len(fetched["versions"]) >= 1
+
+    def test_without_versions(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        fetched = store.fetch_record(rec["record_id"], include_versions=False)
+        assert "versions" not in fetched
+
+    def test_scope_filter(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        assert store.fetch_record(rec["record_id"], project_ids=[pid]) is not None
+        assert store.fetch_record(rec["record_id"], project_ids=["proj_other"]) is None
+
+
+class TestQuery:
+    def test_records_list(self, mock_seeded):
+        store, pid = mock_seeded
+        _make_decision(store, pid)
+        result = store.query(entity="records", mode="list", project_ids=[pid])
+        assert result["entity"] == "records"
+        assert result["mode"] == "list"
+        assert result["count"] >= 1
+        assert len(result["rows"]) >= 1
+
+    def test_records_count(self, mock_seeded):
+        store, pid = mock_seeded
+        _make_decision(store, pid)
+        result = store.query(entity="records", mode="count", project_ids=[pid])
+        assert result["entity"] == "records"
+        assert result["mode"] == "count"
+        assert result["count"] >= 1
+
+    def test_entity_alias_memory(self, mock_seeded):
+        store, pid = mock_seeded
+        result = store.query(entity="memory", mode="list", project_ids=[pid])
+        assert result["entity"] == "records"
+
+    def test_entity_alias_learning(self, mock_seeded):
+        store, pid = mock_seeded
+        result = store.query(entity="learning", mode="list", project_ids=[pid])
+        assert result["entity"] == "records"
+
+    def test_mode_alias_counts(self, mock_seeded):
+        store, pid = mock_seeded
+        result = store.query(entity="records", mode="counts", project_ids=[pid])
+        assert result["mode"] == "count"
+
+    def test_invalid_entity_raises(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="invalid_query_entity"):
+            store.query(entity="bogus", mode="list", project_ids=[pid])
+
+    def test_invalid_mode_raises(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="invalid_query_mode"):
+            store.query(entity="records", mode="bogus", project_ids=[pid])
+
+    def test_invalid_order_raises(self, mock_seeded):
+        store, pid = mock_seeded
+        with pytest.raises(ValueError, match="invalid_query_order"):
+            store.query(
+                entity="records", mode="list", project_ids=[pid], order_by="bad"
+            )
+
+    def test_sessions_list(self, mock_seeded):
+        store, pid = mock_seeded
+        result = store.query(entity="sessions", mode="list", project_ids=[pid])
+        assert result["entity"] == "sessions"
+        assert len(result["rows"]) >= 1
+
+    def test_versions_list(self, mock_seeded):
+        store, pid = mock_seeded
+        _make_decision(store, pid)
+        result = store.query(entity="versions", mode="list", project_ids=[pid])
+        assert result["entity"] == "versions"
+        assert result["count"] >= 1
+
+    def test_pagination(self, mock_seeded):
+        store, pid = mock_seeded
+        for i in range(5):
+            store.create_record(
+                project_id=pid,
+                session_id="sess_test",
+                kind="fact",
+                title=f"Fact {i}",
+                body=f"Body {i}",
+            )
+        p1 = store.query(
+            entity="records", mode="list", project_ids=[pid], limit=2, offset=0
+        )
+        p2 = store.query(
+            entity="records", mode="list", project_ids=[pid], limit=2, offset=2
+        )
+        assert len(p1["rows"]) == 2
+        assert len(p2["rows"]) == 2
+        assert {r["record_id"] for r in p1["rows"]}.isdisjoint(
+            {r["record_id"] for r in p2["rows"]}
+        )
+
+    def test_kind_filter(self, mock_seeded):
+        store, pid = mock_seeded
+        _make_decision(store, pid)
+        store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="fact",
+            title="A fact",
+            body="B",
+        )
+        result = store.query(
+            entity="records", mode="list", project_ids=[pid], kind="decision"
+        )
+        assert all(r["kind"] == "decision" for r in result["rows"])
+
+    def test_status_filter(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_decision(store, pid)
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        with store.connect() as conn:
+            conn.execute(
+                "UPDATE records SET created_at=? WHERE record_id=?",
+                (old_ts, rec["record_id"]),
+            )
+        store.archive_record(
+            record_id=rec["record_id"], session_id=None, project_ids=[pid]
+        )
+        result = store.query(
+            entity="records", mode="list", project_ids=[pid], status="archived"
+        )
+        assert all(r["status"] == "archived" for r in result["rows"])
+
+    def test_include_total(self, mock_seeded):
+        store, pid = mock_seeded
+        _make_decision(store, pid)
+        result = store.query(
+            entity="records",
+            mode="list",
+            project_ids=[pid],
+            include_total=True,
+        )
+        assert result["total"] is not None
+        assert result["total"] >= 1
+
+    def test_sessions_count(self, mock_seeded):
+        store, pid = mock_seeded
+        result = store.query(entity="sessions", mode="count", project_ids=[pid])
+        assert result["entity"] == "sessions"
+        assert result["count"] >= 1
+
+    def test_versions_count(self, mock_seeded):
+        store, pid = mock_seeded
+        _make_decision(store, pid)
+        result = store.query(entity="versions", mode="count", project_ids=[pid])
+        assert result["entity"] == "versions"
+        assert result["count"] >= 1
+
+
+class TestNormalizeRecordPayload:
+    def _call(self, **kw):
+        defaults = dict(
+            kind="fact",
+            title="Title",
+            body="Body",
+            status="active",
+            source_session_id=None,
+            created_at=_utc_now(),
+            updated_at=_utc_now(),
+            valid_from=_utc_now(),
+            valid_until=None,
+            superseded_by_record_id=None,
+            decision=None,
+            why=None,
+            alternatives=None,
+            consequences=None,
+            user_intent=None,
+            what_happened=None,
+            outcomes=None,
+        )
+        defaults.update(kw)
+        store = ContextStore("/dev/null")
+        return store._normalize_record_payload(**defaults)
+
+    def test_valid_decision(self):
+        p = self._call(
+            kind="decision", decision="D", why="W", alternatives="A", consequences="C"
+        )
+        assert p["kind"] == "decision"
+        assert p["decision"] == "D"
+        assert p["why"] == "W"
+        assert p["alternatives"] == "A"
+        assert p["consequences"] == "C"
+        assert p["user_intent"] is None
+
+    def test_valid_episode(self):
+        p = self._call(
+            kind="episode",
+            source_session_id="sess_1",
+            user_intent="intent",
+            what_happened="happened",
+            outcomes="result",
+        )
+        assert p["kind"] == "episode"
+        assert p["user_intent"] == "intent"
+        assert p["what_happened"] == "happened"
+        assert p["outcomes"] == "result"
+        assert p["decision"] is None
+
+    def test_valid_non_episode_non_decision(self):
+        p = self._call(kind="fact")
+        assert p["decision"] is None
+        assert p["why"] is None
+        assert p["alternatives"] is None
+        assert p["consequences"] is None
+        assert p["user_intent"] is None
+        assert p["what_happened"] is None
+        assert p["outcomes"] is None
+
+    def test_invalid_kind(self):
+        with pytest.raises(ValueError, match="invalid_kind"):
+            self._call(kind="bogus")
+
+    def test_invalid_status(self):
+        with pytest.raises(ValueError, match="invalid_status"):
+            self._call(status="pending")
+
+    def test_title_required(self):
+        with pytest.raises(ValueError, match="title_required"):
+            self._call(title="")
+
+    def test_body_required(self):
+        with pytest.raises(ValueError, match="body_required"):
+            self._call(body="  ")
+
+    def test_title_too_long(self):
+        with pytest.raises(ValueError, match="title_too_long"):
+            self._call(title="x" * (MAX_RECORD_TITLE_CHARS + 1))
+
+    def test_durable_body_too_long(self):
+        with pytest.raises(ValueError, match="record_body_too_long"):
+            self._call(kind="fact", body="b" * (MAX_DURABLE_BODY_CHARS + 1))
+
+    def test_episode_body_too_long(self):
+        with pytest.raises(ValueError, match="episode_body_too_long"):
+            self._call(kind="episode", body="b" * (MAX_EPISODE_BODY_CHARS + 1))
+
+    def test_episode_user_intent_too_long(self):
+        with pytest.raises(ValueError, match="episode_user_intent_too_long"):
+            self._call(
+                kind="episode",
+                user_intent="u" * (MAX_EPISODE_USER_INTENT_CHARS + 1),
+                what_happened="h",
+            )
+
+    def test_episode_what_happened_too_long(self):
+        with pytest.raises(ValueError, match="episode_what_happened_too_long"):
+            self._call(
+                kind="episode",
+                user_intent="i",
+                what_happened="w" * (MAX_EPISODE_WHAT_HAPPENED_CHARS + 1),
+            )
+
+    def test_episode_outcomes_too_long(self):
+        with pytest.raises(ValueError, match="episode_outcomes_too_long"):
+            self._call(
+                kind="episode",
+                user_intent="i",
+                what_happened="h",
+                outcomes="o" * (MAX_EPISODE_OUTCOMES_CHARS + 1),
+            )
+
+    def test_decision_missing_why(self):
+        with pytest.raises(ValueError, match="decision_requires_decision_and_why"):
+            self._call(kind="decision", decision="D", why=None)
+
+    def test_decision_missing_decision(self):
+        with pytest.raises(ValueError, match="decision_requires_decision_and_why"):
+            self._call(kind="decision", decision=None, why="W")
+
+    def test_episode_missing_session_id(self):
+        with pytest.raises(ValueError, match="episode_requires_session_id"):
+            self._call(
+                kind="episode",
+                source_session_id=None,
+                user_intent="i",
+                what_happened="h",
+            )
+
+    def test_episode_missing_user_intent(self):
+        with pytest.raises(
+            ValueError, match="episode_requires_user_intent_and_what_happened"
+        ):
+            self._call(
+                kind="episode",
+                source_session_id="sess_1",
+                user_intent=None,
+                what_happened="h",
+            )
+
+    def test_episode_missing_what_happened(self):
+        with pytest.raises(
+            ValueError, match="episode_requires_user_intent_and_what_happened"
+        ):
+            self._call(
+                kind="episode",
+                source_session_id="sess_1",
+                user_intent="i",
+                what_happened=None,
+            )
+
+    def test_non_decision_clears_decision_fields(self):
+        p = self._call(
+            kind="fact", decision="D", why="W", alternatives="A", consequences="C"
+        )
+        assert p["decision"] is None
+        assert p["why"] is None
+        assert p["alternatives"] is None
+        assert p["consequences"] is None
+
+    def test_non_episode_clears_episode_fields(self):
+        p = self._call(kind="fact", user_intent="U", what_happened="W", outcomes="O")
+        assert p["user_intent"] is None
+        assert p["what_happened"] is None
+        assert p["outcomes"] is None
+
+    def test_whitespace_fields_normalized(self):
+        p = self._call(title="  Title  ", body="  Body  ")
+        assert p["title"] == "Title"
+        assert p["body"] == "Body"
+
+
+class TestEnsureEpisodeUniqueness:
+    def test_non_episode_passes(self, mock_store):
+        with mock_store.connect() as conn:
+            mock_store._ensure_episode_uniqueness(
+                conn,
+                project_id="proj_x",
+                kind="fact",
+                session_id="sess_1",
+                exclude_record_id=None,
+            )
+
+    def test_none_session_skips_check(self, mock_store):
+        with mock_store.connect() as conn:
+            mock_store._ensure_episode_uniqueness(
+                conn,
+                project_id="proj_x",
+                kind="episode",
+                session_id=None,
+                exclude_record_id=None,
+            )
+
+    def test_blocks_duplicate(self, mock_seeded):
+        store, pid = mock_seeded
+        _make_episode(store, pid)
+        with store.connect() as conn:
+            with pytest.raises(ValueError, match="duplicate_episode_for_session"):
+                store._ensure_episode_uniqueness(
+                    conn,
+                    project_id=pid,
+                    kind="episode",
+                    session_id="sess_test",
+                    exclude_record_id=None,
+                )
+
+    def test_allows_update_with_exclude(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_episode(store, pid)
+        with store.connect() as conn:
+            store._ensure_episode_uniqueness(
+                conn,
+                project_id=pid,
+                kind="episode",
+                session_id="sess_test",
+                exclude_record_id=rec["record_id"],
+            )
+
+
+class TestSearchText:
+    def test_decision_includes_all_fields(self):
+        store = ContextStore("/dev/null")
+        result = store._search_text(
+            {
+                "kind": "decision",
+                "title": "Use SQLite",
+                "body": "One DB",
+                "decision": "Use SQLite",
+                "why": "Simple",
+                "alternatives": "JSON",
+                "consequences": "Migration",
+                "user_intent": None,
+                "what_happened": None,
+                "outcomes": None,
+            }
+        )
+        assert "kind: decision" in result
+        assert "title: Use SQLite" in result
+        assert "decision: Use SQLite" in result
+        assert "alternatives: JSON" in result
+
+    def test_episode_includes_episode_fields(self):
+        store = ContextStore("/dev/null")
+        result = store._search_text(
+            {
+                "kind": "episode",
+                "title": "Debug",
+                "body": "Fix",
+                "decision": None,
+                "why": None,
+                "alternatives": None,
+                "consequences": None,
+                "user_intent": "Fix bug",
+                "what_happened": "Found race",
+                "outcomes": "Test passes",
+            }
+        )
+        assert "user_intent: Fix bug" in result
+        assert "what_happened: Found race" in result
+        assert "outcomes: Test passes" in result
+
+    def test_plain_record_minimal(self):
+        store = ContextStore("/dev/null")
+        result = store._search_text(
+            {
+                "kind": "fact",
+                "title": "Python 3.12",
+                "body": "Required",
+                "decision": None,
+                "why": None,
+                "alternatives": None,
+                "consequences": None,
+                "user_intent": None,
+                "what_happened": None,
+                "outcomes": None,
+            }
+        )
+        assert result.startswith("kind: fact")
+        assert "title: Python 3.12" in result
+
+
+class TestBuildRecordFilterSql:
+    def _call(self, **kw):
+        store = ContextStore("/dev/null")
+        defaults = dict(
+            project_ids=None,
+            kind_filters=None,
+            statuses=None,
+            source_session_id=None,
+            created_since=None,
+            created_until=None,
+            updated_since=None,
+            updated_until=None,
+            valid_at=None,
+            include_archived=True,
+            table_alias="",
+        )
+        defaults.update(kw)
+        return store._build_record_filter_sql(**defaults)
+
+    def test_no_filters(self):
+        sql, params = self._call()
+        assert sql == "1=1"
+        assert params == []
+
+    def test_project_ids(self):
+        sql, params = self._call(project_ids=["p1", "p2"])
+        assert "project_id IN (?, ?)" in sql
+        assert params == ["p1", "p2"]
+
+    def test_kind_filters(self):
+        sql, params = self._call(kind_filters=["decision", "fact"])
+        assert "kind IN (?, ?)" in sql
+        assert params == ["decision", "fact"]
+
+    def test_statuses(self):
+        sql, params = self._call(statuses=["active"])
+        assert "status IN (?)" in sql
+
+    def test_include_archived_false(self):
+        sql, params = self._call(include_archived=False)
+        assert "status = 'active'" in sql
+
+    def test_include_archived_true_no_status_clause(self):
+        sql, params = self._call(include_archived=True)
+        assert "status" not in sql
+
+    def test_source_session_id(self):
+        sql, params = self._call(source_session_id="sess_1")
+        assert "source_session_id = ?" in sql
+        assert "sess_1" in params
+
+    def test_date_range_filters(self):
+        sql, params = self._call(
+            created_since="2026-01-01",
+            created_until="2026-06-01",
+            updated_since="2026-02-01",
+            updated_until="2026-05-01",
+        )
+        assert "created_at >= ?" in sql
+        assert "created_at <= ?" in sql
+        assert "updated_at >= ?" in sql
+        assert "updated_at <= ?" in sql
+        assert len(params) == 4
+
+    def test_valid_at(self):
+        sql, params = self._call(valid_at="2026-03-15")
+        assert "valid_from <= ?" in sql
+        assert "valid_until IS NULL OR" in sql
+        assert params.count("2026-03-15") == 2
+
+    def test_table_alias(self):
+        sql, params = self._call(table_alias="r", project_ids=["p1"])
+        assert "r.project_id" in sql
