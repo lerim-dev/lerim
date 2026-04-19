@@ -16,6 +16,9 @@ from tests.helpers import make_config
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 TRACES_DIR = FIXTURES_DIR / "traces"
+EXTRACT_TRACES_DIR = TRACES_DIR / "extract"
+EXPECTATIONS_DIR = FIXTURES_DIR / "expectations"
+EXTRACT_EXPECTATIONS_DIR = EXPECTATIONS_DIR / "extract"
 TEST_CONFIG_PATH = Path(__file__).parent / "test_config.toml"
 
 

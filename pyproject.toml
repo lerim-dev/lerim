@@ -72,7 +72,7 @@ markers = [
     "integration: Tests that hit real external services",
     "e2e: End-to-end tests that exercise full flows",
     "smoke: Quick LLM sanity checks (requires ollama)",
-    "agent: Agent SDK or CLI integration tests",
+    "agent: Agentic integration tests",
     "llm: Non-agentic LLM integration tests",
     "openrouter: OpenRouter provider tests",
     "openai: OpenAI provider tests",
