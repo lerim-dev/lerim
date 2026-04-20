@@ -13,6 +13,7 @@ import sqlite_vec
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 
 from lerim.config.settings import Config, get_config
+from lerim.context.spec import RECORD_KIND_SPECS
 
 REQUIRED_CONTEXT_TABLES = {
     "projects",
@@ -83,6 +84,31 @@ _API_KEY_ATTRS = {
     "opencode_go": "opencode_api_key",
     "zai": "zai_api_key",
 }
+
+
+def _missing_required_field_count(
+    conn: sqlite3.Connection,
+    *,
+    kind: str,
+    required_fields: tuple[str, ...],
+) -> int:
+    """Count records missing one or more required typed fields for one kind."""
+    if not required_fields:
+        return 0
+    missing_checks = " OR ".join(
+        f"{field_name} IS NULL OR length(trim({field_name})) = 0"
+        for field_name in required_fields
+    )
+    row = conn.execute(
+        f"""
+        SELECT COUNT(*)
+        FROM records
+        WHERE kind = ?
+          AND ({missing_checks})
+        """,
+        (kind,),
+    ).fetchone()
+    return int(row[0]) if row is not None else 0
 
 
 def require_live_agent_config() -> Config:
@@ -203,27 +229,15 @@ def audit_context_db(db_path: Path) -> dict[str, Any]:
             "blank_bodies": int(
                 conn.execute("SELECT COUNT(*) FROM records WHERE length(trim(body)) = 0").fetchone()[0]
             ),
-            "bad_decisions": int(
-                conn.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM records
-                    WHERE kind = 'decision'
-                      AND (decision IS NULL OR length(trim(decision)) = 0
-                           OR why IS NULL OR length(trim(why)) = 0)
-                    """
-                ).fetchone()[0]
+            "bad_decisions": _missing_required_field_count(
+                conn,
+                kind="decision",
+                required_fields=RECORD_KIND_SPECS["decision"].required_fields,
             ),
-            "bad_episodes": int(
-                conn.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM records
-                    WHERE kind = 'episode'
-                      AND (user_intent IS NULL OR length(trim(user_intent)) = 0
-                           OR what_happened IS NULL OR length(trim(what_happened)) = 0)
-                    """
-                ).fetchone()[0]
+            "bad_episodes": _missing_required_field_count(
+                conn,
+                kind="episode",
+                required_fields=RECORD_KIND_SPECS["episode"].required_fields,
             ),
             "long_episode_bodies": int(
                 conn.execute(
@@ -231,8 +245,9 @@ def audit_context_db(db_path: Path) -> dict[str, Any]:
                     SELECT COUNT(*)
                     FROM records
                     WHERE kind = 'episode'
-                      AND length(trim(body)) > 420
-                    """
+                      AND length(trim(body)) > ?
+                    """,
+                    (RECORD_KIND_SPECS["episode"].body_max_chars,),
                 ).fetchone()[0]
             ),
             "archived_without_valid_until": int(

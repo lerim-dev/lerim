@@ -23,7 +23,14 @@ from lerim.agents.tools import (
     trace_read,
     update_record,
 )
+from lerim.context import DURABLE_RECORD_KINDS, format_durable_record_kinds
 from lerim.context.project_identity import ProjectIdentity
+
+
+_DURABLE_SIGNAL_BULLETS = "\n".join(
+    f"- {kind}" for kind in DURABLE_RECORD_KINDS
+)
+_DURABLE_KIND_TEXT = format_durable_record_kinds()
 
 
 SYSTEM_PROMPT = """\
@@ -40,11 +47,7 @@ You have two kinds of outputs:
 
 <durable_signal>
 Durable signal means one of:
-- decision
-- preference
-- constraint
-- fact
-- reference
+{durable_signal_bullets}
 
 Implementation details alone are not durable records.
 </durable_signal>
@@ -117,7 +120,7 @@ Implementation details alone are not durable records.
 </efficiency_rules>
 
 <coverage_rule>
-- If the episode summary contains a clearly reusable decision, preference, constraint, fact, or reference, that learning should usually also exist as its own durable record.
+- If the episode summary contains a clearly reusable {durable_kind_text}, that learning should usually also exist as its own durable record.
 - Do not create a durable record just because the trace sounds important.
 - Most traces should produce `0` or `1` durable records. Use `2` only when the learnings are clearly independent and each would be useful later on its own.
 </coverage_rule>
@@ -496,7 +499,10 @@ Fact, preference, constraint, and reference records should usually only fill:
 <forbidden_focus>
 Do not turn filenames, index documents, graph links, evidence tables, or storage mechanics into the main memory unless the durable rule is specifically about that boundary.
 </forbidden_focus>
-"""
+""".format(
+    durable_signal_bullets=_DURABLE_SIGNAL_BULLETS,
+    durable_kind_text=_DURABLE_KIND_TEXT,
+)
 
 
 class ExtractionResult(BaseModel):

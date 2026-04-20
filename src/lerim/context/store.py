@@ -25,10 +25,20 @@ import sqlite_vec
 from lerim.config.settings import get_config
 from lerim.context.embedding import get_embedding_provider
 from lerim.context.project_identity import ProjectIdentity
+from lerim.context.spec import (
+    ALLOWED_KINDS,
+    ALLOWED_STATUSES,
+    MAX_DURABLE_BODY_CHARS,
+    MAX_EPISODE_BODY_CHARS,
+    MAX_EPISODE_OUTCOMES_CHARS,
+    MAX_EPISODE_USER_INTENT_CHARS,
+    MAX_EPISODE_WHAT_HAPPENED_CHARS,
+    MAX_RECORD_TITLE_CHARS,
+    normalize_record_payload,
+    record_search_text,
+)
 
 SCHEMA_VERSION = "2"
-ALLOWED_KINDS = ("decision", "preference", "constraint", "fact", "reference", "episode")
-ALLOWED_STATUSES = ("active", "archived")
 ALLOWED_CHANGE_KINDS = ("create", "update", "archive", "supersede", "migrate")
 QUERY_ENTITIES = ("records", "versions", "sessions")
 QUERY_MODES = ("list", "count")
@@ -51,12 +61,6 @@ QUERY_MODE_ALIASES = {
     "count": "count",
     "counts": "count",
 }
-MAX_RECORD_TITLE_CHARS = 120
-MAX_EPISODE_BODY_CHARS = 420
-MAX_DURABLE_BODY_CHARS = 850
-MAX_EPISODE_USER_INTENT_CHARS = 180
-MAX_EPISODE_WHAT_HAPPENED_CHARS = 260
-MAX_EPISODE_OUTCOMES_CHARS = 180
 
 
 def _utc_now() -> str:
@@ -1146,69 +1150,25 @@ class ContextStore:
         outcomes: Any,
     ) -> dict[str, Any]:
         """Normalize and validate one record payload."""
-        kind_text = str(kind or "").strip().lower()
-        if kind_text not in ALLOWED_KINDS:
-            raise ValueError(f"invalid_kind:{kind}")
-        status_text = str(status or "").strip().lower()
-        if status_text not in ALLOWED_STATUSES:
-            raise ValueError(f"invalid_status:{status}")
-        title_text = str(title or "").strip()
-        body_text = str(body or "").strip()
-        if not title_text:
-            raise ValueError("title_required")
-        if not body_text:
-            raise ValueError("body_required")
-        if len(title_text) > MAX_RECORD_TITLE_CHARS:
-            raise ValueError("title_too_long")
-        payload = {
-            "kind": kind_text,
-            "title": title_text,
-            "body": body_text,
-            "status": status_text,
-            "source_session_id": _normalize_optional_text(source_session_id),
-            "created_at": str(created_at or _utc_now()).strip(),
-            "updated_at": str(updated_at or _utc_now()).strip(),
-            "valid_from": str(valid_from or created_at or _utc_now()).strip(),
-            "valid_until": _normalize_optional_text(valid_until),
-            "superseded_by_record_id": _normalize_optional_text(superseded_by_record_id),
-            "decision": _normalize_optional_text(decision),
-            "why": _normalize_optional_text(why),
-            "alternatives": _normalize_optional_text(alternatives),
-            "consequences": _normalize_optional_text(consequences),
-            "user_intent": _normalize_optional_text(user_intent),
-            "what_happened": _normalize_optional_text(what_happened),
-            "outcomes": _normalize_optional_text(outcomes),
-        }
-        if kind_text == "episode":
-            if len(body_text) > MAX_EPISODE_BODY_CHARS:
-                raise ValueError("episode_body_too_long")
-            if payload["user_intent"] and len(payload["user_intent"]) > MAX_EPISODE_USER_INTENT_CHARS:
-                raise ValueError("episode_user_intent_too_long")
-            if payload["what_happened"] and len(payload["what_happened"]) > MAX_EPISODE_WHAT_HAPPENED_CHARS:
-                raise ValueError("episode_what_happened_too_long")
-            if payload["outcomes"] and len(payload["outcomes"]) > MAX_EPISODE_OUTCOMES_CHARS:
-                raise ValueError("episode_outcomes_too_long")
-        else:
-            if len(body_text) > MAX_DURABLE_BODY_CHARS:
-                raise ValueError("record_body_too_long")
-        if kind_text == "decision":
-            if not payload["decision"] or not payload["why"]:
-                raise ValueError("decision_requires_decision_and_why")
-        else:
-            payload["decision"] = None
-            payload["why"] = None
-            payload["alternatives"] = None
-            payload["consequences"] = None
-        if kind_text == "episode":
-            if not payload["source_session_id"]:
-                raise ValueError("episode_requires_session_id")
-            if not payload["user_intent"] or not payload["what_happened"]:
-                raise ValueError("episode_requires_user_intent_and_what_happened")
-        else:
-            payload["user_intent"] = None
-            payload["what_happened"] = None
-            payload["outcomes"] = None
-        return payload
+        return normalize_record_payload(
+            kind=kind,
+            title=title,
+            body=body,
+            status=status,
+            source_session_id=source_session_id,
+            created_at=created_at,
+            updated_at=updated_at,
+            valid_from=valid_from,
+            valid_until=valid_until,
+            superseded_by_record_id=superseded_by_record_id,
+            decision=decision,
+            why=why,
+            alternatives=alternatives,
+            consequences=consequences,
+            user_intent=user_intent,
+            what_happened=what_happened,
+            outcomes=outcomes,
+        )
 
     def _ensure_episode_uniqueness(
         self,
@@ -1343,23 +1303,7 @@ class ContextStore:
 
     def _search_text(self, payload: dict[str, Any]) -> str:
         """Build canonical search text from one record payload."""
-        parts: list[str] = [f"kind: {payload['kind']}"]
-        field_order = (
-            ("title", payload["title"]),
-            ("body", payload["body"]),
-            ("decision", payload.get("decision") or ""),
-            ("why", payload.get("why") or ""),
-            ("alternatives", payload.get("alternatives") or ""),
-            ("consequences", payload.get("consequences") or ""),
-            ("user_intent", payload.get("user_intent") or ""),
-            ("what_happened", payload.get("what_happened") or ""),
-            ("outcomes", payload.get("outcomes") or ""),
-        )
-        for label, value in field_order:
-            text = str(value or "").strip()
-            if text:
-                parts.append(f"{label}: {text}")
-        return "\n".join(parts)
+        return record_search_text(payload)
 
     def _rebuild_embeddings(self, conn: sqlite3.Connection) -> None:
         """Rebuild all derived embedding rows from canonical record text."""

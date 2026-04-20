@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import ModelRetry, RunContext
 from pydantic_ai.messages import (
     ModelMessage,
@@ -21,7 +21,17 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 
-from lerim.context import ALLOWED_KINDS, ALLOWED_STATUSES, ContextStore, ProjectIdentity
+from lerim.context import ContextStore, ProjectIdentity
+from lerim.context.spec import (
+    ALLOWED_FINDING_LEVELS,
+    DURABLE_FINDING_LEVELS,
+    IMPLEMENTATION_FINDING_LEVELS,
+    format_allowed_finding_levels,
+    normalize_finding_level,
+    normalize_record_kind,
+    normalize_record_status,
+    record_validation_message,
+)
 
 TRACE_MAX_LINES_PER_READ = 100
 TRACE_MAX_LINE_BYTES = 5_000
@@ -41,10 +51,20 @@ class Finding(BaseModel):
     quote: str = Field(description="Short verbatim evidence snippet from the trace.")
     level: str = Field(
         description=(
-            "Signal level: decision, preference, feedback, reference, "
-            "constraint, fact, or implementation."
+            "Signal level: "
+            f"{format_allowed_finding_levels()}."
         )
     )
+
+    @field_validator("level")
+    @classmethod
+    def validate_level(cls, value: str) -> str:
+        """Validate finding levels against the shared canonical spec."""
+        normalized = normalize_finding_level(value)
+        if normalized not in ALLOWED_FINDING_LEVELS:
+            allowed = ", ".join(ALLOWED_FINDING_LEVELS)
+            raise ValueError(f"level must be one of: {allowed}")
+        return normalized
 
 
 @dataclass
@@ -100,7 +120,9 @@ def _classify_context_pressure(fill_ratio: float) -> str:
     return "normal"
 
 
-def _require_note_or_prune_before_trace_read(ctx: RunContext[ContextDeps], offset: int) -> None:
+def _require_note_or_prune_before_trace_read(
+    ctx: RunContext[ContextDeps], offset: int
+) -> None:
     """Gate additional trace reads based on current context pressure."""
     if offset <= 0:
         return
@@ -143,13 +165,18 @@ def trace_read(ctx: RunContext[ContextDeps], offset: int = 0, limit: int = 100) 
     for line in chunk:
         if len(line) > TRACE_MAX_LINE_BYTES:
             dropped = len(line) - TRACE_MAX_LINE_BYTES
-            line = line[:TRACE_MAX_LINE_BYTES] + f" ... [truncated {dropped} chars from this line]"
+            line = (
+                line[:TRACE_MAX_LINE_BYTES]
+                + f" ... [truncated {dropped} chars from this line]"
+            )
         line_bytes = len(line.encode("utf-8"))
         if running_bytes + line_bytes > TRACE_MAX_CHUNK_BYTES:
             break
         safe_chunk.append(line)
         running_bytes += line_bytes
-    numbered = [f"{offset + index + 1}\t{line}" for index, line in enumerate(safe_chunk)]
+    numbered = [
+        f"{offset + index + 1}\t{line}" for index, line in enumerate(safe_chunk)
+    ]
     last_line = offset + len(safe_chunk)
     ctx.deps.read_ranges.append((int(offset), int(last_line)))
     header = f"[{total} lines, showing {offset + 1}-{last_line}]"
@@ -226,7 +253,9 @@ def list_records(
     store = _store(ctx)
     order = str(order_by or "updated_at").strip().lower()
     if order not in {"created_at", "updated_at", "valid_from"}:
-        raise ModelRetry("list_records order_by must be one of: created_at, updated_at, valid_from.")
+        raise ModelRetry(
+            "list_records order_by must be one of: created_at, updated_at, valid_from."
+        )
     status: str | None = None
     if status_filters and len(status_filters) == 1:
         status = _normalize_status(status_filters[0])
@@ -236,7 +265,9 @@ def list_records(
         entity="records",
         mode="list",
         project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
-        kind=_normalize_kind(kind_filters[0]) if kind_filters and len(kind_filters) == 1 else None,
+        kind=_normalize_kind(kind_filters[0])
+        if kind_filters and len(kind_filters) == 1
+        else None,
         status=status,
         created_since=created_since.strip() or None,
         created_until=created_until.strip() or None,
@@ -315,45 +346,25 @@ def fetch_records(
             )
             continue
         records.append(record)
-    return json.dumps({"count": len(records), "records": records}, ensure_ascii=True, indent=2)
+    return json.dumps(
+        {"count": len(records), "records": records}, ensure_ascii=True, indent=2
+    )
 
 
 def _normalize_kind(kind: str) -> str:
     """Normalize kind names before store validation."""
-    return str(kind or "").strip().lower()
+    return normalize_record_kind(kind)
 
 
 def _normalize_status(status: str) -> str:
     """Normalize status names before store validation."""
-    return str(status or "active").strip().lower()
+    return normalize_record_status(status)
 
 
 def _maybe_raise_record_retry(exc: ValueError) -> None:
     """Convert record-quality validation errors into guided model retries."""
     code = str(exc or "").strip()
-    retry_messages = {
-        "title_required": "Every record needs a non-empty title.",
-        "body_required": "Every record needs a non-empty body.",
-        "title_too_long": "Title is too long. Use one short specific memory title under 120 characters.",
-        "decision_requires_decision_and_why": (
-            "Decision records need both `decision` and `why`. "
-            "If you cannot supply both, create a `fact` instead."
-        ),
-        "episode_requires_session_id": "Episode records must stay tied to the current session.",
-        "episode_requires_user_intent_and_what_happened": (
-            "Episode records need both `user_intent` and `what_happened`."
-        ),
-        "episode_body_too_long": (
-            "Episode body is too long. Compress it to 2-4 short sentences."
-        ),
-        "episode_user_intent_too_long": "user_intent is too long. Compress it to one short sentence.",
-        "episode_what_happened_too_long": "what_happened is too long. Keep only the essential session outcome.",
-        "episode_outcomes_too_long": "outcomes is too long. Keep only the lasting result.",
-        "record_body_too_long": (
-            "Durable record body is too long. Keep only the reusable rule/decision/fact and why it matters."
-        ),
-    }
-    message = retry_messages.get(code)
+    message = record_validation_message(code)
     if message:
         raise ModelRetry(message) from exc
 
@@ -376,7 +387,9 @@ def _require_notes_before_long_trace_write(ctx: RunContext[ContextDeps]) -> None
     )
 
 
-def _first_uncovered_offset(read_ranges: list[tuple[int, int]], total_lines: int) -> int | None:
+def _first_uncovered_offset(
+    read_ranges: list[tuple[int, int]], total_lines: int
+) -> int | None:
     """Return the first unread trace offset, or None when coverage is complete."""
     if total_lines <= 0:
         return None
@@ -616,8 +629,10 @@ def context_query(
             ) from exc
         if message.startswith("invalid_query_mode:"):
             raise ModelRetry("context_query mode must be 'list' or 'count'.") from exc
-        if message.startswith("invalid_query_order_by:"):
-            raise ModelRetry("context_query order_by must be one of: created_at, updated_at, valid_from.") from exc
+        if message.startswith("invalid_query_order:"):
+            raise ModelRetry(
+                "context_query order_by must be one of: created_at, updated_at, valid_from."
+            ) from exc
         raise
     return json.dumps(payload, ensure_ascii=True, indent=2)
 
@@ -638,7 +653,9 @@ def prune(ctx: RunContext[ContextDeps], trace_offsets: list[int]) -> str:
     before = len(ctx.deps.pruned_offsets)
     ctx.deps.pruned_offsets.update(int(offset) for offset in trace_offsets)
     added = len(ctx.deps.pruned_offsets) - before
-    return f"Pruned {added} new offset(s); total pruned: {len(ctx.deps.pruned_offsets)}."
+    return (
+        f"Pruned {added} new offset(s); total pruned: {len(ctx.deps.pruned_offsets)}."
+    )
 
 
 def compute_request_budget(trace_path: Path) -> int:
@@ -670,9 +687,15 @@ def notes_state_injector(
     else:
         counts = Counter(f.level for f in findings)
         themes = Counter(f.theme for f in findings)
-        durable = sum(counts.get(level, 0) for level in ("decision", "preference", "feedback", "reference", "constraint", "fact"))
-        implementation = counts.get("implementation", 0)
-        top_themes = ", ".join(f"{theme}({count})" for theme, count in themes.most_common(5))
+        durable = sum(
+            counts.get(level, 0) for level in DURABLE_FINDING_LEVELS
+        )
+        implementation = sum(
+            counts.get(level, 0) for level in IMPLEMENTATION_FINDING_LEVELS
+        )
+        top_themes = ", ".join(
+            f"{theme}({count})" for theme, count in themes.most_common(5)
+        )
         summary = (
             f"NOTES: {len(findings)} findings ({durable} durable, {implementation} implementation) "
             f"across {len(themes)} theme(s)"
@@ -680,12 +703,11 @@ def notes_state_injector(
         if top_themes:
             summary += f"\nTop themes: {top_themes}"
     if ctx.deps.read_ranges:
-        next_uncovered = _first_uncovered_offset(ctx.deps.read_ranges, int(ctx.deps.trace_total_lines))
+        next_uncovered = _first_uncovered_offset(
+            ctx.deps.read_ranges, int(ctx.deps.trace_total_lines)
+        )
         covered_chunks = len(
-            {
-                (int(start), int(end))
-                for start, end in ctx.deps.read_ranges
-            }
+            {(int(start), int(end)) for start, end in ctx.deps.read_ranges}
         )
         summary += (
             f"\nTrace reads: {covered_chunks} chunk(s)"
@@ -716,7 +738,9 @@ def context_pressure_injector(
     pressure = _classify_context_pressure(pct)
     ctx.deps.last_context_tokens = approx_tokens
     ctx.deps.last_context_fill_ratio = pct
-    summary = f"CONTEXT: {approx_tokens}/{MODEL_CONTEXT_TOKEN_LIMIT} ({pct:.0%}) [{pressure}]"
+    summary = (
+        f"CONTEXT: {approx_tokens}/{MODEL_CONTEXT_TOKEN_LIMIT} ({pct:.0%}) [{pressure}]"
+    )
     injected = list(history)
     injected.append(ModelRequest(parts=[SystemPromptPart(content=summary)]))
     return injected
@@ -736,7 +760,10 @@ def prune_history_processor(
         parts = getattr(message, "parts", []) or []
         new_parts = []
         for part in parts:
-            if isinstance(part, ToolCallPart) and getattr(part, "tool_name", "") == "trace_read":
+            if (
+                isinstance(part, ToolCallPart)
+                and getattr(part, "tool_name", "") == "trace_read"
+            ):
                 args = getattr(part, "args", None)
                 offset = None
                 if isinstance(args, dict):
@@ -768,7 +795,9 @@ if __name__ == "__main__":
 
     with tempfile.TemporaryDirectory() as tmp:
         trace_path = Path(tmp) / "trace.jsonl"
-        trace_path.write_text("\n".join(f"line {i}" for i in range(240)), encoding="utf-8")
+        trace_path.write_text(
+            "\n".join(f"line {i}" for i in range(240)), encoding="utf-8"
+        )
         budget = compute_request_budget(trace_path)
         assert budget >= 20
         print("agent tools: self-test passed")

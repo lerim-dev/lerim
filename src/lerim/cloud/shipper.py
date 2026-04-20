@@ -22,6 +22,7 @@ from typing import Any
 from lerim.config.logging import LOG_DIR, logger
 from lerim.config.settings import Config
 from lerim.context import ContextStore, resolve_project_identity
+from lerim.context.spec import ALLOWED_KINDS, RECORD_KIND_SPECS
 
 # ── constants ────────────────────────────────────────────────────────────────
 
@@ -157,7 +158,7 @@ def _get_json_sync(
 def _normalize_cloud_kind(raw: str | None) -> str:
     """Map cloud record kinds onto canonical context kinds."""
     kind = str(raw or "").strip().lower()
-    if kind in {"decision", "preference", "constraint", "fact", "reference", "episode"}:
+    if kind in ALLOWED_KINDS:
         return kind
     if kind in {"project", "learning", "feedback", "implementation"}:
         return "fact"
@@ -169,12 +170,16 @@ def _typed_fields_from_cloud_record(record: dict[str, Any], *, kind: str) -> dic
     title = str(record.get("title") or record.get("name") or "").strip()
     summary = str(record.get("description") or "").strip()
     body = str(record.get("body") or "").strip()
-    if kind == "decision":
+    kind_spec = RECORD_KIND_SPECS.get(kind)
+    if kind_spec is None:
+        return {}
+    typed_field_names = set(kind_spec.typed_field_names)
+    if "decision" in typed_field_names:
         return {
             "decision": title or summary or body,
             "why": body or summary,
         }
-    if kind == "episode":
+    if "user_intent" in typed_field_names:
         return {
             "user_intent": summary or title,
             "what_happened": body or summary or title,
