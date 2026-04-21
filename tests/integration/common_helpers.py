@@ -5,9 +5,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import time
 from typing import Any
 
+import httpx
 import yaml
+from pydantic_ai.exceptions import ModelHTTPError
 
 from lerim.context import ContextStore
 
@@ -74,3 +77,18 @@ def extract_tool_calls(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     walk(payload)
     return calls
+
+
+def retry_on_overload(callable_fn, *, attempts: int = 5, backoff_seconds: float = 5.0):
+    """Retry one live integration call on transient provider overload or transport errors."""
+    for attempt in range(attempts):
+        try:
+            return callable_fn()
+        except ModelHTTPError as exc:
+            if int(getattr(exc, "status_code", 0)) != 529 or attempt == attempts - 1:
+                raise
+            time.sleep(backoff_seconds * (2**attempt))
+        except (httpx.ReadError, httpx.TimeoutException):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(backoff_seconds * (2**attempt))

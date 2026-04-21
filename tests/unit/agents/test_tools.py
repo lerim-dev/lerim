@@ -18,6 +18,11 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 
+from lerim.agents.history_processors import (
+    context_pressure_injector,
+    notes_state_injector,
+    prune_history_processor,
+)
 from lerim.agents.tools import (
     CONTEXT_HARD_PRESSURE_PCT,
     CONTEXT_SOFT_PRESSURE_PCT,
@@ -37,15 +42,12 @@ from lerim.agents.tools import (
     _store,
     archive_record,
     compute_request_budget,
-    context_pressure_injector,
     context_query,
     create_record,
     fetch_records,
     list_records,
     note,
-    notes_state_injector,
     prune,
-    prune_history_processor,
     search_records,
     supersede_record,
     trace_read,
@@ -151,6 +153,7 @@ class TestMaybeRaiseRecordRetry:
             "decision_requires_decision_and_why",
             "episode_requires_session_id",
             "episode_requires_user_intent_and_what_happened",
+            "duplicate_episode_for_session",
             "episode_body_too_long",
             "episode_user_intent_too_long",
             "episode_what_happened_too_long",
@@ -463,6 +466,34 @@ class TestSearchRecords:
         assert "count" in parsed
         assert "hits" in parsed
 
+    def test_valid_at_includes_archived_history(self, deps, mock_embeddings):
+        ctx = make_run_context(deps)
+        store = ContextStore(deps.context_db_path)
+        store.initialize()
+        store.register_project(deps.project_identity)
+        _seed_session(store, deps.project_identity.project_id, session_id="sess_hist")
+        store.create_record(
+            project_id=deps.project_identity.project_id,
+            session_id="sess_hist",
+            record_id="rec_hist_markdown_search",
+            kind="fact",
+            status="archived",
+            title="Markdown files were the canonical context store",
+            body="Markdown files were treated as the canonical durable context store.",
+            valid_from="2025-01-01T00:00:00+00:00",
+            valid_until="2026-03-01T00:00:00+00:00",
+        )
+
+        result = search_records(
+            ctx,
+            query="canonical context store",
+            valid_at="2026-02-15T00:00:00+00:00",
+        )
+        parsed = json.loads(result)
+
+        assert parsed["count"] >= 1
+        assert any(hit["record_id"] == "rec_hist_markdown_search" for hit in parsed["hits"])
+
 
 # ---------------------------------------------------------------------------
 # list_records
@@ -488,6 +519,30 @@ class TestListRecords:
         parsed = json.loads(result)
         assert "count" in parsed
         assert "records" in parsed
+
+    def test_valid_at_includes_archived_history(self, deps):
+        ctx = make_run_context(deps)
+        store = ContextStore(deps.context_db_path)
+        store.initialize()
+        store.register_project(deps.project_identity)
+        _seed_session(store, deps.project_identity.project_id, session_id="sess_hist")
+        store.create_record(
+            project_id=deps.project_identity.project_id,
+            session_id="sess_hist",
+            record_id="rec_hist_markdown_list",
+            kind="fact",
+            status="archived",
+            title="Markdown files were the canonical context store",
+            body="Markdown files were treated as the canonical durable context store.",
+            valid_from="2025-01-01T00:00:00+00:00",
+            valid_until="2026-03-01T00:00:00+00:00",
+        )
+
+        result = list_records(ctx, valid_at="2026-02-15T00:00:00+00:00")
+        parsed = json.loads(result)
+
+        assert parsed["count"] >= 1
+        assert any(record["record_id"] == "rec_hist_markdown_list" for record in parsed["records"])
 
 
 # ---------------------------------------------------------------------------
@@ -629,6 +684,28 @@ class TestCreateRecord:
                 why="",
             )
 
+    def test_duplicate_episode_raises_guided_retry(
+        self, deps_with_session, mock_embeddings
+    ):
+        ctx = make_run_context(deps_with_session)
+        create_record(
+            ctx,
+            kind="episode",
+            title="Session title",
+            body="Short session recap.",
+            user_intent="Fix the extractor.",
+            what_happened="Read the trace and stored the main outcomes.",
+        )
+
+        with pytest.raises(ModelRetry, match="already has an episode record"):
+            create_record(
+                ctx,
+                kind="episode",
+                title="Another session title",
+                body="Another short session recap.",
+                user_intent="Fix the extractor.",
+                what_happened="Tried to write a second episode.",
+            )
 
 # ---------------------------------------------------------------------------
 # update_record

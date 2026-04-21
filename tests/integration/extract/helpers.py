@@ -11,7 +11,12 @@ from lerim.agents.extract import ExtractionResult, run_extraction
 from lerim.config.providers import build_pydantic_model
 from lerim.context import ContextStore, resolve_project_identity
 from tests.conftest import EXTRACT_EXPECTATIONS_DIR, EXTRACT_TRACES_DIR
-from tests.integration.common_helpers import extract_tool_calls, load_yaml_expectation, seed_session
+from tests.integration.common_helpers import (
+    extract_tool_calls,
+    load_yaml_expectation,
+    retry_on_overload,
+    seed_session,
+)
 from tests.live_helpers import dump_messages, extract_tool_names
 
 
@@ -253,14 +258,16 @@ def run_extract_case(
     )
 
     model = build_pydantic_model("agent", config=live_config)
-    result, messages = run_extraction(
-        context_db_path=live_config.context_db_path,
-        project_identity=identity,
-        session_id=session_id,
-        trace_path=trace_path,
-        model=model,
-        run_folder=run_folder,
-        return_messages=True,
+    result, messages = retry_on_overload(
+        lambda: run_extraction(
+            context_db_path=live_config.context_db_path,
+            project_identity=identity,
+            session_id=session_id,
+            trace_path=trace_path,
+            model=model,
+            run_folder=run_folder,
+            return_messages=True,
+        )
     )
 
     rows = store.query(

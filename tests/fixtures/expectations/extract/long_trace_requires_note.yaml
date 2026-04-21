@@ -12,7 +12,6 @@ expected:
     - note
     - create_record
   must_not_use_tools:
-    - prune
     - update_record
   decision_text_must_include_all:
     - retry

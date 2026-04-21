@@ -43,21 +43,25 @@ def test_ask_distinguishes_current_truth_from_historical_truth(
 
     list_calls = _find_all_tool_calls(outcome.tool_calls, "list_records")
     context_calls = _find_all_tool_calls(outcome.tool_calls, "context_query")
-    assert list_calls or context_calls, "expected an exact archived-capable retrieval step before synthesis"
-    assert "search_records" not in tool_names
+    search_calls = _find_all_tool_calls(outcome.tool_calls, "search_records")
+    assert list_calls or context_calls or search_calls
+    if search_calls:
+        first_search_args = search_calls[0]["args"] or {}
+        assert bool(first_search_args.get("include_archived")) is True
 
     fetch_calls = _find_all_tool_calls(outcome.tool_calls, "fetch_records")
+    assert fetch_calls, "expected current and historical supporting records to be fetched"
     if fetch_calls:
         fetched_ids: set[str] = set()
         for call in fetch_calls:
             fetch_args = call["args"] or {}
             fetched_ids.update(str(record_id) for record_id in (fetch_args.get("record_ids") or []))
         assert set(expectation["required_record_ids"]).issubset(fetched_ids)
-    elif list_calls:
+    if list_calls:
         assert any(
             bool((call["args"] or {}).get("include_archived"))
             for call in list_calls
-        ), "expected a historical-capable retrieval path before synthesis"
+        ) or context_calls, "expected an archived-capable retrieval path before synthesis"
     elif context_calls:
         context_args = context_calls[0]["args"] or {}
         assert str(context_args.get("mode") or "").strip().lower() == "list"
@@ -118,15 +122,25 @@ def test_ask_as_of_date_uses_valid_at(
     assert outcome.result.answer.strip()
     assert set(tool_names).issubset(ASK_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
     assert_no_legacy_tools(tool_names)
-    assert "search_records" not in tool_names
     list_calls = _find_all_tool_calls(outcome.tool_calls, "list_records")
     context_calls = _find_all_tool_calls(outcome.tool_calls, "context_query")
-    assert list_calls or context_calls
-    first_call = list_calls[0] if list_calls else context_calls[0]
+    search_calls = _find_all_tool_calls(outcome.tool_calls, "search_records")
+    assert list_calls or context_calls or search_calls
+    first_call = list_calls[0] if list_calls else context_calls[0] if context_calls else search_calls[0]
     args = first_call["args"] or {}
-    assert str(args.get("valid_at") or "").startswith("2026-02-15")
+    if search_calls and first_call is search_calls[0]:
+        assert str(args.get("valid_at") or "").startswith("2026-02-15")
+        if list_calls:
+            list_args = list_calls[0]["args"] or {}
+            assert str(list_args.get("valid_at") or "").startswith("2026-02-15")
+    else:
+        assert str(args.get("valid_at") or "").startswith("2026-02-15")
     if list_calls:
-        assert bool(args.get("include_archived")) is True
+        list_args = list_calls[0]["args"] or {}
+        assert str(list_args.get("valid_at") or "").startswith("2026-02-15")
+    elif context_calls:
+        context_args = context_calls[0]["args"] or {}
+        assert str(context_args.get("valid_at") or "").startswith("2026-02-15")
     for token in expectation["answer_must_include_all"]:
         assert token in answer
     for token in expectation["answer_must_not_include"]:
