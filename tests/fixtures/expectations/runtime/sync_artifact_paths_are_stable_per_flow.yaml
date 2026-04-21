@@ -1,0 +1,7 @@
+case: sync_artifact_paths_are_stable_per_flow
+expected:
+  workspace_subdir: "sync"
+  artifact_names:
+    - "agent_log"
+    - "subagents_log"
+    - "session_log"

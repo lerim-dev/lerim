@@ -1,0 +1,23 @@
+question: "As of 2026-02-15, what was the canonical context store?"
+seed_records:
+  - session_id: "seed-history-old"
+    record_id: "rec_markdown_source_of_truth_asof"
+    kind: "fact"
+    status: "archived"
+    valid_from: "2025-01-01T00:00:00+00:00"
+    valid_until: "2026-03-01T00:00:00+00:00"
+    title: "Markdown files were the canonical context store"
+    body: "Previously, markdown files were treated as the canonical durable context store."
+  - session_id: "seed-history-new"
+    record_id: "rec_sqlite_source_of_truth_asof"
+    kind: "fact"
+    status: "active"
+    valid_from: "2026-03-01T00:00:00+00:00"
+    title: "SQLite is the canonical context store"
+    body: "Currently, SQLite is the canonical durable context store for records and updates."
+expected:
+  required_record_id: "rec_markdown_source_of_truth_asof"
+  answer_must_include_all:
+    - markdown
+  answer_must_not_include:
+    - sqlite
