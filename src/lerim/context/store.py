@@ -16,7 +16,7 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +66,21 @@ QUERY_MODE_ALIASES = {
 def _utc_now() -> str:
     """Return current UTC timestamp."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_datetime_filter_bound(value: str | None, *, upper: bool) -> str | None:
+    """Expand bare YYYY-MM-DD filters into inclusive UTC day boundaries."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if "T" in text:
+        return text
+    try:
+        parsed = date.fromisoformat(text)
+    except ValueError:
+        return text
+    boundary = time.max if upper else time.min
+    return datetime.combine(parsed, boundary, tzinfo=timezone.utc).isoformat()
 
 
 def _parse_iso_utc(raw: str | None) -> datetime | None:
@@ -1356,16 +1371,16 @@ class ContextStore:
             params.append(source_session_id)
         if created_since:
             clauses.append(f"{prefix}created_at >= ?")
-            params.append(created_since)
+            params.append(_normalize_datetime_filter_bound(created_since, upper=False))
         if created_until:
             clauses.append(f"{prefix}created_at <= ?")
-            params.append(created_until)
+            params.append(_normalize_datetime_filter_bound(created_until, upper=True))
         if updated_since:
             clauses.append(f"{prefix}updated_at >= ?")
-            params.append(updated_since)
+            params.append(_normalize_datetime_filter_bound(updated_since, upper=False))
         if updated_until:
             clauses.append(f"{prefix}updated_at <= ?")
-            params.append(updated_until)
+            params.append(_normalize_datetime_filter_bound(updated_until, upper=True))
         if valid_at:
             clauses.append(f"{prefix}valid_from <= ?")
             clauses.append(f"({prefix}valid_until IS NULL OR {prefix}valid_until >= ?)")
@@ -1403,16 +1418,16 @@ class ContextStore:
             params.append(source_session_id)
         if created_since:
             clauses.append("created_at >= ?")
-            params.append(created_since)
+            params.append(_normalize_datetime_filter_bound(created_since, upper=False))
         if created_until:
             clauses.append("created_at <= ?")
-            params.append(created_until)
+            params.append(_normalize_datetime_filter_bound(created_until, upper=True))
         if updated_since:
             clauses.append("updated_at >= ?")
-            params.append(updated_since)
+            params.append(_normalize_datetime_filter_bound(updated_since, upper=False))
         if updated_until:
             clauses.append("updated_at <= ?")
-            params.append(updated_until)
+            params.append(_normalize_datetime_filter_bound(updated_until, upper=True))
         if valid_at:
             clauses.append("valid_from <= ?")
             clauses.append("(valid_until IS NULL OR valid_until >= ?)")

@@ -23,7 +23,7 @@ from lerim.agents.tools import (
     trace_read,
     update_record,
 )
-from lerim.context import DURABLE_RECORD_KINDS, format_durable_record_kinds
+from lerim.context import ContextStore, DURABLE_RECORD_KINDS, format_durable_record_kinds
 from lerim.context.project_identity import ProjectIdentity
 
 
@@ -57,6 +57,7 @@ Implementation details alone are not durable records.
 - One durable record should hold one durable point.
 - Do not write session reports as durable records.
 - Claude-style quality is the target: compressed, opinionated, reusable.
+- `constraint` and `reference` are first-class durable memories, not fallback categories.
 </memory_quality_standard>
 
 <fact_rewrite_rule>
@@ -82,6 +83,8 @@ Implementation details alone are not durable records.
 - If you read many chunks, prune older `trace_read` results after noting the findings they contain and before any write.
 - Use `prune` only after the findings were already noted.
 - Use `search_records` before creating a durable record if you suspect a similar record may already exist.
+- If the trace mentions an earlier memory, existing rule, prior decision, duplicate avoidance, or "same meaning versus new meaning", you must call `search_records` before any durable `create_record`.
+- When the trace frames the choice as "new memory or refinement of an old one", resolve that choice with `search_records` first even if you currently expect the answer to be "new memory".
 - Use `fetch_records` only for the few records you may update.
 - Use `create_record` to create new records.
 - Use `update_record` only when a fetched record is clearly the same meaning and needs repair.
@@ -91,6 +94,7 @@ Implementation details alone are not durable records.
 1. Read the full trace with `trace_read`.
    - Keep calling `trace_read` until you have covered the full trace. Do not start writing while unread trace lines remain.
 2. Use `note` throughout to preserve durable evidence and session themes. Classify findings into durable signal vs implementation evidence.
+   - If the trace includes an early lure or rejected explanation, record that rejection as implementation evidence only. Do not keep the rejected lure as its own durable finding.
    - If the trace requires a second chunk, stop and record a compact batch of findings with `note` before any write.
    - Do not jump directly from repeated `trace_read` calls to `create_record` or `update_record`.
    - If you have already read many chunks, prune older read chunks after noting them and before any write.
@@ -102,7 +106,14 @@ Implementation details alone are not durable records.
    - if one candidate is only the application rule or routing consequence of another, keep it inside the stronger record
    - is it non-derivable from code/git/current repo state?
    - if this is a fact from a noisy failure, did you rewrite the underlying dependency or environment requirement instead of copying the raw symptom or exception text?
+   - if the trace explicitly says the rationale is unknown or says not to invent a why, do not create a `decision`; use `fact` instead
+   - the meta-instruction "do not invent a why" is not its own durable record; it only changes which kind you choose for the underlying project learning
    - is it existing-memory refinement rather than a new record?
+   - if the trace contrasts a candidate against an older memory, compare against existing records before deciding create vs update
+   - if a nearby existing record is similar but carries a different core claim, create a new record instead of forcing an update
+   - if you are looking at several nearby ideas from one topic area, which one is the strongest single durable point? reject weaker paraphrases instead of creating several related records
+   - if the trace explicitly rejects a lure, distraction, or implementation-only explanation, keep that rejected idea out of the durable record text unless the rejection itself is the durable lesson
+   - if the trace says "save A, not B/C", the durable record should contain only A plus rationale/application guidance; do not restate B/C in a cleanup sentence
    - if updating, did you inspect the full existing record first with `fetch_records`?
 5. Create exactly one `episode` record.
 6. Create or update each clear durable learning that still passes validation.
@@ -154,6 +165,10 @@ Implementation details alone are not durable records.
   3. how to apply it later
 - Do not start durable bodies with session narration like "The user asked" or "Task was".
 - Do not preserve trace-local directives, negotiation phrasing, or conversational commands inside durable records.
+- Do not carry rejected lures or implementation-only distractions into the durable record by negating them. If retry budget, pytest output, helper renames, or other local noise was explicitly ruled out, leave it out of the durable memory text entirely.
+- Final cleanup pass before any durable write: if a sentence exists only to dismiss a discarded alternative or explain what the memory is *not* about, delete that sentence and keep only the lasting rule, rationale, and application guidance.
+- If the trace explicitly separates the durable item from non-durable chatter, the final memory should read as if the chatter never appeared.
+- Exclusion evidence can justify your selection, but it should not be copied into the durable body as prose like "helper renames and pytest noise are not durable." Keep only the invariant, rationale, and application guidance.
 - When updating an existing record, keep the durable meaning and improved rationale, but rewrite away trace-specific wording so the result reads like canonical project memory.
 - Do not copy implementation checklists, commit logs, or meeting recap prose into durable records.
 - For facts from noisy failures, rewrite the stable dependency or environment requirement in clean language. Do not quote raw error strings, exception names, or stack symptoms unless the exact wording is itself the durable fact.
@@ -349,10 +364,12 @@ Fact, preference, constraint, and reference records should usually only fill:
 - episode body: `Ran pytest, reproduced the failure, inspected src/importer.py, patched the file, and updated the test.`
 - decision title: `Prevent duplicate checkpoints`
 - decision body: `Fixed the importer duplicate checkpoint issue.`
+- constraint body: `A session identity must map to at most one checkpoint. Helper renames and pytest noise are not durable memory.`
 </bad_extraction>
 <why_bad>
 - the durable memory is the invariant, not the debugging timeline
 - `Fixed the importer duplicate checkpoint issue` sounds important but is still too vague and not reusable
+- exclusion evidence can justify the choice, but it should not be copied into the final constraint text
 </why_bad>
 </example>
 
@@ -494,6 +511,73 @@ Fact, preference, constraint, and reference records should usually only fill:
 - trace-local directives like duplicate avoidance or rewrite instructions should not appear in the final memory
 </why_bad>
 </example>
+
+<example id="9">
+<label>Nearby prior memory exists, but the new durable claim is different</label>
+<expected_durable_extraction_count>`1 new durable record`</expected_durable_extraction_count>
+<trace_snippet>
+- user: "Earlier we already had a memory about retry budget living in job metadata. This session is different."
+- assistant: "I will compare that prior memory before deciding whether this is a refinement or a new durable rule."
+- user: "The new issue is restart recovery after lease handoff."
+- user: "Durable decision: authoritative lease ownership must live in the persisted queue row so restart and failover can recover it."
+</trace_snippet>
+<good_extraction>
+- action: `search_records`, then `create_record`
+- decision title: `Lease ownership must live in the persisted queue row`
+- decision body: `Authoritative lease ownership must live in the persisted queue row so restart and failover can recover it. **Why:** worker-local lease state disappears on restart and cannot serve as the source of truth. **How to apply:** lease handoff and recovery paths should read and write the persisted queue row rather than worker memory.`
+</good_extraction>
+<bad_extraction>
+- action: `create_record` without checking existing records
+- decision body: `Retry budget must live in job metadata.` or `Refined the old retry-budget memory.`
+</bad_extraction>
+<why_bad>
+- when the trace explicitly compares the new learning against an older memory, you must check the existing memory space before choosing create vs update
+- a nearby prior memory does not automatically make the new claim an update; compare first, then keep only the stronger independent durable point
+</why_bad>
+</example>
+
+<example id="10">
+<label>Late clarification wins, and the rejected lure stays out of the memory</label>
+<expected_durable_extraction_count>`1 new durable record`</expected_durable_extraction_count>
+<trace_snippet>
+- early chunks repeatedly speculate about retry budget drift and attempt counters
+- final user clarification: "Retry budget was a distraction. The real durable rule is that lease ownership must live in the persisted queue row."
+- assistant: "Understood. I'll keep only the lease-ownership rule."
+</trace_snippet>
+<good_extraction>
+- note findings: one durable finding for lease ownership, one implementation finding for the discarded retry-budget discussion
+- decision body: `Authoritative lease ownership must live in the persisted queue row so restart and failover can recover it. **Why:** worker-local lease state disappears on restart and cannot serve as the source of truth. **How to apply:** lease handoff and recovery paths should read and write the persisted queue row rather than worker memory.`
+</good_extraction>
+<bad_extraction>
+- decision body: `Authoritative lease ownership must live in the persisted queue row. Retry budget was a distraction.`
+</bad_extraction>
+<why_bad>
+- once a lure is explicitly rejected, it should not survive inside the durable record as negated commentary
+- the durable memory should contain only the lasting rule, not the list of wrong turns from the trace
+</why_bad>
+</example>
+
+<example id="11">
+<label>Meta extraction guidance is not its own memory</label>
+<expected_durable_extraction_count>`1 fact record`</expected_durable_extraction_count>
+<trace_snippet>
+- user: "Current stable setup: image-enabled workflows depend on libvips being present in the environment."
+- user: "Do not invent a policy reason or decision rationale beyond that current dependency fact."
+- assistant: "Understood. This is a stable current-state fact, not a justified decision."
+</trace_snippet>
+<good_extraction>
+- fact title: `Image-enabled workflows depend on libvips`
+- fact body: `Image-enabled workflows depend on libvips being present in the environment. **Why:** environments that run image workflows need the dependency available. **How to apply:** install libvips in environments that run image-enabled tests or transforms.`
+</good_extraction>
+<bad_extraction>
+- fact body: `Image-enabled workflows depend on libvips being present in the environment.`
+- extra durable record: `Do not invent rationale when the trace only supports a fact.`
+</bad_extraction>
+<why_bad>
+- "do not invent rationale" is extraction guidance, not project memory
+- the only durable learning here is the dependency fact itself
+</why_bad>
+</example>
 </few_shot_examples>
 
 <forbidden_focus>
@@ -529,6 +613,45 @@ def build_extract_agent(model: Model) -> Agent[ContextDeps, ExtractionResult]:
     )
 
 
+def _format_existing_record_manifest(
+    *,
+    context_db_path: Path,
+    project_identity: ProjectIdentity,
+    limit: int = 5,
+) -> str:
+    """Build a compact manifest of recent active durable records for create-vs-update decisions."""
+    store = ContextStore(context_db_path)
+    store.initialize()
+    store.register_project(project_identity)
+    rows = store.query(
+        entity="records",
+        mode="list",
+        project_ids=[project_identity.project_id],
+        status="active",
+        order_by="updated_at",
+        limit=max(limit * 2, limit),
+        include_total=False,
+    )["rows"]
+    durable_rows = [row for row in rows if str(row.get("kind") or "") != "episode"][:limit]
+    if not durable_rows:
+        return ""
+
+    def _shorten(text: str, max_chars: int = 140) -> str:
+        value = " ".join((text or "").split())
+        if len(value) <= max_chars:
+            return value
+        return value[: max_chars - 3].rstrip() + "..."
+
+    lines = ["Relevant existing durable records:"]
+    for row in durable_rows:
+        record_id = str(row.get("record_id") or "")
+        kind = str(row.get("kind") or "")
+        title = _shorten(str(row.get("title") or ""))
+        body = _shorten(str(row.get("body") or ""))
+        lines.append(f"- {record_id} | {kind} | {title} | {body}")
+    return "\n".join(lines)
+
+
 def run_extraction(
     *,
     context_db_path: Path,
@@ -545,6 +668,10 @@ def run_extraction(
         trace_line_count = sum(1 for _ in trace_path.open("r", encoding="utf-8"))
     except OSError:
         trace_line_count = 0
+    existing_record_manifest = _format_existing_record_manifest(
+        context_db_path=context_db_path,
+        project_identity=project_identity,
+    )
     deps = ContextDeps(
         context_db_path=context_db_path,
         project_identity=project_identity,
@@ -560,6 +687,7 @@ def run_extraction(
             f"This trace has {trace_line_count} lines. Read all chunks before writing. "
             "If the trace needs more than one trace_read to cover it, call note before any "
             "create_record or update_record."
+            + (f"\n\n{existing_record_manifest}" if existing_record_manifest else "")
         ),
         deps=deps,
         usage_limits=UsageLimits(request_limit=compute_request_budget(trace_path)),
