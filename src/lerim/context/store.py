@@ -882,6 +882,7 @@ class ContextStore:
         limit: int = 20,
         offset: int = 0,
         include_total: bool = False,
+        include_archived: bool = False,
     ) -> dict[str, Any]:
         """Run a deterministic list/count query for records, versions, or sessions."""
         entity_name = QUERY_ENTITY_ALIASES.get(str(entity or "").strip().lower(), str(entity or "").strip().lower())
@@ -911,6 +912,7 @@ class ContextStore:
                 limit=limit,
                 offset=offset,
                 include_total=include_total,
+                include_archived=include_archived,
             )
         if entity_name == "versions":
             return self._query_versions(
@@ -958,6 +960,7 @@ class ContextStore:
         limit: int,
         offset: int,
         include_total: bool,
+        include_archived: bool,
     ) -> dict[str, Any]:
         filter_sql, params = self._build_record_filter_sql(
             project_ids=project_ids,
@@ -969,7 +972,7 @@ class ContextStore:
             updated_since=updated_since,
             updated_until=updated_until,
             valid_at=valid_at,
-            include_archived=True,
+            include_archived=include_archived,
             table_alias="",
         )
         with self.connect() as conn:

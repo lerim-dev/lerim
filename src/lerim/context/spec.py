@@ -240,6 +240,11 @@ def record_validation_message(code: str) -> str | None:
         "episode_requires_user_intent_and_what_happened": (
             "Episode records need both `user_intent` and `what_happened`."
         ),
+        "duplicate_episode_for_session": (
+            "This session already has an episode record. Do not create another episode. "
+            "Continue with durable records, or update the existing episode only if you truly "
+            "need to improve it."
+        ),
         "episode_body_too_long": (
             "Episode body is too long. Compress it to 2-4 short sentences."
         ),

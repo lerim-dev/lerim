@@ -12,14 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import ModelRetry, RunContext
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    ModelResponse,
-    SystemPromptPart,
-    ToolCallPart,
-    ToolReturnPart,
-)
+from pydantic_ai.messages import ModelResponse
 
 from lerim.context import ContextStore, ProjectIdentity
 from lerim.context.spec import (
@@ -197,7 +190,16 @@ def search_records(
     include_archived: bool = False,
     limit: int = 8,
 ) -> str:
-    """Search the context store with hybrid retrieval and compact results."""
+    """Search records by topic or meaning.
+
+    Use this when the question is semantic, such as "what do we know about X?"
+    Do not use it as the first step for exact count, latest, date-window,
+    truth-at-time, current-vs-historical, or mixed time-plus-topic questions;
+    those are better served by `context_query` or `list_records` first. For
+    current-vs-historical questions, semantic search is only a follow-up aid
+    after archived-capable exact retrieval has already surfaced the current and
+    historical candidates.
+    """
     store = _store(ctx)
     trimmed_query = str(query or "").strip()
     if not trimmed_query or trimmed_query == "*":
@@ -205,13 +207,14 @@ def search_records(
             "search_records needs a real text query. "
             "Use list_records when you want to browse recent or filtered records."
         )
+    effective_include_archived = bool(include_archived or str(valid_at or "").strip())
     hits = store.search(
         project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
         query=trimmed_query,
         kind_filters=kind_filters or None,
         statuses=status_filters or None,
         valid_at=valid_at.strip() or None,
-        include_archived=bool(include_archived),
+        include_archived=effective_include_archived,
         limit=max(1, min(int(limit), 8)),
     )
     payload = {
@@ -249,17 +252,26 @@ def list_records(
     order_by: str = "updated_at",
     limit: int = 8,
 ) -> str:
-    """List compact record rows with exact filters and ordering."""
+    """List compact record rows using exact filters and ordering.
+
+    Best for browsing recent rows or narrowing by exact fields such as kind,
+    created/updated windows, status, or `valid_at`. For latest-by-kind,
+    exact date-window, current-vs-historical, and mixed time-plus-topic
+    questions, prefer this or `context_query` before any semantic search. Use
+    `include_archived=True` when the question asks for historical truth or a
+    before-vs-now comparison.
+    """
     store = _store(ctx)
     order = str(order_by or "updated_at").strip().lower()
     if order not in {"created_at", "updated_at", "valid_from"}:
         raise ModelRetry(
             "list_records order_by must be one of: created_at, updated_at, valid_from."
         )
+    effective_include_archived = bool(include_archived or valid_at.strip())
     status: str | None = None
     if status_filters and len(status_filters) == 1:
         status = _normalize_status(status_filters[0])
-    elif not include_archived:
+    elif not effective_include_archived:
         status = "active"
     listing = store.query(
         entity="records",
@@ -277,6 +289,7 @@ def list_records(
         order_by=order,
         limit=max(1, min(int(limit), 50)),
         include_total=False,
+        include_archived=effective_include_archived,
     )
     payload = {
         "count": listing["count"],
@@ -305,7 +318,11 @@ def fetch_records(
     include_versions: bool = False,
     response_format: str = "detailed",
 ) -> str:
-    """Fetch canonical records by ID with concise or detailed response formats."""
+    """Fetch full canonical records by ID after you identify candidates.
+
+    Use this after `search_records`, `list_records`, or `context_query` when
+    you need the complete body or typed fields before answering.
+    """
     mode = (response_format or "concise").strip().lower()
     if mode not in {"concise", "detailed"}:
         return f"Error: response_format must be 'concise' or 'detailed', got {response_format!r}"
@@ -601,11 +618,20 @@ def context_query(
     offset: int = 0,
     include_total: bool = False,
 ) -> str:
-    """Run deterministic count/list queries over records, versions, or sessions."""
+    """Run deterministic count or list queries over records, versions, or sessions.
+
+    Use this for exact questions such as counts, latest rows, strict date
+    windows, truth-at-time queries, and exact current-vs-historical
+    candidate listing. For record listings, `valid_at` includes historical
+    rows that were true at the requested time. Prefer this before semantic
+    search whenever the question asks for now-vs-before or current-vs-historical
+    comparison.
+    """
     store = _store(ctx)
+    entity_name = str(entity or "").strip().lower()
     try:
         payload = store.query(
-            entity=str(entity or "").strip().lower(),
+            entity=entity_name,
             mode=str(mode or "").strip().lower(),
             project_ids=ctx.deps.project_ids or [ctx.deps.project_identity.project_id],
             kind=_normalize_kind(kind) or None,
@@ -620,6 +646,7 @@ def context_query(
             limit=max(1, min(int(limit), 100)),
             offset=max(0, int(offset)),
             include_total=bool(include_total),
+            include_archived=entity_name in {"records", "memories", "learnings"},
         )
     except ValueError as exc:
         message = str(exc)
@@ -674,120 +701,6 @@ def compute_request_budget(trace_path: Path) -> int:
     if line_count >= 5000:
         return 100
     return max(40, min(100, int(40 + (line_count / 100.0))))
-
-
-def notes_state_injector(
-    ctx: RunContext[ContextDeps],
-    history: list[ModelMessage],
-) -> list[ModelMessage]:
-    """Inject a compact notes dashboard into the next model request."""
-    findings = ctx.deps.notes
-    if not findings:
-        summary = "NOTES: 0 findings"
-    else:
-        counts = Counter(f.level for f in findings)
-        themes = Counter(f.theme for f in findings)
-        durable = sum(
-            counts.get(level, 0) for level in DURABLE_FINDING_LEVELS
-        )
-        implementation = sum(
-            counts.get(level, 0) for level in IMPLEMENTATION_FINDING_LEVELS
-        )
-        top_themes = ", ".join(
-            f"{theme}({count})" for theme, count in themes.most_common(5)
-        )
-        summary = (
-            f"NOTES: {len(findings)} findings ({durable} durable, {implementation} implementation) "
-            f"across {len(themes)} theme(s)"
-        )
-        if top_themes:
-            summary += f"\nTop themes: {top_themes}"
-    if ctx.deps.read_ranges:
-        next_uncovered = _first_uncovered_offset(
-            ctx.deps.read_ranges, int(ctx.deps.trace_total_lines)
-        )
-        covered_chunks = len(
-            {(int(start), int(end)) for start, end in ctx.deps.read_ranges}
-        )
-        summary += (
-            f"\nTrace reads: {covered_chunks} chunk(s)"
-            f"\nNext unread offset: {next_uncovered if next_uncovered is not None else 'none'}"
-            f"\nPruned offsets: {sorted(ctx.deps.pruned_offsets) if ctx.deps.pruned_offsets else 'none'}"
-        )
-    injected = list(history)
-    injected.append(ModelRequest(parts=[SystemPromptPart(content=summary)]))
-    return injected
-
-
-def context_pressure_injector(
-    ctx: RunContext[ContextDeps],
-    history: list[ModelMessage],
-) -> list[ModelMessage]:
-    """Inject approximate context pressure information into the next model request."""
-    chars = 0
-    for message in history:
-        parts = getattr(message, "parts", []) or []
-        for part in parts:
-            content = getattr(part, "content", None)
-            if isinstance(content, str):
-                chars += len(content)
-            elif content is not None:
-                chars += len(json.dumps(content, ensure_ascii=True))
-    approx_tokens = math.ceil(chars * _TOKENS_PER_CHAR)
-    pct = approx_tokens / MODEL_CONTEXT_TOKEN_LIMIT
-    pressure = _classify_context_pressure(pct)
-    ctx.deps.last_context_tokens = approx_tokens
-    ctx.deps.last_context_fill_ratio = pct
-    summary = (
-        f"CONTEXT: {approx_tokens}/{MODEL_CONTEXT_TOKEN_LIMIT} ({pct:.0%}) [{pressure}]"
-    )
-    injected = list(history)
-    injected.append(ModelRequest(parts=[SystemPromptPart(content=summary)]))
-    return injected
-
-
-def prune_history_processor(
-    ctx: RunContext[ContextDeps],
-    history: list[ModelMessage],
-) -> list[ModelMessage]:
-    """Rewrite prior trace_read results to tiny stubs for pruned offsets."""
-    if not ctx.deps.pruned_offsets:
-        return history
-    pruned = set(ctx.deps.pruned_offsets)
-    rewritten: list[ModelMessage] = []
-    pending_offset: int | None = None
-    for message in history:
-        parts = getattr(message, "parts", []) or []
-        new_parts = []
-        for part in parts:
-            if (
-                isinstance(part, ToolCallPart)
-                and getattr(part, "tool_name", "") == "trace_read"
-            ):
-                args = getattr(part, "args", None)
-                offset = None
-                if isinstance(args, dict):
-                    try:
-                        offset = int(args.get("offset", 0))
-                    except Exception:
-                        offset = 0
-                pending_offset = offset
-                new_parts.append(part)
-                continue
-            if (
-                isinstance(part, ToolReturnPart)
-                and pending_offset in pruned
-                and isinstance(part.content, str)
-            ):
-                new_parts.append(replace(part, content=PRUNED_STUB))
-                pending_offset = None
-                continue
-            new_parts.append(part)
-            if isinstance(part, ToolReturnPart):
-                pending_offset = None
-        rewritten.append(replace(message, parts=new_parts))
-    return rewritten
-
 
 if __name__ == "__main__":
     """Run a small smoke check for request budget logic."""
