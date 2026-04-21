@@ -1388,6 +1388,22 @@ class TestBuildRecordFilterSql:
         assert "updated_at <= ?" in sql
         assert len(params) == 4
 
+    def test_date_only_filters_expand_to_full_day_bounds(self):
+        sql, params = self._call(
+            created_since="2026-01-01",
+            created_until="2026-01-01",
+            updated_since="2026-02-02",
+            updated_until="2026-02-02",
+        )
+        assert "created_at >= ?" in sql
+        assert "created_at <= ?" in sql
+        assert "updated_at >= ?" in sql
+        assert "updated_at <= ?" in sql
+        assert params[0] == "2026-01-01T00:00:00+00:00"
+        assert params[1].startswith("2026-01-01T23:59:59")
+        assert params[2] == "2026-02-02T00:00:00+00:00"
+        assert params[3].startswith("2026-02-02T23:59:59")
+
     def test_valid_at(self):
         sql, params = self._call(valid_at="2026-03-15")
         assert "valid_from <= ?" in sql
