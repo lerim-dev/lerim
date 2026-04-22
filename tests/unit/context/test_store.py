@@ -322,6 +322,80 @@ class TestContextStoreInit:
             ).fetchone()["valid_until"]
         assert vu is not None
 
+    def test_initialize_and_register_project_do_not_require_embedding_provider(
+        self, tmp_path, monkeypatch, project_id
+    ):
+        db_path = tmp_path / "context.sqlite3"
+        store = ContextStore(db_path)
+        monkeypatch.setattr(
+            "lerim.context.store.get_embedding_provider",
+            lambda: (_ for _ in ()).throw(RuntimeError("embedding provider should not load")),
+        )
+        store.initialize()
+        result = store.register_project(project_id)
+        assert result["project_id"] == project_id.project_id
+
+    def test_fetch_record_and_query_sessions_do_not_require_embedding_provider(
+        self, tmp_path, monkeypatch, project_id
+    ):
+        db_path = tmp_path / "context.sqlite3"
+        store = ContextStore(db_path)
+        monkeypatch.setattr(
+            "lerim.context.store.get_embedding_provider",
+            lambda: (_ for _ in ()).throw(RuntimeError("embedding provider should not load")),
+        )
+        store.initialize()
+        store.register_project(project_id)
+        store.upsert_session(
+            project_id=project_id.project_id,
+            session_id="sess_offline",
+            agent_type="test",
+            source_trace_ref="offline.jsonl",
+            repo_path=str(project_id.repo_path),
+            cwd=str(project_id.repo_path),
+            started_at="2026-01-01T00:00:00Z",
+            model_name="test-model",
+            instructions_text=None,
+            prompt_text=None,
+        )
+        now = _utc_now()
+        with store.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO records(
+                    record_id, project_id, kind, title, body, status, source_session_id,
+                    created_at, updated_at, valid_from, valid_until, superseded_by_record_id,
+                    decision, why, alternatives, consequences, user_intent, what_happened, outcomes
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "rec_offline",
+                    project_id.project_id,
+                    "fact",
+                    "Offline fact",
+                    "Exact reads should not need embeddings.",
+                    "active",
+                    "sess_offline",
+                    now,
+                    now,
+                    now,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+            )
+        fetched = store.fetch_record("rec_offline", project_ids=[project_id.project_id])
+        sessions = store.query(entity="sessions", mode="count", project_ids=[project_id.project_id])
+        assert fetched is not None
+        assert sessions["count"] == 1
+
 
 class TestRegisterProject:
     def test_register_project_inserts_row(self, mock_store, project_id):
@@ -1041,6 +1115,53 @@ class TestQuery:
         assert result["entity"] == "versions"
         assert result["count"] >= 1
 
+    def test_superseded_records_excluded_from_current_query_results(self, mock_seeded):
+        store, pid = mock_seeded
+        old_record = _make_decision(store, pid)
+        replacement = store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="decision",
+            title="Replacement decision",
+            body="New durable truth.",
+            decision="Use replacement",
+            why="The previous one was superseded.",
+        )
+        store.supersede_record(
+            record_id=old_record["record_id"],
+            session_id=None,
+            project_ids=[pid],
+            replacement_record_id=replacement["record_id"],
+        )
+        listed = store.query(entity="records", mode="list", project_ids=[pid])
+        counted = store.query(entity="records", mode="count", project_ids=[pid])
+        row_ids = {row["record_id"] for row in listed["rows"]}
+        assert old_record["record_id"] not in row_ids
+        assert replacement["record_id"] in row_ids
+        assert counted["count"] == len(row_ids)
+
+    def test_date_only_valid_at_includes_records_from_later_same_day(self, mock_seeded):
+        store, pid = mock_seeded
+        record = _make_decision(store, pid)
+        midday = "2026-02-15T12:00:00+00:00"
+        with store.connect() as conn:
+            conn.execute(
+                """
+                UPDATE records
+                SET valid_from = ?, created_at = ?, updated_at = ?
+                WHERE record_id = ?
+                """,
+                (midday, midday, midday, record["record_id"]),
+            )
+        result = store.query(
+            entity="records",
+            mode="list",
+            project_ids=[pid],
+            valid_at="2026-02-15",
+        )
+        row_ids = {row["record_id"] for row in result["rows"]}
+        assert record["record_id"] in row_ids
+
 
 class TestNormalizeRecordPayload:
     def _call(self, **kw):
@@ -1365,10 +1486,14 @@ class TestBuildRecordFilterSql:
     def test_include_archived_false(self):
         sql, params = self._call(include_archived=False)
         assert "status = 'active'" in sql
+        assert "valid_from <= ?" in sql
+        assert "valid_until IS NULL OR" in sql
+        assert len(params) == 2
 
     def test_include_archived_true_no_status_clause(self):
         sql, params = self._call(include_archived=True)
         assert "status" not in sql
+        assert "valid_from <= ?" not in sql
 
     def test_source_session_id(self):
         sql, params = self._call(source_session_id="sess_1")
@@ -1408,7 +1533,21 @@ class TestBuildRecordFilterSql:
         sql, params = self._call(valid_at="2026-03-15")
         assert "valid_from <= ?" in sql
         assert "valid_until IS NULL OR" in sql
-        assert params.count("2026-03-15") == 2
+        assert params.count("2026-03-15T23:59:59.999999+00:00") == 2
+
+    def test_status_active_applies_current_validity_window(self):
+        sql, params = self._call(statuses=["active"], include_archived=True)
+        assert "status IN (?)" in sql
+        assert "valid_from <= ?" in sql
+        assert "valid_until IS NULL OR" in sql
+        assert params[0] == "active"
+        assert len(params) == 3
+
+    def test_archived_status_does_not_force_current_validity_window(self):
+        sql, params = self._call(statuses=["archived"], include_archived=False)
+        assert "status IN (?)" in sql
+        assert "valid_from <= ?" not in sql
+        assert params == ["archived"]
 
     def test_table_alias(self):
         sql, params = self._call(table_alias="r", project_ids=["p1"])

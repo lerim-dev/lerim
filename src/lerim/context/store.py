@@ -83,6 +83,25 @@ def _normalize_datetime_filter_bound(value: str | None, *, upper: bool) -> str |
     return datetime.combine(parsed, boundary, tzinfo=timezone.utc).isoformat()
 
 
+def _effective_current_valid_at(
+    *,
+    valid_at: str | None,
+    include_archived: bool,
+    statuses: list[str] | None,
+) -> str | None:
+    """Return the timestamp that should define current-record visibility."""
+    if valid_at:
+        return _normalize_datetime_filter_bound(valid_at, upper=True)
+    status_set = {str(status or "").strip() for status in (statuses or []) if str(status or "").strip()}
+    if status_set and status_set != {"active"}:
+        return None
+    if not include_archived:
+        return _utc_now()
+    if status_set == {"active"}:
+        return _utc_now()
+    return None
+
+
 def _parse_iso_utc(raw: str | None) -> datetime | None:
     """Parse one ISO timestamp into an aware UTC datetime when possible."""
     text = str(raw or "").strip()
@@ -297,7 +316,6 @@ class ContextStore:
                 CREATE INDEX IF NOT EXISTS idx_record_versions_changed_at ON record_versions(changed_at);
                 """
             )
-            needs_embedding_rebuild = self._ensure_record_embeddings_index(conn)
             self._validate_schema(conn)
             self._repair_archived_validity(conn)
             conn.execute(
@@ -308,8 +326,6 @@ class ContextStore:
                 """,
                 (SCHEMA_VERSION,),
             )
-            if needs_embedding_rebuild:
-                self._rebuild_embeddings(conn)
 
     def _validate_schema(self, conn: sqlite3.Connection) -> None:
         """Ensure the on-disk DB matches the simplified canonical schema."""
@@ -318,13 +334,6 @@ class ContextStore:
             "sessions": {"session_id", "project_id", "agent_type", "source_trace_ref"},
             "records": {"record_id", "project_id", "kind", "title", "body", "status"},
             "record_versions": {"version_id", "record_id", "version_no", "change_kind"},
-            "record_embeddings": {
-                "embedding",
-                "project_id",
-                "record_id",
-                "embedding_model",
-                "updated_at",
-            },
             "records_fts": {
                 "record_id",
                 "project_id",
@@ -348,9 +357,25 @@ class ContextStore:
         embeddings_sql_row = conn.execute(
             "SELECT sql FROM sqlite_master WHERE name = 'record_embeddings'"
         ).fetchone()
-        embeddings_sql = str(embeddings_sql_row["sql"] or "") if embeddings_sql_row else ""
-        if "vec0" not in embeddings_sql.lower():
-            raise sqlite3.OperationalError("context schema incompatible: record_embeddings is not vec0")
+        if embeddings_sql_row is not None:
+            embeddings_sql = str(embeddings_sql_row["sql"] or "")
+            if "vec0" not in embeddings_sql.lower():
+                raise sqlite3.OperationalError("context schema incompatible: record_embeddings is not vec0")
+            rows = conn.execute("PRAGMA table_info(record_embeddings)").fetchall()
+            actual = {str(row[1]) for row in rows}
+            expected = {
+                "embedding",
+                "project_id",
+                "record_id",
+                "embedding_model",
+                "updated_at",
+            }
+            missing = expected - actual
+            if missing:
+                missing_list = ", ".join(sorted(missing))
+                raise sqlite3.OperationalError(
+                    f"context schema incompatible: table record_embeddings missing columns {missing_list}"
+                )
 
     def _ensure_record_embeddings_index(self, conn: sqlite3.Connection) -> bool:
         """Ensure record_embeddings uses sqlite-vec and return whether to rebuild rows."""
@@ -623,12 +648,16 @@ class ContextStore:
                 change_reason=change_reason,
                 changed_by_session_id=session_id,
             )
-            self._upsert_embedding(
-                conn,
-                project_id=project_id,
-                record_id=record_id,
-                text=self._search_text(payload),
-            )
+            needs_embedding_rebuild = self._ensure_record_embeddings_index(conn)
+            if needs_embedding_rebuild:
+                self._rebuild_embeddings(conn)
+            else:
+                self._upsert_embedding(
+                    conn,
+                    project_id=project_id,
+                    record_id=record_id,
+                    text=self._search_text(payload),
+                )
             self._upsert_fts(conn, project_id=project_id, record_id=record_id, payload=payload)
         return self.fetch_record(record_id, project_ids=[project_id], include_versions=True) or {}
 
@@ -727,12 +756,16 @@ class ContextStore:
                 change_reason=change_reason,
                 changed_by_session_id=session_id,
             )
-            self._upsert_embedding(
-                conn,
-                project_id=merged["project_id"],
-                record_id=record_id,
-                text=self._search_text(payload),
-            )
+            needs_embedding_rebuild = self._ensure_record_embeddings_index(conn)
+            if needs_embedding_rebuild:
+                self._rebuild_embeddings(conn)
+            else:
+                self._upsert_embedding(
+                    conn,
+                    project_id=merged["project_id"],
+                    record_id=record_id,
+                    text=self._search_text(payload),
+                )
             self._upsert_fts(conn, project_id=merged["project_id"], record_id=record_id, payload=payload)
         return self.fetch_record(record_id, project_ids=project_ids, include_versions=True) or {}
 
@@ -1355,6 +1388,11 @@ class ContextStore:
         prefix = f"{table_alias}." if table_alias else ""
         clauses = ["1=1"]
         params: list[Any] = []
+        effective_valid_at = _effective_current_valid_at(
+            valid_at=valid_at,
+            include_archived=include_archived,
+            statuses=statuses,
+        )
         if project_ids:
             placeholders = ", ".join("?" for _ in project_ids)
             clauses.append(f"{prefix}project_id IN ({placeholders})")
@@ -1384,10 +1422,10 @@ class ContextStore:
         if updated_until:
             clauses.append(f"{prefix}updated_at <= ?")
             params.append(_normalize_datetime_filter_bound(updated_until, upper=True))
-        if valid_at:
+        if effective_valid_at:
             clauses.append(f"{prefix}valid_from <= ?")
             clauses.append(f"({prefix}valid_until IS NULL OR {prefix}valid_until >= ?)")
-            params.extend([valid_at, valid_at])
+            params.extend([effective_valid_at, effective_valid_at])
         return " AND ".join(clauses), params
 
     def _build_version_filter_sql(
@@ -1406,6 +1444,7 @@ class ContextStore:
         """Build reusable version filter fragments."""
         clauses = ["1=1"]
         params: list[Any] = []
+        effective_valid_at = _normalize_datetime_filter_bound(valid_at, upper=True) if valid_at else None
         if project_ids:
             placeholders = ", ".join("?" for _ in project_ids)
             clauses.append(f"project_id IN ({placeholders})")
@@ -1431,10 +1470,10 @@ class ContextStore:
         if updated_until:
             clauses.append("updated_at <= ?")
             params.append(_normalize_datetime_filter_bound(updated_until, upper=True))
-        if valid_at:
+        if effective_valid_at:
             clauses.append("valid_from <= ?")
             clauses.append("(valid_until IS NULL OR valid_until >= ?)")
-            params.extend([valid_at, valid_at])
+            params.extend([effective_valid_at, effective_valid_at])
         return " AND ".join(clauses), params
 
     def _semantic_candidates(
@@ -1470,6 +1509,9 @@ class ContextStore:
             vector_filter_sql = " AND record_embeddings.project_id = ?"
             vector_filter_params.append(project_ids[0])
         with self.connect() as conn:
+            needs_embedding_rebuild = self._ensure_record_embeddings_index(conn)
+            if needs_embedding_rebuild:
+                self._rebuild_embeddings(conn)
             rows = conn.execute(
                 f"""
                 SELECT records.record_id, record_embeddings.distance

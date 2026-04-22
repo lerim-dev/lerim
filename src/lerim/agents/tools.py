@@ -630,14 +630,15 @@ def context_query(
     """Run deterministic count or list queries over records, versions, or sessions.
 
     Use this for exact questions such as counts, latest rows, strict date
-    windows, truth-at-time queries, and exact current-vs-historical
-    candidate listing. For record listings, `valid_at` includes historical
-    rows that were true at the requested time. Prefer this before semantic
-    search whenever the question asks for now-vs-before or current-vs-historical
-    comparison.
+    windows, and truth-at-time queries. For record queries, current rows are
+    the default; `valid_at` is the way to include historical rows that were
+    true at the requested time. For before-vs-now or current-vs-historical
+    comparisons, use `list_records(include_archived=True)` when you need to
+    inspect both current and retired candidates explicitly.
     """
     store = _store(ctx)
     entity_name = str(entity or "").strip().lower()
+    include_archived = bool(entity_name in {"records", "memories", "learnings"} and str(valid_at or "").strip())
     try:
         payload = store.query(
             entity=entity_name,
@@ -655,7 +656,7 @@ def context_query(
             limit=max(1, min(int(limit), 100)),
             offset=max(0, int(offset)),
             include_total=bool(include_total),
-            include_archived=entity_name in {"records", "memories", "learnings"},
+            include_archived=include_archived,
         )
     except ValueError as exc:
         message = str(exc)

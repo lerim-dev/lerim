@@ -10,6 +10,15 @@ seed_records:
     kind: "fact"
     title: "Image-enabled workflows depend on libvips"
     body: "Image tests and transforms depend on libvips."
+  - session_id: "seed-count-archived"
+    kind: "decision"
+    status: "archived"
+    valid_from: "2025-01-01T00:00:00+00:00"
+    valid_until: "2026-03-01T00:00:00+00:00"
+    title: "Archived decision should not count by default"
+    body: "Retired decisions should not appear in current exact counts."
+    decision: "Retired decision"
+    why: "It was replaced and is no longer current."
 expected:
   must_use_tools:
     - "context_query"

@@ -860,6 +860,63 @@ class TestContextQuery:
         parsed = json.loads(result)
         assert "rows" in parsed
 
+    def test_default_record_count_excludes_archived_rows(self, deps):
+        ctx = make_run_context(deps)
+        store = ContextStore(deps.context_db_path)
+        store.initialize()
+        store.register_project(deps.project_identity)
+        _seed_session(store, deps.project_identity.project_id, session_id="sess_active")
+        _seed_session(store, deps.project_identity.project_id, session_id="sess_archived")
+        store.create_record(
+            project_id=deps.project_identity.project_id,
+            session_id="sess_active",
+            kind="decision",
+            title="Active decision",
+            body="Current active decision.",
+            decision="Current active decision",
+            why="It is still current.",
+        )
+        store.create_record(
+            project_id=deps.project_identity.project_id,
+            session_id="sess_archived",
+            kind="decision",
+            status="archived",
+            title="Old decision",
+            body="Retired decision.",
+            decision="Retired decision",
+            why="It was replaced.",
+            valid_until="2026-03-01T00:00:00+00:00",
+        )
+        result = context_query(ctx, entity="records", mode="count", kind="decision")
+        parsed = json.loads(result)
+        assert parsed["count"] == 1
+
+    def test_valid_at_record_query_includes_archived_history(self, deps):
+        ctx = make_run_context(deps)
+        store = ContextStore(deps.context_db_path)
+        store.initialize()
+        store.register_project(deps.project_identity)
+        _seed_session(store, deps.project_identity.project_id, session_id="sess_hist")
+        store.create_record(
+            project_id=deps.project_identity.project_id,
+            session_id="sess_hist",
+            record_id="rec_hist_context_query",
+            kind="fact",
+            status="archived",
+            title="Markdown files were the canonical context store",
+            body="Markdown files were treated as the canonical durable context store.",
+            valid_from="2025-01-01T00:00:00+00:00",
+            valid_until="2026-03-01T00:00:00+00:00",
+        )
+        result = context_query(
+            ctx,
+            entity="records",
+            mode="list",
+            valid_at="2026-02-15T00:00:00+00:00",
+        )
+        parsed = json.loads(result)
+        assert any(row["record_id"] == "rec_hist_context_query" for row in parsed["rows"])
+
 
 # ---------------------------------------------------------------------------
 # note

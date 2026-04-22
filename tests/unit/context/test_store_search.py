@@ -432,6 +432,37 @@ class TestSearchIntegration:
         )
         assert any(h.record_id == rec["record_id"] for h in hits)
 
+    def test_superseded_record_excluded_from_current_search(self, tmp_path, monkeypatch):
+        store, pid = _build_store_with_project(tmp_path, monkeypatch)
+        old_record = store.create_record(
+            project_id=pid,
+            session_id="sess_search",
+            kind="decision",
+            title="Storage truth",
+            body="Use the sessions database for runtime state.",
+            decision="Use sessions database for runtime state",
+            why="Operational state belongs in the sessions DB.",
+        )
+        replacement = store.create_record(
+            project_id=pid,
+            session_id="sess_search",
+            kind="decision",
+            title="Storage truth",
+            body="Use the sessions database for runtime state and keep product context separate.",
+            decision="Use sessions database for runtime state",
+            why="Operational state belongs in the sessions DB.",
+        )
+        store.supersede_record(
+            record_id=old_record["record_id"],
+            session_id=None,
+            project_ids=[pid],
+            replacement_record_id=replacement["record_id"],
+        )
+        hits = store.search(project_ids=[pid], query="runtime state sessions database")
+        hit_ids = [hit.record_id for hit in hits]
+        assert old_record["record_id"] not in hit_ids
+        assert replacement["record_id"] in hit_ids
+
     def test_limit_respected(self, tmp_path, monkeypatch):
         store, pid = _build_store_with_project(tmp_path, monkeypatch)
         for i in range(10):

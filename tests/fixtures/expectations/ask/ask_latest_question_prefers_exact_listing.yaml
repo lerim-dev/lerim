@@ -24,6 +24,18 @@ seed_records:
     updated_at: "2026-04-20T07:00:00+00:00"
     title: "Embedding cache lives under the Lerim root"
     body: "The embedding cache is stored under the configured Lerim global root."
+  - session_id: "seed-latest-archived"
+    record_id: "rec_archived_newer_decision"
+    kind: "decision"
+    status: "archived"
+    valid_from: "2025-12-01T00:00:00+00:00"
+    valid_until: "2026-04-18T10:00:00+00:00"
+    created_at: "2026-04-20T11:00:00+00:00"
+    updated_at: "2026-04-20T11:00:00+00:00"
+    title: "Archived newer decision"
+    body: "A retired decision with a newer timestamp should not win the default latest query."
+    decision: "Archived newer decision."
+    why: "It is historical and should not be treated as the latest current decision."
 expected:
   must_use_tools: []
   must_not_use_tools: []

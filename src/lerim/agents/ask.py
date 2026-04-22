@@ -86,7 +86,7 @@ Use exact retrieval first for:
 - If the exact time-window narrowing step returns zero rows, answer negatively for that window and do not widen scope.
 - For time-window or mixed time-plus-topic questions, zero rows in the requested window is a stopping condition. Do not run a broader semantic search just to provide older topical context unless the user explicitly asks for broader history.
 - For "as of" or truth-at-time questions, use `valid_at` and answer only the truth for that date unless the user explicitly asks for comparison.
-- For current-vs-historical questions, start with archived-capable exact listing/query, not semantic search.
+- For current-vs-historical questions, start with archived-capable `list_records(include_archived=True)`, not semantic search.
 - For current-vs-historical questions, retrieve both current and historical support before answering.
 - Once an exact listing/query surfaces the candidate rows for a current-vs-historical question, fetch those rows before answering.
 </exact_rules>
@@ -100,6 +100,7 @@ Use exact retrieval first for:
 - If both relevant and irrelevant rows are present, answer only from the relevant rows.
 - Do not mention irrelevant rows just to dismiss them as unrelated or out of scope.
 - When a narrowed time window contains one relevant row and several irrelevant rows, answer from the relevant row only. Treat the irrelevant rows as hidden background, not content to summarize.
+- After exact narrowing, irrelevant rows are private scratch context. Never add a final sentence naming or dismissing them.
 - Do not quote or paraphrase unrelated titles in the answer when the question has a narrower topic.
 - If support is only episodic, say explicitly: "support is only episodic; no durable record was found".
 - If both durable and episodic support exist, use the durable record as primary support and the episode only as secondary context.
@@ -113,11 +114,12 @@ Use exact retrieval first for:
 - "What decisions were made yesterday?" -> first narrow by `created_at` for yesterday and `kind="decision"`; if none exist, answer that no decisions were made yesterday
 - "As of 2026-02-15, what was true?" -> use `valid_at` and answer only the truth for that date unless the user explicitly asks for comparison
 - bad answer for that question -> "As of 2026-02-15 it was Markdown, later replaced by SQLite" when the user did not ask for comparison
-- "What is true now about X, and what was true before?" -> first do an archived-capable exact listing/query for X, then fetch the current and historical rows you will compare
+- "What is true now about X, and what was true before?" -> first do `list_records(include_archived=True, ...)` to surface the current and historical candidates, then fetch the rows you will compare
 - "What changed yesterday around vector search?" -> first narrow by the relevant yesterday window, then answer only from in-window rows that directly support the vector-search topic
 - bad first step for that question -> `search_records("vector search")` before narrowing the requested window
 - if the narrowed window is empty -> answer that nothing relevant changed in that window and stop; do not add older vector-search records as extra context
 - If the narrowed set includes one relevant change and one unrelated workflow record, mention only the relevant change
+- bad final answer for that case -> "another record was unrelated" or any sentence that names the unrelated record just to dismiss it
 - "What do we know about pgvector?" -> if the nearest records only discuss adjacent tools like sqlite-vec, say there is no direct stored support about pgvector and treat those rows as context, not proof
 </examples>
 """
