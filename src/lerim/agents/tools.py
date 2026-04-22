@@ -322,6 +322,10 @@ def fetch_records(
 
     Use this after `search_records`, `list_records`, or `context_query` when
     you need the complete body or typed fields before answering.
+
+    For extract and maintain flows, shortlist signals are not enough for an
+    update. Fetch the canonical record before `update_record`, especially when
+    more than one nearby record could plausibly match.
     """
     mode = (response_format or "concise").strip().lower()
     if mode not in {"concise", "detailed"}:
@@ -519,7 +523,12 @@ def update_record(
     outcomes: str = "",
     change_reason: str = "",
 ) -> str:
-    """Update one durable record with explicit typed fields."""
+    """Update one durable record with explicit typed fields.
+
+    Call this only after you have already inspected the canonical existing
+    record with `fetch_records`. Shortlist summaries, search hits, and injected
+    manifests are not sufficient evidence for an update by themselves.
+    """
     _require_full_trace_coverage_before_write(ctx)
     _require_notes_before_long_trace_write(ctx)
     changes: dict[str, Any] = {}

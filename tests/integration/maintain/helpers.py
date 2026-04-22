@@ -148,6 +148,7 @@ def run_maintain_case(
         order_by="updated_at",
         limit=50,
         include_total=True,
+        include_archived=True,
     )["rows"]
     records = [
         store.fetch_record(str(row["record_id"]), project_ids=[identity.project_id], include_versions=True)

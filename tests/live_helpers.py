@@ -12,7 +12,7 @@ import pytest
 import sqlite_vec
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 
-from lerim.config.settings import Config, get_config
+from lerim.config.settings import Config, get_config, reload_config
 from lerim.context.spec import RECORD_KIND_SPECS
 
 REQUIRED_CONTEXT_TABLES = {
@@ -113,7 +113,7 @@ def _missing_required_field_count(
 
 def require_live_agent_config() -> Config:
     """Return a live config or skip when the active provider cannot run."""
-    config = get_config()
+    config = reload_config()
     provider = config.agent_role.provider.strip().lower()
     api_key_attr = _API_KEY_ATTRS.get(provider)
     if api_key_attr and not getattr(config, api_key_attr):

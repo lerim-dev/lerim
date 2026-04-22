@@ -16,7 +16,8 @@ expected:
   reference_text_must_include_any:
     - source of truth
     - future context
+    - authoritative
+    - consult
   reference_text_must_not_include:
     - docs/
-    - local note
     - file path

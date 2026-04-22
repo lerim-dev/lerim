@@ -27,6 +27,8 @@ expected:
   answer_must_include_any:
     - "no decisions were made yesterday"
     - "no decisions were recorded yesterday"
+    - "no decisions were made"
+    - "no decisions were recorded"
     - "no decision records were created yesterday"
     - "did not find any decisions made yesterday"
   answer_must_not_include:

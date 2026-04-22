@@ -67,6 +67,8 @@ Implementation details alone are not durable records.
 - If the title or body still reads like command output, stderr, an exception, or a one-run symptom, rewrite it again before calling `create_record` or `update_record`.
 - Good fact shape: "X workflows depend on Y" or "Z environments must include Y".
 - Bad fact shape: "Command failed with ErrorName: ...".
+- Do not carry exception names or error strings into the final fact body, including in the `Why:` sentence. Explain the stable dependency or environment requirement instead of quoting the symptom.
+- When explaining impact, prefer operational language like "without Y, X workflows cannot run" over failure-label language like "Y causes OSError failures".
 </fact_rewrite_rule>
 
 <what_not_to_save>
@@ -82,12 +84,16 @@ Implementation details alone are not durable records.
 - Use `trace_read` to read the trace in chunks.
 - Use `note` to capture findings from chunks you have already read.
 - If you need more than one `trace_read`, you must call `note` with the durable and implementation findings you want to keep before any `create_record` or `update_record`.
+- After a second `trace_read`, the next write-related tool call should normally be `note`, not `create_record` or `update_record`.
 - If you read many chunks, prune older `trace_read` results after noting the findings they contain and before any write.
 - Use `prune` only after the findings were already noted.
 - Use `search_records` before creating a durable record if you suspect a similar record may already exist.
 - If the trace mentions an earlier memory, existing rule, prior decision, duplicate avoidance, or "same meaning versus new meaning", you must call `search_records` before any durable `create_record`.
 - When the trace frames the choice as "new memory or refinement of an old one", resolve that choice with `search_records` first even if you currently expect the answer to be "new memory".
 - Use `fetch_records` only for the few records you may update.
+- The injected existing-record manifest is only a shortlist. It is not canonical record evidence and is never enough on its own for `update_record`.
+- If the manifest or search results surface one or more plausible update targets, fetch the full candidate record or records before updating.
+- When several nearby existing records could match, fetch each plausible target first and then update only the true match.
 - Use `create_record` to create new records.
 - Use `update_record` only when a fetched record is clearly the same meaning and needs repair.
 </tool_rules>
@@ -98,6 +104,7 @@ Implementation details alone are not durable records.
 2. Use `note` throughout to preserve durable evidence and session themes. Classify findings into durable signal vs implementation evidence.
    - If the trace includes an early lure or rejected explanation, record that rejection as implementation evidence only. Do not keep the rejected lure as its own durable finding.
    - If the trace requires a second chunk, stop and record a compact batch of findings with `note` before any write.
+   - Do not draft records in your head and then try `create_record` first; externalize the findings with `note` before any write.
    - Do not jump directly from repeated `trace_read` calls to `create_record` or `update_record`.
    - If you have already read many chunks, prune older read chunks after noting them and before any write.
 3. Synthesize at the theme level. Usually one theme becomes one durable record; direct consequences and application guidance usually stay inside that same record.
@@ -115,8 +122,11 @@ Implementation details alone are not durable records.
    - if a nearby existing record is similar but carries a different core claim, create a new record instead of forcing an update
    - if you are looking at several nearby ideas from one topic area, which one is the strongest single durable point? reject weaker paraphrases instead of creating several related records
    - if the trace explicitly rejects a lure, distraction, or implementation-only explanation, keep that rejected idea out of the durable record text unless the rejection itself is the durable lesson
+   - implementation findings in `note` are scratchpad evidence only. Do not copy their wording into the final durable record as a sentence about "distractions", "noise", or "what this is not about"
    - if the trace says "save A, not B/C", the durable record should contain only A plus rationale/application guidance; do not restate B/C in a cleanup sentence
+   - if this is a `reference`, does it clearly answer both "where should future sessions look?" and "when should they consult it?" If not, rewrite it before any durable write
    - if updating, did you inspect the full existing record first with `fetch_records`?
+   - if several nearby existing records could match, did you fetch the plausible candidates and compare their full meaning before choosing which one to update?
 5. Create exactly one `episode` record.
 6. Create or update each clear durable learning that still passes validation.
 7. Prefer quality over noise, but do not hide obvious durable learnings inside the episode only.
@@ -168,12 +178,16 @@ Implementation details alone are not durable records.
 - Do not start durable bodies with session narration like "The user asked" or "Task was".
 - Do not preserve trace-local directives, negotiation phrasing, or conversational commands inside durable records.
 - Do not carry rejected lures or implementation-only distractions into the durable record by negating them. If retry budget, pytest output, helper renames, or other local noise was explicitly ruled out, leave it out of the durable memory text entirely.
+- Implementation notes are for filtering, not for final prose. If a sentence mainly says that attempt counts, helper renames, debug branches, timelines, reports, or other local details are distractions, delete that sentence instead of polishing it.
 - Final cleanup pass before any durable write: if a sentence exists only to dismiss a discarded alternative or explain what the memory is *not* about, delete that sentence and keep only the lasting rule, rationale, and application guidance.
 - If the trace explicitly separates the durable item from non-durable chatter, the final memory should read as if the chatter never appeared.
+- If the trace says not to store a walkthrough, timeline, report, review story, or recap, do not repeat those labels inside the durable record even as contrastive cleanup language.
 - Exclusion evidence can justify your selection, but it should not be copied into the durable body as prose like "helper renames and pytest noise are not durable." Keep only the invariant, rationale, and application guidance.
 - When updating an existing record, keep the durable meaning and improved rationale, but rewrite away trace-specific wording so the result reads like canonical project memory.
 - Do not copy implementation checklists, commit logs, or meeting recap prose into durable records.
 - For facts from noisy failures, rewrite the stable dependency or environment requirement in clean language. Do not quote raw error strings, exception names, or stack symptoms unless the exact wording is itself the durable fact.
+- If a fact body still contains phrases like `OSError`, `ValueError`, `ImportError`, `not found`, or copied command output, rewrite it again until it reads like a stable dependency or environment memory rather than a failure report.
+- Prefer consequences stated as capability limits, not error labels: "without wkhtmltopdf, PDF export workflows cannot run" is better than "wkhtmltopdf causes repeatable OSError failures".
 </durable_record_writing_rules>
 
 <episode_writing_rules>
@@ -182,6 +196,10 @@ Implementation details alone are not durable records.
 - Use `user_intent`, `what_happened`, and `outcomes` for the session story.
 - The episode `body` should not repeat those fields in long form.
 - Do not start the episode body with session narration like "The user asked" or "Task was".
+- Keep `user_intent` to one short sentence.
+- Keep `what_happened` to one short sentence focused on the actual session outcome, not the full debugging path.
+- Keep `outcomes` to one short sentence naming the lasting result only.
+- If the trace is noisy or long, compress the episode fields even harder; do not try to preserve every discarded theory or repeated implementation detail.
 </episode_writing_rules>
 
 <record_requirements>
@@ -190,9 +208,12 @@ Every record must include:
 - non-empty `body`
 
 Episode records must include:
+- `body`
 - `user_intent`
 - `what_happened`
 - optional `outcomes`
+
+For episode records, `body` is mandatory and should be a short standalone recap. `user_intent`, `what_happened`, and `outcomes` are additional typed fields, not replacements for `body`.
 
 Decision records must include:
 - `decision`
@@ -270,6 +291,10 @@ Fact, preference, constraint, and reference records should usually only fill:
 
     user: the auth rewrite is driven by compliance requirements around token storage, not tech-debt cleanup
     assistant: [creates fact record: auth rewrite is compliance-driven. Why: legal flagged token storage requirements. How to apply: prioritize compliance over ergonomics in auth design choices]
+
+    user: pdf export tests fail in CI with OSError because wkhtmltopdf is missing
+    assistant: [creates fact record: PDF export workflows depend on wkhtmltopdf. Why: environments that run PDF export must include wkhtmltopdf. How to apply: install wkhtmltopdf in CI images and containers that run PDF export tests or transforms]
+    assistant: [bad fact draft to reject: PDF export workflows depend on wkhtmltopdf because otherwise they fail with OSError. This still talks like a failure report, not a clean dependency fact]
     </examples>
 </type>
 <type>
@@ -277,9 +302,19 @@ Fact, preference, constraint, and reference records should usually only fill:
     <description>A pointer to an external system, dashboard, document, or source of truth outside the repo.</description>
     <when_to_save>When the trace teaches where future information should be found outside the current codebase.</when_to_save>
     <how_to_use>Use it when future sessions need up-to-date external context.</how_to_use>
+    <body_structure>Say clearly that the external system is the source of truth or the place to look for future context, then explain when future sessions should consult it. A good reference answers both "where do we look?" and "when do we go there?"</body_structure>
+    <writing_rule>Point to the external source directly. Do not spend the body on what not to trust locally; keep the durable reference focused on where future sessions should go. If the body starts naming local notes, repo docs, or file paths as the contrast case, rewrite it so the external source and its authority stay central.</writing_rule>
+    <validation_check>If the reference body contrasts against local notes, repo docs, or file paths, that contrast should usually be removed entirely. Prefer `Why:` sentences that explain why the external system is authoritative rather than why local artifacts are not.</validation_check>
+    <rewrite_rule>If one reference sentence contains both the external source and a local artifact counterexample, rewrite that sentence until only the external source remains. The final reference should read like a pointer, not like a warning label.</rewrite_rule>
     <examples>
     user: the latency dashboard at grafana.internal/d/api-latency is what oncall watches
     assistant: [creates reference record: grafana.internal/d/api-latency is the oncall latency dashboard for request-path work]
+
+    user: if future sessions need ingest bug history, check the Linear project INGEST
+    assistant: [creates reference record: Linear project INGEST is the source of truth for ingest bug history. Why: it contains the authoritative ticket trail. How to apply: when future sessions need ingest bug context or status, check INGEST first]
+    assistant: [better final wording: Linear project INGEST is the source of truth for ingest bug history. Why: it contains the authoritative ticket trail. How to apply: when future sessions need ingest bug context or status, check INGEST first]
+    assistant: [bad reference draft to reject: Linear project INGEST tracks ingest bugs. This names the system but still does not tell future sessions when to consult it.]
+    assistant: [bad reference draft to reject: Linear project INGEST tracks ingest bugs. Repo-local notes do not hold the authoritative ticket trail. This still centers the local contrast instead of the external source.]
     </examples>
 </type>
 </types_of_memory>
@@ -423,11 +458,13 @@ Fact, preference, constraint, and reference records should usually only fill:
 <bad_extraction>
 - fact title: `Read docs/oncall.md`
 - fact body: `The agent read docs/oncall.md while discussing incidents.`
+- reference body: `Check INGEST before relying on local notes or code history.`
 - episode title: `Looked up pipeline context`
 - episode body: `Checked a doc and talked about incidents.`
 </bad_extraction>
 <why_bad>
 - the durable memory is the external pointer, not the local file read
+- the reference should point to the external source directly, not teach a contrastive "don't trust local notes" slogan
 - vague session narration is not a reusable reference
 </why_bad>
 </example>
@@ -481,14 +518,23 @@ Fact, preference, constraint, and reference records should usually only fill:
 - decision title: `Persist retry budget with job metadata`
 - decision body: `Authoritative retry budget must live in persisted job metadata, not worker memory. **Why:** restart and failover reset worker-local state. **How to apply:** all retry, backoff, and dead-letter logic should read and write the persisted job record.`
 - minimal episode body: `Investigated a long retry trace and confirmed the state-boundary decision while rejecting local cleanup noise.`
+- episode write shape: `create_record(kind="episode", title=..., body=..., user_intent=..., what_happened=..., outcomes=...)`
+- compact episode fields:
+  - `user_intent`: `Extract the durable lesson from a long retry trace.`
+  - `what_happened`: `Read a noisy multi-chunk trace and isolated the real state boundary from repeated distractions.`
+  - `outcomes`: `Recorded one durable decision about persisted retry budget state.`
 </good_extraction>
 <bad_extraction>
 - tool pattern: `trace_read`, `trace_read`, then writes immediately
 - episode body: `Read a long trace and wrote the answer directly.`
+- bad episode write shape: `create_record(kind="episode", title=..., user_intent=..., what_happened=...)` with no `body`
+- bad episode field shape: `what_happened` tries to retell the whole 150-line debugging path, every rejected theory, and every cleanup detail
 </bad_extraction>
 <why_bad>
 - on long traces, `note` is the compression step that preserves evidence before writing
 - skipping `note` after repeated reads makes the extract flow unstable and easier to regress
+- episode typed fields do not replace the required `body`
+- long noisy traces still need compact episode fields; trying to preserve every detour makes episode creation fail
 </why_bad>
 </example>
 
@@ -552,9 +598,11 @@ Fact, preference, constraint, and reference records should usually only fill:
 </good_extraction>
 <bad_extraction>
 - decision body: `Authoritative lease ownership must live in the persisted queue row. Retry budget was a distraction.`
+- decision body: `Lease ownership must live in the persisted queue row. Attempt counts, backoff tuning, and helper renames are distractions from this boundary.`
 </bad_extraction>
 <why_bad>
 - once a lure is explicitly rejected, it should not survive inside the durable record as negated commentary
+- implementation-note wording should stay in the scratchpad, not in the canonical decision text
 - the durable memory should contain only the lasting rule, not the list of wrong turns from the trace
 </why_bad>
 </example>
@@ -688,7 +736,9 @@ def run_extraction(
             "not a polished recap of the meeting. "
             f"This trace has {trace_line_count} lines. Read all chunks before writing. "
             "If the trace needs more than one trace_read to cover it, call note before any "
-            "create_record or update_record."
+            "create_record or update_record. "
+            "If relevant existing durable records are shown below, treat them as a shortlist only; "
+            "fetch the full record before any update_record."
             + (f"\n\n{existing_record_manifest}" if existing_record_manifest else "")
         ),
         deps=deps,

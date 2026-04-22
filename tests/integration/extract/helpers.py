@@ -278,6 +278,7 @@ def run_extract_case(
         order_by="created_at",
         limit=20,
         include_total=True,
+        include_archived=True,
     )["rows"]
     records = [
         store.fetch_record(str(row["record_id"]), project_ids=[identity.project_id], include_versions=True)
