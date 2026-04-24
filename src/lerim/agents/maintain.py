@@ -7,9 +7,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
-from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
+from lerim.agents.model_settings import LOW_VARIANCE_AGENT_MODEL_SETTINGS
 from lerim.agents.tools import (
     ContextDeps,
     archive_record,
@@ -184,7 +184,7 @@ def build_maintain_agent(model: Model) -> Agent[ContextDeps, MaintainResult]:
         output_type=MaintainResult,
         system_prompt=MAINTAIN_SYSTEM_PROMPT,
         tools=[list_records, search_records, fetch_records, update_record, archive_record, supersede_record],
-        model_settings=ModelSettings(temperature=0.0, top_p=0.9),
+        model_settings=LOW_VARIANCE_AGENT_MODEL_SETTINGS,
         retries=5,
         output_retries=2,
     )

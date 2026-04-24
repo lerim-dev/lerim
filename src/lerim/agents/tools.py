@@ -476,7 +476,13 @@ def _require_full_trace_coverage_before_write(ctx: RunContext[ContextDeps]) -> N
 def _require_episode_before_durable_write(
     ctx: RunContext[ContextDeps], store: ContextStore, kind: str | None = None
 ) -> None:
-    """Optionally require extract runs to write their session episode first."""
+    """Optionally require extract runs to write their session episode first.
+
+    This is an extract-only flow guard, not a substitute for the extract
+    output validator. It catches runs that found durable signal and try to
+    write fact/decision/etc. records before the mandatory episode exists.
+    The output validator still covers sessions with no durable writes.
+    """
     if not ctx.deps.require_episode_before_durable_write:
         return
     if kind == "episode":
@@ -495,7 +501,7 @@ def _require_episode_before_durable_write(
         return
     raise ModelRetry(
         "Create exactly one episode record for the current session before writing "
-        "or updating durable fact, decision, preference, or constraint records."
+        "or updating durable fact, decision, preference, constraint, or reference records."
     )
 
 

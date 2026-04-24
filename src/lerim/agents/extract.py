@@ -7,7 +7,6 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.models import Model
-from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from lerim.agents.history_processors import (
@@ -15,6 +14,7 @@ from lerim.agents.history_processors import (
     notes_state_injector,
     prune_history_processor,
 )
+from lerim.agents.model_settings import LOW_VARIANCE_AGENT_MODEL_SETTINGS
 from lerim.agents.tools import (
     ContextDeps,
     compute_request_budget,
@@ -347,7 +347,7 @@ def build_extract_agent(model: Model) -> Agent[ContextDeps, ExtractionResult]:
         output_type=ExtractionResult,
         system_prompt=SYSTEM_PROMPT,
         tools=[trace_read, search_records, fetch_records, create_record, update_record, note, prune],
-        model_settings=ModelSettings(temperature=0.0, top_p=0.9),
+        model_settings=LOW_VARIANCE_AGENT_MODEL_SETTINGS,
         history_processors=[
             context_pressure_injector,
             notes_state_injector,
@@ -357,6 +357,9 @@ def build_extract_agent(model: Model) -> Agent[ContextDeps, ExtractionResult]:
         output_retries=4,
     )
 
+    # PydanticAI invokes this registered validator when the model calls
+    # `final_result`. Keep it even though extract also gates durable writes:
+    # sessions with no durable records still need exactly one episode.
     @agent.output_validator
     def _require_session_episode(
         ctx: RunContext[ContextDeps], data: ExtractionResult

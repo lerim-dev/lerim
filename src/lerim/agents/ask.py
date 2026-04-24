@@ -9,9 +9,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
-from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
+from lerim.agents.model_settings import LOW_VARIANCE_AGENT_MODEL_SETTINGS
 from lerim.agents.tools import (
     ContextDeps,
     context_query,
@@ -143,7 +143,7 @@ def build_ask_agent(model: Model) -> Agent[ContextDeps, AskResult]:
         output_type=AskResult,
         system_prompt=ASK_SYSTEM_PROMPT,
         tools=[context_query, list_records, search_records, fetch_records],
-        model_settings=ModelSettings(temperature=0.0, top_p=0.9),
+        model_settings=LOW_VARIANCE_AGENT_MODEL_SETTINGS,
         retries=5,
         output_retries=2,
     )

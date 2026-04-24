@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 from pydantic_ai.models import Model
 
+from lerim.agents.model_settings import LOW_VARIANCE_AGENT_MODEL_SETTINGS
 from lerim.agents.ask import (
     ASK_SYSTEM_PROMPT,
     AskResult,
@@ -64,6 +65,10 @@ class TestBuildExtractAgent:
         agent = build_extract_agent(_make_model())
         assert agent._max_result_retries == 4
 
+    def test_uses_shared_low_variance_settings(self):
+        agent = build_extract_agent(_make_model())
+        assert agent.model_settings == LOW_VARIANCE_AGENT_MODEL_SETTINGS
+
     def test_system_prompt_non_empty(self):
         assert isinstance(SYSTEM_PROMPT, str)
         assert len(SYSTEM_PROMPT.strip()) > 0
@@ -99,6 +104,10 @@ class TestBuildMaintainAgent:
     def test_output_retries_two(self):
         agent = build_maintain_agent(_make_model())
         assert agent._max_result_retries == 2
+
+    def test_uses_shared_low_variance_settings(self):
+        agent = build_maintain_agent(_make_model())
+        assert agent.model_settings == LOW_VARIANCE_AGENT_MODEL_SETTINGS
 
     def test_system_prompt_non_empty(self):
         assert isinstance(MAINTAIN_SYSTEM_PROMPT, str)
@@ -136,6 +145,10 @@ class TestBuildAskAgent:
     def test_output_retries_two(self):
         agent = build_ask_agent(_make_model())
         assert agent._max_result_retries == 2
+
+    def test_uses_shared_low_variance_settings(self):
+        agent = build_ask_agent(_make_model())
+        assert agent.model_settings == LOW_VARIANCE_AGENT_MODEL_SETTINGS
 
     def test_system_prompt_non_empty(self):
         assert isinstance(ASK_SYSTEM_PROMPT, str)
