@@ -513,6 +513,12 @@ class TestCreateRecord:
         assert rec["user_intent"] == "Fix the flaky test"
         assert rec["what_happened"] == "Identified race condition in worker pool"
 
+    def test_create_archived_record_sets_valid_until(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = _make_episode(store, pid, status="archived")
+        assert rec["status"] == "archived"
+        assert rec["valid_until"] == rec["updated_at"]
+
     def test_invalid_kind(self, mock_seeded):
         store, pid = mock_seeded
         with pytest.raises(ValueError, match="invalid_kind"):
@@ -965,6 +971,20 @@ class TestQuery:
         assert result["entity"] == "records"
         assert result["mode"] == "count"
         assert result["count"] >= 1
+
+    def test_empty_project_ids_match_no_query_rows(self, mock_seeded):
+        store, pid = mock_seeded
+        _make_decision(store, pid)
+
+        records = store.query(entity="records", mode="list", project_ids=[])
+        record_count = store.query(entity="records", mode="count", project_ids=[])
+        sessions = store.query(entity="sessions", mode="count", project_ids=[])
+        versions = store.query(entity="versions", mode="count", project_ids=[])
+
+        assert records["rows"] == []
+        assert record_count["count"] == 0
+        assert sessions["count"] == 0
+        assert versions["count"] == 0
 
     def test_invalid_entity_raises(self, mock_seeded):
         store, pid = mock_seeded

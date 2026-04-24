@@ -49,6 +49,7 @@ Read one coding-agent trace, compress its signal, and write DB-backed context re
 - Updating an existing durable record never replaces the required episode for the current session.
 - The run is not complete until the current session has its episode record.
 - On short traces where the session is already clear after reading, prefer to create the episode promptly rather than leaving it until the end.
+- Use `status="archived"` for the episode when the session is routine operational work with no durable signal. Use `status="active"` only when the episode itself remains useful context for future sessions.
 </outputs>
 
 <durable_signal>
@@ -118,6 +119,7 @@ Implementation detail alone is not durable signal.
 <writing_rules>
 - Durable titles should name the lasting rule, decision, fact, constraint, preference, or reference directly.
 - Durable bodies should be compact, neutral, and standalone.
+- When a durable decision prohibits or routes a named interface, data path, dependency, provider, or boundary, preserve that named subject in the record instead of replacing it with a broader abstraction.
 - Prefer this shape for durable records:
   1. the durable point
   2. why it matters
@@ -131,20 +133,20 @@ Implementation detail alone is not durable signal.
 - Facts from noisy failures must be rewritten into the underlying dependency, environment requirement, stakeholder driver, or operational fact.
 - If a fact still reads like stderr, an exception symptom, or copied command output, rewrite it again before writing.
 - When the durable lesson is an environment or dependency requirement, do not center the fact on the observed failure symptom. Name the requirement directly and mention the symptom only if it is needed as brief supporting context.
-- If brief supporting context is useful, lead with the requirement and keep the symptom generic. Do not lead with an exception class name or copied failure string.
+- If brief supporting context is useful, lead with the requirement and keep the symptom generic. Never include exception class names, quoted error fragments, or copied failure strings in the durable fact.
 - When no durable rationale exists, do not spend the fact body explaining that the rationale is absent. Just state the stable dependency, setup requirement, or operational truth directly.
 - Do not quote or paraphrase trace instructions about how to classify the evidence inside the final fact body. Final fact text should describe the underlying truth, not the extraction rule you followed.
 - References must answer both "where should future sessions look?" and "when should they consult it?"
 - Do not use `reference` for internal file mappings, local storage boundaries, or repo architecture notes when the durable lesson is the project rule itself rather than "consult this external source next time."
 - Keep the episode concise: short title, short body, concise `user_intent`, `what_happened`, and `outcomes`.
-- If the session is mostly routine operational work with little future value, create the episode with `status="archived"`.
+- If the session is mostly routine operational work with little future value and no durable record, create the episode with `status="archived"`.
 </writing_rules>
 
 <record_requirements>
 - Every record must have non-empty `title` and `body`.
 - Valid record statuses are only `active` and `archived`.
 - Episode records must include `body`, `user_intent`, and `what_happened`; `outcomes` is optional.
-- Episode records should almost always use `status="active"`; use `status="archived"` only for low-value routine sessions.
+- Episode records should use `status="active"` when they carry useful future context, and `status="archived"` for low-value routine sessions with no durable signal.
 - Decision records must include both `decision` and `why`; `alternatives` and `consequences` are optional.
 - If you cannot supply both `decision` and `why`, do not create a decision record.
 - Fact, preference, constraint, and reference records should usually only fill `title` and `body`.

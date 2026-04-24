@@ -479,7 +479,7 @@ def api_query(
         payload = store.query(
             entity=entity,
             mode=mode,
-            project_ids=project_ids or None,
+            project_ids=project_ids,
             kind=kind,
             status=status,
             source_session_id=source_session_id,

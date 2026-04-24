@@ -11,6 +11,7 @@ What we test:
 - integration tests for real extract, maintain, semantic ask, cloud sync state, and multi-project scope flows
 - integration tests for runtime orchestration behavior like workspace artifact layout, ask debug trace ordering, and mutation count reporting
 - e2e surface tests for CLI/API rendering and deterministic query behavior
+- deterministic query tests preserve the difference between unscoped queries and empty project selections
 
 ## Quick reference
 

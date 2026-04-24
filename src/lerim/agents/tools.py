@@ -525,8 +525,13 @@ def create_record(
     Do not append sentences whose main purpose is to say which cleanup,
     test, logging, or implementation details are not durable context; those
     exclusions are extraction evidence, not durable project context.
-    For dependency or environment facts, name the requirement directly rather
-    than copying exception classes, stderr, commands, or log fragments.
+    For dependency or environment facts, name the requirement directly. Never
+    copy exception class names, stderr, commands, or quoted failure fragments
+    into durable fact text.
+
+    Episode records should be `active` only when they remain useful context
+    for future sessions. Use `archived` for routine operational sessions with
+    no durable signal.
     """
     _require_full_trace_coverage_before_write(ctx)
     _require_notes_before_long_trace_write(ctx)

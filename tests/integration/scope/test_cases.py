@@ -9,6 +9,7 @@ from lerim.agents.maintain import run_maintain
 from lerim.config.providers import build_pydantic_model
 from lerim.server.api import api_query
 from lerim.server.runtime import LerimRuntime
+from tests.integration.common_helpers import retry_on_overload
 from tests.integration.scope.helpers import (
     ScopeCaseEnv,
     build_scope_case_env,
@@ -188,11 +189,13 @@ def test_maintain_project_a_only_mutates_project_a(live_config, tmp_path) -> Non
     )
     model = build_pydantic_model("agent", config=env.config)
 
-    result = run_maintain(
-        context_db_path=env.config.context_db_path,
-        project_identity=env.identity_a,
-        session_id="maintain-alpha-run",
-        model=model,
+    result = retry_on_overload(
+        lambda: run_maintain(
+            context_db_path=env.config.context_db_path,
+            project_identity=env.identity_a,
+            session_id="maintain-alpha-run",
+            model=model,
+        )
     )
 
     with env.store.connect() as conn:

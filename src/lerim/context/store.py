@@ -169,9 +169,10 @@ class ContextStore:
     @contextmanager
     def connect(self) -> Any:
         """Open a SQLite connection with row access and foreign keys enabled."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=60.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 60000")
         try:
             conn.enable_load_extension(True)
             sqlite_vec.load(conn)
@@ -377,7 +378,7 @@ class ContextStore:
         if not row:
             conn.execute(
                 f"""
-                CREATE VIRTUAL TABLE record_embeddings USING vec0(
+                CREATE VIRTUAL TABLE IF NOT EXISTS record_embeddings USING vec0(
                     embedding float[{provider.embedding_dims}],
                     project_id text,
                     record_id text auxiliary,
@@ -1097,6 +1098,8 @@ class ContextStore:
             placeholders = ", ".join("?" for _ in project_ids)
             clauses.append(f"project_id IN ({placeholders})")
             params.extend(project_ids)
+        elif project_ids is not None:
+            clauses.append("0=1")
         if created_since:
             clauses.append("created_at >= ?")
             params.append(_normalize_datetime_filter_bound(created_since, upper=False))
@@ -1376,6 +1379,8 @@ class ContextStore:
             placeholders = ", ".join("?" for _ in project_ids)
             clauses.append(f"{prefix}project_id IN ({placeholders})")
             params.extend(project_ids)
+        elif project_ids is not None:
+            clauses.append("0=1")
         if kind_filters:
             placeholders = ", ".join("?" for _ in kind_filters)
             clauses.append(f"{prefix}kind IN ({placeholders})")
@@ -1428,6 +1433,8 @@ class ContextStore:
             placeholders = ", ".join("?" for _ in project_ids)
             clauses.append(f"project_id IN ({placeholders})")
             params.extend(project_ids)
+        elif project_ids is not None:
+            clauses.append("0=1")
         if kind:
             clauses.append("kind = ?")
             params.append(kind)

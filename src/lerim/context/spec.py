@@ -320,6 +320,8 @@ def normalize_record_payload(
         "what_happened": _normalize_optional_text(what_happened),
         "outcomes": _normalize_optional_text(outcomes),
     }
+    if payload["status"] == "archived" and not payload["valid_until"]:
+        payload["valid_until"] = payload["updated_at"]
 
     kind_spec = RECORD_KIND_SPECS[kind_text]
     if len(body_text) > kind_spec.body_max_chars:

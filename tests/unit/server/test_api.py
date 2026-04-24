@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import lerim.server.api as api_mod
+from lerim.context import ContextStore, resolve_project_identity
 from lerim.server.api import (
 	AGENT_DEFAULT_PATHS,
 	api_connect,
@@ -298,6 +299,50 @@ def test_api_ask_includes_debug_when_verbose(monkeypatch, tmp_path) -> None:
 	payload = api_mod.api_ask("how many records", verbose=True)
 	assert payload["answer"] == "3 records"
 	assert payload["debug"]["tool_calls"][0]["tool_name"] == "context_query"
+
+
+def test_api_query_empty_project_selection_returns_empty_scope(
+	monkeypatch,
+	tmp_path,
+	mock_embeddings,
+) -> None:
+	"""api_query preserves empty project selections instead of querying unscoped."""
+	cfg = make_config(tmp_path)
+	project_root = tmp_path / "removed-project"
+	project_root.mkdir()
+	identity = resolve_project_identity(project_root)
+	store = ContextStore(cfg.context_db_path)
+	store.initialize()
+	store.register_project(identity)
+	store.upsert_session(
+		project_id=identity.project_id,
+		session_id="sess_removed",
+		agent_type="test",
+		source_trace_ref="test.jsonl",
+		repo_path=str(project_root),
+		cwd=str(project_root),
+		started_at="2026-01-01T00:00:00Z",
+		model_name="test-model",
+		instructions_text=None,
+		prompt_text=None,
+	)
+	store.create_record(
+		project_id=identity.project_id,
+		session_id="sess_removed",
+		kind="decision",
+		title="Removed project record",
+		body="This should not leak into empty project selections.",
+		decision="Keep removed project rows scoped out.",
+		why="Empty project selections must not become unscoped queries.",
+	)
+	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+	payload = api_mod.api_query(entity="records", mode="count", scope="project")
+
+	assert payload["error"] is False
+	assert payload["projects_used"] == []
+	assert payload["scope"] == "project"
+	assert payload["count"] == 0
 
 
 def test_api_sync_includes_queue_health_warning(monkeypatch, tmp_path) -> None:
