@@ -33,14 +33,14 @@ class ProjectIdentity:
 def resolve_project_identity(repo_path: Path | None = None) -> ProjectIdentity:
     """Resolve the current repo path into a deterministic project identity."""
     candidate = (repo_path or Path.cwd()).expanduser().resolve()
-    project_root = git_root_for(candidate) or candidate
-    repo_path_str = str(project_root)
+    project_root = candidate if repo_path is not None else (git_root_for(candidate) or candidate)
+    repo_path_str = str(candidate if repo_path is not None else project_root)
     digest = hashlib.sha1(repo_path_str.encode("utf-8")).hexdigest()[:12]
-    slug = _slugify(project_root.name)
+    slug = _slugify((candidate if repo_path is not None else project_root).name)
     return ProjectIdentity(
         project_id=f"proj_{digest}",
         project_slug=slug,
-        repo_path=project_root,
+        repo_path=candidate if repo_path is not None else project_root,
     )
 
 

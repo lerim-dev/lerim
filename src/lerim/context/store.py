@@ -562,6 +562,8 @@ class ContextStore:
         body: str,
         status: str = "active",
         record_id: str | None = None,
+        created_at: str | None = None,
+        updated_at: str | None = None,
         valid_from: str | None = None,
         valid_until: str | None = None,
         superseded_by_record_id: str | None = None,
@@ -580,15 +582,17 @@ class ContextStore:
         if not record_id:
             raise ValueError("record_id_required")
         now = _utc_now()
+        effective_created_at = created_at or now
+        effective_updated_at = updated_at or effective_created_at
         payload = self._normalize_record_payload(
             kind=kind,
             title=title,
             body=body,
             status=status,
             source_session_id=session_id,
-            created_at=now,
-            updated_at=now,
-            valid_from=valid_from or now,
+            created_at=effective_created_at,
+            updated_at=effective_updated_at,
+            valid_from=valid_from or effective_created_at,
             valid_until=valid_until,
             superseded_by_record_id=superseded_by_record_id,
             decision=decision,
@@ -681,6 +685,7 @@ class ContextStore:
             if project_ids and merged["project_id"] not in project_ids:
                 raise ValueError(f"record_out_of_scope:{record_id}")
             now = _utc_now()
+            effective_updated_at = changes.get("updated_at", now)
             payload = self._normalize_record_payload(
                 kind=changes.get("kind", merged["kind"]),
                 title=changes.get("title", merged["title"]),
@@ -688,7 +693,7 @@ class ContextStore:
                 status=changes.get("status", merged["status"]),
                 source_session_id=merged["source_session_id"],
                 created_at=merged["created_at"],
-                updated_at=now,
+                updated_at=effective_updated_at,
                 valid_from=changes.get("valid_from", merged["valid_from"]),
                 valid_until=changes.get("valid_until", merged["valid_until"]),
                 superseded_by_record_id=changes.get(
@@ -1512,20 +1517,34 @@ class ContextStore:
             needs_embedding_rebuild = self._ensure_record_embeddings_index(conn)
             if needs_embedding_rebuild:
                 self._rebuild_embeddings(conn)
-            rows = conn.execute(
-                f"""
-                SELECT records.record_id, record_embeddings.distance
-                FROM record_embeddings
-                JOIN records ON records.record_id = record_embeddings.record_id
-                WHERE record_embeddings.embedding MATCH ?
-                  AND record_embeddings.k = ?
-                  {vector_filter_sql}
-                  AND {filter_sql}
-                ORDER BY record_embeddings.distance ASC
-                LIMIT ?
-                """,
-                tuple([query_vec, limit] + vector_filter_params + params + [limit]),
-            ).fetchall()
+            max_candidates = int(
+                conn.execute(
+                    f"SELECT COUNT(*) FROM record_embeddings WHERE 1=1{vector_filter_sql}",
+                    tuple(vector_filter_params),
+                ).fetchone()[0]
+            )
+            candidate_limit = min(max_candidates, max(int(limit), 25))
+            if project_ids or kind_filters or statuses or valid_at or include_archived:
+                candidate_limit = min(max_candidates, max(candidate_limit, int(limit) * 4))
+            rows: list[sqlite3.Row] = []
+            while candidate_limit > 0:
+                rows = conn.execute(
+                    f"""
+                    SELECT records.record_id, record_embeddings.distance
+                    FROM record_embeddings
+                    JOIN records ON records.record_id = record_embeddings.record_id
+                    WHERE record_embeddings.embedding MATCH ?
+                      AND record_embeddings.k = ?
+                      {vector_filter_sql}
+                      AND {filter_sql}
+                    ORDER BY record_embeddings.distance ASC
+                    LIMIT ?
+                    """,
+                    tuple([query_vec, candidate_limit] + vector_filter_params + params + [candidate_limit]),
+                ).fetchall()
+                if len(rows) >= limit or candidate_limit >= max_candidates:
+                    break
+                candidate_limit = min(max_candidates, max(candidate_limit * 2, candidate_limit + 1))
         return [(str(row["record_id"]), float(row["distance"])) for row in rows]
 
     def _lexical_candidates(
