@@ -107,6 +107,12 @@ nav:
     - lerim sync: cli/sync.md
     - lerim maintain: cli/maintain.md
     - lerim ask: cli/ask.md
+    - lerim query: cli/query.md
+    - lerim queue: cli/queue.md
+    - lerim unscoped: cli/unscoped.md
+    - lerim retry / skip: cli/retry-skip.md
+    - lerim skill: cli/skill.md
+    - lerim auth: cli/auth.md
     - lerim status: cli/status.md
     - lerim serve: cli/serve.md
     - Background loop: cli/daemon.md
@@ -118,6 +124,8 @@ nav:
     - Tracing: configuration/tracing.md
   - Guides:
     - Connecting Agents: guides/connecting-agents.md
+    - Dashboard: guides/dashboard.md
+    - Querying Context: guides/querying-context.md
     - Dashboard: guides/dashboard.md
     - Querying Context: guides/querying-context.md
   - Contributing: contributing/getting-started.md

@@ -52,7 +52,7 @@ Without a durable context layer:
 - preferences get ignored
 - every new session starts too close to zero
 
-Lerim fixes that by turning raw traces into reusable context records and making them queryable from the CLI, the dashboard, and agent tools.
+Lerim fixes that by turning raw traces into reusable context records and making them queryable from the CLI, Lerim Cloud, and agent tools.
 
 ## Key Capabilities
 

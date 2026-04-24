@@ -44,7 +44,9 @@ def notes_state_injector(
         summary = "NOTES: 0 findings"
     else:
         counts = Counter(f.level for f in findings)
-        themes = Counter(f.theme for f in findings)
+        durable_findings = [f for f in findings if f.level in DURABLE_FINDING_LEVELS]
+        theme_source = durable_findings or findings
+        themes = Counter(f.theme for f in theme_source)
         durable = sum(counts.get(level, 0) for level in DURABLE_FINDING_LEVELS)
         implementation = sum(
             counts.get(level, 0) for level in IMPLEMENTATION_FINDING_LEVELS

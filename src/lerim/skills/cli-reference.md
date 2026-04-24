@@ -6,9 +6,10 @@ Canonical parser source:
 Canonical command:
 - `lerim`
 
-Durable Lerim context lives in the global SQLite DB at `~/.lerim/context.sqlite3`.
+Durable Lerim context lives in the global SQLite DB under the active Lerim data dir (default: `~/.lerim/context.sqlite3`).
 Commands that call the HTTP API (`ask`, `sync`, `maintain`, `status`) require a
-running server (`lerim up` or `lerim serve`). Most other commands are **host-only**
+running server (`lerim up` or `lerim serve`). `unscoped` also requires the running
+API. Most other commands are **host-only**
 (local files, Docker CLI, local SQLite state).
 
 ## Global flags
@@ -37,8 +38,10 @@ running server (`lerim up` or `lerim serve`). Most other commands are **host-onl
 - `maintain`
 - `dashboard`
 - `ask`
+- `query`
 - `status`
 - `queue`
+- `unscoped`
 - `retry`
 - `skip`
 - `skill` (`install`) (host-only)
@@ -48,8 +51,8 @@ running server (`lerim up` or `lerim serve`). Most other commands are **host-onl
 
 ### `lerim init` (host-only)
 
-Interactive setup wizard. Detects installed coding agents, writes config to
-`~/.lerim/config.toml`.
+Interactive setup wizard. Detects installed coding agents and writes config to
+the active Lerim config path (default: `~/.lerim/config.toml`).
 
 ```bash
 lerim init
@@ -86,7 +89,7 @@ lerim down                  # stop it
 
 ### `lerim logs` (host-only)
 
-View local log entries from `~/.lerim/logs/lerim.jsonl` (last 50 by default).
+View local log entries from the active Lerim log dir (default: `~/.lerim/logs/lerim.jsonl`).
 
 ```bash
 lerim logs                      # show recent logs
@@ -105,9 +108,9 @@ lerim logs --json               # raw JSONL output
 
 ### `lerim serve`
 
-JSON HTTP API + daemon loop in one process (Docker entrypoint). The **web UI**
-is not bundled in this repo yet. GET `/` may return a stub page when no
-static assets are present.
+JSON HTTP API + daemon loop in one process (Docker entrypoint). This repo does
+not bundle the full web UI; GET `/` may return a small stub page pointing to
+Lerim Cloud when no static assets are present.
 
 ```bash
 lerim serve
@@ -298,7 +301,8 @@ lerim queue --json
 
 ### `lerim unscoped`
 
-Host-only: list indexed sessions that do not match any registered project.
+List indexed sessions that do not match any registered project.
+Requires a running server (`lerim up` or `lerim serve`).
 
 ```bash
 lerim unscoped

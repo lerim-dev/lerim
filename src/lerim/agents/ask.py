@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from lerim.agents.tools import (
@@ -56,6 +57,7 @@ Answer questions from retrieved context records only.
 - Answer the user's actual subquestion, not the full retrieved set.
 - If you retrieved extra rows only to filter them out, act as if those rows were never retrieved when you write the final answer.
 - After you identify the rows that directly answer the question, write only from those rows. Do not append "other records were unrelated" summaries.
+- If an exact time-window narrowing step returns zero rows, stop retrieval and answer from that zero result. Do not make another retrieval call unless the user explicitly asks to broaden scope.
 </core_rules>
 
 <retrieval_strategy>
@@ -82,9 +84,10 @@ Use exact retrieval first for:
 - For time-window questions about what was made/created/decided, ground the answer in `created_at`.
 - For time-window questions about what changed/updated/shifted, ground the answer in `updated_at`.
 - For mixed time-plus-topic questions, the first tool call should be the exact time-window narrowing step, not `search_records`.
-- If the exact time-window narrowing step returns candidate rows, fetch the rows you will rely on before answering.
+- Exact list/query rows are shortlist previews. If the exact time-window narrowing step returns candidate rows, fetch the rows you will rely on before answering.
 - If the exact time-window narrowing step returns zero rows, answer negatively for that window and do not widen scope.
-- For time-window or mixed time-plus-topic questions, zero rows in the requested window is a stopping condition. Do not run a broader semantic search just to provide older topical context unless the user explicitly asks for broader history.
+- For time-window or mixed time-plus-topic questions, zero rows in the requested window is a stopping condition. Do not call `search_records`, do not call another broader exact query, and do not provide older topical context unless the user explicitly asks for broader history.
+- After a zero-result time-window step, the next action should normally be the final answer.
 - For "as of" or truth-at-time questions, use `valid_at` and answer only the truth for that date unless the user explicitly asks for comparison.
 - For current-vs-historical questions, start with archived-capable `list_records(include_archived=True)`, not semantic search.
 - For current-vs-historical questions, retrieve both current and historical support before answering.
@@ -96,6 +99,7 @@ Use exact retrieval first for:
 - Semantic neighbors are not support.
 - If retrieved rows are only adjacent in wording or technology and do not directly answer the question, say so instead of stretching them into a positive claim.
 - If retrieved rows only give indirect context about the asked topic, say there is no direct stored support for that topic and then describe the adjacent context separately.
+- When direct support is missing, make that explicit in the first sentence. Use a clear negative such as "There is no direct stored support about X" before any adjacent context.
 - For questions with an explicit date window, "adjacent context separately" applies only to records inside that same window. Do not append older topical history after a negative in-window result.
 - If both relevant and irrelevant rows are present, answer only from the relevant rows.
 - Do not mention irrelevant rows just to dismiss them as unrelated or out of scope.
@@ -115,9 +119,9 @@ Use exact retrieval first for:
 - "As of 2026-02-15, what was true?" -> use `valid_at` and answer only the truth for that date unless the user explicitly asks for comparison
 - bad answer for that question -> "As of 2026-02-15 it was Markdown, later replaced by SQLite" when the user did not ask for comparison
 - "What is true now about X, and what was true before?" -> first do `list_records(include_archived=True, ...)` to surface the current and historical candidates, then fetch the rows you will compare
-- "What changed yesterday around vector search?" -> first narrow by the relevant yesterday window, then answer only from in-window rows that directly support the vector-search topic
+- "What changed yesterday around vector search?" -> first narrow by the relevant yesterday window, fetch the in-window rows that directly support the vector-search topic, then answer only from those fetched rows
 - bad first step for that question -> `search_records("vector search")` before narrowing the requested window
-- if the narrowed window is empty -> answer that nothing relevant changed in that window and stop; do not add older vector-search records as extra context
+- if the narrowed window is empty -> answer that nothing relevant changed in that window and stop; do not call `search_records` and do not add older vector-search records as extra context
 - If the narrowed set includes one relevant change and one unrelated workflow record, mention only the relevant change
 - bad final answer for that case -> "another record was unrelated" or any sentence that names the unrelated record just to dismiss it
 - "What do we know about pgvector?" -> if the nearest records only discuss adjacent tools like sqlite-vec, say there is no direct stored support about pgvector and treat those rows as context, not proof
@@ -139,6 +143,7 @@ def build_ask_agent(model: Model) -> Agent[ContextDeps, AskResult]:
         output_type=AskResult,
         system_prompt=ASK_SYSTEM_PROMPT,
         tools=[context_query, list_records, search_records, fetch_records],
+        model_settings=ModelSettings(temperature=0.0, top_p=0.9),
         retries=5,
         output_retries=2,
     )

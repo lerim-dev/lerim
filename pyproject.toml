@@ -63,7 +63,7 @@ where = ["src"]
 include = ["lerim*"]
 
 [tool.setuptools.package-data]
-lerim = ["config/default.toml", "skills/*.md"]
+lerim = ["config/default.toml", "skills/*.md", "server/lerim-seccomp.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

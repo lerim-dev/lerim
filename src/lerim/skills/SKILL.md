@@ -1,59 +1,62 @@
 ---
 name: lerim
-description: Persistent memory for coding agents. Query past decisions and learnings before starting work. Lerim watches your sessions, extracts what matters, and makes it available across every future session.
+description: Query Lerim's persistent project memory before coding. Use it to check prior decisions, constraints, preferences, and historical context through exact queries or synthesized answers.
 ---
 
 # Lerim
 
-Lerim gives you persistent memory across sessions. It watches your conversations, extracts decisions and learnings, and stores them in the global context database at `~/.lerim/context.sqlite3`.
-Hybrid retrieval is local: ONNX embeddings from `mixedbread-ai/mxbai-embed-xsmall-v1`, `sqlite-vec` vector search, SQLite FTS5, and RRF fusion.
+Use this skill when you need project memory before or during coding work.
 
-## Start here
+Lerim stores durable context from past agent sessions and exposes it through a small CLI/API surface. The important distinction is:
 
-At the beginning of each session, query Lerim instead of manually browsing stored context.
-Use `lerim ask` for synthesized answers or `lerim status --json` to inspect the system state.
-The durable source of truth is the SQLite context DB, not project-local memory folders.
+- `lerim query` for exact deterministic retrieval
+- `lerim ask` for retrieval plus synthesis
+- `lerim status` for runtime health, project counts, and queue state
 
 ## When to use
 
-- **Before starting a task**: query Lerim for relevant project context.
-- **When making a decision**: check if a similar decision was already made.
-- **When debugging**: look up past learnings about the area you're working in.
+- Before starting a task in a repo with existing Lerim history
+- When a decision, constraint, or preference may already have precedent
+- When debugging and you want prior facts or earlier decisions
+- When you need current vs historical truth from stored records
 
-## Commands
+## Fast path
+
+Start with the smallest tool that answers the question:
+
+1. Use `lerim query` for counts, latest rows, date windows, and exact inspection.
+2. Use `lerim ask` when you need a synthesized explanation or semantic retrieval.
+3. Use `lerim status` or `lerim queue` when the question is operational rather than semantic.
+
+Examples:
 
 ```bash
-lerim ask "Why did we choose SQLite?"   # LLM-synthesized answer from stored records (requires server)
-lerim status --json                     # inspect projects, counts, queue, and recent activity
+lerim query records count --kind decision
+lerim query records list --kind constraint --limit 10
+lerim ask "What do we already know about the auth flow?"
+lerim ask "What changed recently about storage and why?"
+lerim status --json
 ```
 
-Use `lerim ask` when you need a synthesized answer across multiple records.
-Use `lerim status` when you need visibility into projects, queue health, and stored record counts.
+## Working rules
 
-## How it works
+- Prefer `query` over `ask` when the question is exact.
+- Prefer `ask` over manual browsing when the question needs synthesis across records.
+- Treat Lerim as the memory layer, not as a place to manually edit durable state during normal coding work.
+- Do not recreate old file-era workflows like scanning markdown memory files or editing storage directly.
+- If the runtime is down, say so plainly and use the repo/codebase directly rather than pretending Lerim answered.
 
-Lerim runs in the background (via `lerim up` or `lerim serve`). It syncs your agent sessions, extracts decisions and learnings into the global context DB, and refines them over time through DB-backed extract, maintain, and ask flows.
+## Operational notes
 
-Your job is to read and query existing context records when they are relevant. You do not write durable context directly — Lerim handles extraction automatically. Setup (`pip install lerim`, `lerim init`, `lerim project add .`, `lerim up`) is done by the user before you start.
+- `lerim up` runs the local service in Docker.
+- `lerim serve` runs the local API directly without Docker.
+- `lerim dashboard` is only a transition message; the hosted UI lives on Lerim Cloud.
+- Local durable context is stored in the global SQLite store, not in project-local memory folders.
 
-## Tool contract
+## Read more when needed
 
-The DB-era tool surface is small on purpose.
+Open [cli-reference.md](cli-reference.md) only when you need:
 
-- `trace_read`: read bounded trace chunks during extract
-- `list_records`: browse exact recent or filtered records by time, kind, and status
-- `search_records`: retrieve candidate records with local ONNX embeddings + `sqlite-vec` + FTS5 + RRF
-- `fetch_records`: load selected records in concise or detailed form
-- `create_record`: create a new durable record with explicit typed fields
-- `update_record`: repair or clarify a durable record
-- `archive_record`: archive a stale record
-- `supersede_record`: mark a weaker record as replaced by a stronger one
-- `context_query`: deterministic count/list queries for records, versions, and sessions
-- `note`: keep extract-time findings in run state
-- `prune`: reduce trace context pressure during long extract runs
-
-Use the semantic tools above. Do not recreate file-era workflows like manual markdown scans, index maintenance, or raw storage edits.
-
-## References
-
-- Full CLI reference: [cli-reference.md](cli-reference.md)
+- full command syntax
+- runtime vs host-only command behavior
+- less common commands like `queue`, `retry`, `skip`, `skill`, or `auth`
