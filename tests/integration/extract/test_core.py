@@ -9,7 +9,7 @@ from tests.live_helpers import (
     EXTRACT_TOOL_NAMES,
     FRAMEWORK_TOOL_NAMES,
     assert_clean_context_schema,
-    assert_no_legacy_tools,
+    assert_no_removed_tools,
     assert_quality_metrics,
     audit_context_db,
     connect_context_db,
@@ -35,7 +35,7 @@ def test_extract_clear_decision_ignores_implementation_noise(
     assert "trace_read" in tool_names
     assert "create_record" in tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -93,21 +93,21 @@ def test_extract_clear_decision_ignores_implementation_noise(
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_multi_learning_trace_keeps_two_independent_records(
+def test_extract_multi_record_trace_keeps_two_independent_records(
     live_config,
     live_repo_root,
 ) -> None:
-    """A single trace can produce two independent durable learnings when each stands on its own."""
-    expectation = load_extract_expectation("multi_learning_trace")["expected"]
+    """A single trace can produce two independent durable records when each stands on its own."""
+    expectation = load_extract_expectation("multi_record_trace")["expected"]
     outcome = run_extract_case(
-        case_name="multi_learning_trace",
+        case_name="multi_record_trace",
         live_config=live_config,
         live_repo_root=live_repo_root,
     )
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -193,7 +193,7 @@ def test_extract_recap_temptation_trace_stays_compact_and_durable(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -265,7 +265,7 @@ def test_extract_stable_user_preference_creates_preference_record(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -325,7 +325,7 @@ def test_extract_environment_fact_from_noisy_error_creates_fact_record(
     live_config,
     live_repo_root,
 ) -> None:
-    """A noisy environment failure should become one fact record, not a raw error memory."""
+    """A noisy environment failure should become one fact record, not raw error context."""
     expectation = load_extract_expectation("environment_fact_from_noisy_error")["expected"]
     outcome = run_extract_case(
         case_name="environment_fact_from_noisy_error",
@@ -335,7 +335,7 @@ def test_extract_environment_fact_from_noisy_error_creates_fact_record(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -406,7 +406,7 @@ def test_extract_constraint_trace_creates_constraint_record(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -448,7 +448,7 @@ def test_extract_reference_trace_creates_reference_record(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -490,7 +490,7 @@ def test_extract_decision_without_why_falls_back_to_fact(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:

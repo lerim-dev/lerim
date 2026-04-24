@@ -26,7 +26,7 @@ records:
 
 - Durable records should store one reusable rule, decision, fact, preference, constraint, or reference.
 - Durable records should not read like meeting notes or session recap prose.
-- Episode records are short session recaps only. They should stay compact and should not become the main place where durable learnings live.
+- Episode records are short session recaps only. They should stay compact and should not become the main place where durable context lives.
 - Good durable writing is closer to "what is true, why it matters, how to apply it" than to "the user asked, then the agent did X".
 
 ### Time window
@@ -60,7 +60,7 @@ iterating over all registered projects:
 4. **Refine or supersede** -- `update_record()` and `supersede_record()` improve or replace redundant truth
 5. **Archive low-value** -- `archive_record()` moves junk or routine rows to archived status in the DB
 6. **Keep the store lean** -- the maintainer prefers stronger durable records over a noisy pile of routine episodes
-7. **Compress weak records** -- when records are too verbose or read like session reports, the maintainer should rewrite them into compact reusable memories instead of preserving the recap style
+7. **Compress weak records** -- when records are too verbose or read like session reports, the maintainer should rewrite them into compact reusable context instead of preserving the recap style
 
 ### Request turn limits
 

@@ -23,7 +23,6 @@ from lerim.context.store import (
 
 @pytest.fixture
 def mock_embeddings(monkeypatch):
-    from lerim.context.store import get_embedding_provider
 
     provider = MagicMock()
     provider.embedding_dims = 384
@@ -349,7 +348,7 @@ class TestSearchIntegration:
 
     def test_status_filter_active_only(self, tmp_path, monkeypatch):
         store, pid = _build_store_with_project(tmp_path, monkeypatch)
-        rec1 = store.create_record(
+        store.create_record(
             project_id=pid,
             session_id="sess_search",
             kind="fact",

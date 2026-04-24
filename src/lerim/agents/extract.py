@@ -65,7 +65,7 @@ Implementation detail alone is not durable signal.
 - Create the minimum number of durable records that preserves distinct durable meanings. Most sessions will yield 0 or 1, but use more when the meanings are genuinely independent.
 - Duplicates are worse than gaps. Skip uncertain candidates rather than spraying near-duplicates.
 - Never create a second durable record in the same run for the same core claim. If you realize the first draft needs improvement, update or refine that record instead of creating another one.
-- `constraint` and `reference` are first-class durable memories, not fallback categories.
+- `constraint` and `reference` are first-class durable record kinds, not fallback categories.
 </quality_bar>
 
 <what_not_to_save>
@@ -77,12 +77,12 @@ Implementation detail alone is not durable signal.
 
 <tool_flow>
 - Use `trace_read` to read the trace in chunks until the full trace is covered. Do not start writing while unread trace lines remain.
-- Use `note` as write-only working memory for findings from chunks you have already read. Notes are summarized back to you on later turns; do not re-note the same point unless you learned something new.
+- Use `note` as a write-only scratchpad for findings from chunks you have already read. Notes are summarized back to you on later turns; do not re-note the same point unless you learned something new.
 - In `note`, keep the durable theme and its supporting implementation evidence together. Do not record a rejected lure or discarded explanation as its own durable finding/theme.
 - In `note`, if one apparent finding only applies, routes, or operationalizes another finding, keep them as one durable theme instead of separate durable themes.
 - If you need more than one `trace_read`, call `note` before any `create_record` or `update_record`.
 - If you read many chunks, call `prune` only after those chunks have already been captured in notes.
-- Use `search_records` before creating a durable record whenever the trace suggests an earlier memory, duplicate risk, or "same meaning vs new meaning" judgment.
+- Use `search_records` before creating a durable record whenever the trace suggests an earlier record, duplicate risk, or "same meaning vs new meaning" judgment.
 - The injected existing-record manifest is only a shortlist. It is never enough evidence for `update_record`.
 - Use `fetch_records` before any `update_record`, and fetch each plausible target when several nearby records could match.
 - Use `update_record` only when a fetched record clearly carries the same meaning and needs repair. If the core claim differs, create a new record instead.
@@ -99,20 +99,20 @@ Implementation detail alone is not durable signal.
 - Storage boundary plus per-component routing is one decision, not two. Keep the boundary as the record and fold the routing guidance into the same title/body.
 - If one candidate only says how different local components should apply the same project rule, keep that guidance inside the main record rather than creating a second durable record.
 - If one candidate only restates where local project components live or how an internal architecture is applied, keep it inside the stronger decision, fact, or constraint instead of creating a separate reference.
-- If the trace gives one durable rule plus examples of local noise or discarded details, store only the durable rule. The filtering guidance is evidence, not a second memory.
-- Do not create a durable record whose whole point is that some local details from this trace were noise, low value, or should not be remembered. That is extraction guidance for this run, not project memory.
-- Store memory only when the lesson is likely reusable beyond this trace.
+- If the trace gives one durable rule plus examples of local noise or discarded details, store only the durable rule. The filtering guidance is evidence, not a second record.
+- Do not create a durable record whose whole point is that some local details from this trace were noise, low value, or should not be remembered. That is extraction guidance for this run, not project context.
+- Store durable records only when the lesson is likely reusable beyond this trace.
 - If a candidate is mainly about this trace's commands, files, or timeline, reject it.
 - Trace-local instructions about what to ignore in this session are not preferences unless they clearly express a broader standing workflow rule for future sessions.
 - If the trace explicitly says the rationale is unknown or says not to invent one, do not create a `decision`; use `fact` instead.
 - A stable setup, dependency, or environment requirement without a durable why is a `fact` even if it sounds like the current chosen setup.
-- The instruction "do not invent a why" is extraction guidance, not project memory.
+- The instruction "do not invent a why" is extraction guidance, not project context.
 - When the trace contains one durable dependency or setup fact plus instructions about how to classify that same evidence, store only the dependency or setup fact. Do not turn the classification guidance into a separate `preference`.
 - If the trace explicitly rejects a lure or distraction, do not carry that rejected idea into the durable record text unless the rejection itself is the durable lesson.
-- If a long noisy investigation resolves into one source-of-truth boundary, store only that boundary. Keep discarded lures at the category level or leave them out entirely; do not list trace-local counters, timers, labels, or tuning knobs inside the durable memory just to contrast them.
+- If a long noisy investigation resolves into one source-of-truth boundary, store only that boundary. Keep discarded lures at the category level or leave them out entirely; do not list trace-local counters, timers, labels, or tuning knobs inside the durable record just to contrast them.
 - When a discarded lure matters as evidence, keep it attached to the main durable theme as implementation context rather than storing it as a second durable theme.
-- If the episode summary contains a clearly reusable {durable_kind_text}, that learning should usually also exist as its own durable record.
-- Durable records are additional memory, not a substitute for the session episode. Even when only one durable rule matters, still create the episode for what this session did.
+- If the episode summary contains clearly reusable {durable_kind_text}, that point should usually also exist as its own durable record.
+- Durable records are additional project context, not a substitute for the session episode. Even when only one durable rule matters, still create the episode for what this session did.
 </selection_rules>
 
 <writing_rules>
@@ -123,11 +123,11 @@ Implementation detail alone is not durable signal.
   2. why it matters
   3. how to apply it later
 - Do not write durable records as meeting minutes, patch logs, or cleanup commentary.
-- Do not preserve trace-local commands, negotiation phrasing, or "this is not about X" sentences in final memory text.
+- Do not preserve trace-local commands, negotiation phrasing, or "this is not about X" sentences in final record text.
 - Do not write a durable record whose body is mainly a warning that certain local details, cleanups, or implementation noise should be ignored.
 - When the durable lesson is a source-of-truth rule, write the authoritative rule directly. Do not pad it with a list of discarded implementation lures from the trace.
 - If a short contrast is still helpful, keep it abstract, such as "not worker-local state" or "not ephemeral local state". Do not enumerate examples in parentheses or comma-separated lists.
-- When updating an existing record, keep the durable meaning but rewrite it into canonical project memory language.
+- When updating an existing record, keep the durable meaning but rewrite it into canonical project-context language.
 - Facts from noisy failures must be rewritten into the underlying dependency, environment requirement, stakeholder driver, or operational fact.
 - If a fact still reads like stderr, an exception symptom, or copied command output, rewrite it again before writing.
 - When the durable lesson is an environment or dependency requirement, do not center the fact on the observed failure symptom. Name the requirement directly and mention the symptom only if it is needed as brief supporting context.
@@ -150,7 +150,7 @@ Implementation detail alone is not durable signal.
 - Fact, preference, constraint, and reference records should usually only fill `title` and `body`.
 </record_requirements>
 
-<memory_types>
+<record_types>
 <type name="preference">
 Stable workflow guidance from the user. Save corrections and confirmed non-obvious working style that should carry into future sessions.
 Do not use `preference` for one-session extraction guidance such as "that detail is just noise in this trace."
@@ -170,7 +170,7 @@ Use `fact` for stable setup or dependency truths when the trace explicitly says 
 A pointer to an external dashboard, document, ticket system, or other source of truth outside the repo.
 Use `reference` only when the enduring value is where to look later. If the trace is mainly teaching a project rule or architecture boundary, use `decision`, `fact`, or `constraint` instead.
 </type>
-</memory_types>
+</record_types>
 
 <examples>
 <example id="preference">
@@ -195,10 +195,10 @@ Store the file edit itself, or treat the correction as only a one-session note w
 - the follow-on routing guidance is just how to apply that boundary
 </trace_excerpt>
 <good>
-Create the required episode for the session and one decision record for the storage boundary. Keep the routing guidance inside the same record instead of splitting it into a second memory.
+Create the required episode for the session and one decision record for the storage boundary. Keep the routing guidance inside the same record instead of splitting it into a second record.
 </good>
 <bad>
-Store the refactor noise, split one architectural choice into two near-duplicate memories such as one decision for the boundary and a second local-use record for which component reads which store, or create a separate durable memory whose only message is that the refactors and debug edits were noise.
+Store the refactor noise, split one architectural choice into two near-duplicate records such as one decision for the boundary and a second local-use record for which component reads which store, or create a separate durable record whose only message is that the refactors and debug edits were noise.
 </bad>
 </example>
 
@@ -206,10 +206,10 @@ Store the refactor noise, split one architectural choice into two near-duplicate
 <trace_excerpt>
 - the user makes one architectural choice, such as keeping durable context and hot operational state in separate stores
 - the trace also mentions variable renames, label tweaks, temporary debug prints, and similar low-value cleanups
-- the user explicitly says those local edits should not become durable memory
+- the user explicitly says those local edits should not become durable context
 </trace_excerpt>
 <good>
-Create the required episode and one durable record for the architectural choice only. Treat the explicit "those edits are just noise" instruction as extraction guidance for this run, not as its own memory.
+Create the required episode and one durable record for the architectural choice only. Treat the explicit "those edits are just noise" instruction as extraction guidance for this run, not as its own record.
 </good>
 <bad>
 Create a second durable record whose message is that renames, label tweaks, or temporary debug code are non-durable, or let that noise-filtering instruction replace the required episode.
@@ -230,7 +230,7 @@ Store the raw exception text, center the record on the failure symptom, split on
 </bad>
 </example>
 
-<example id="classification_guidance_is_not_memory">
+<example id="classification_guidance_is_not_context">
 <trace_excerpt>
 - the user states one stable dependency or setup truth
 - nearby turns add extraction guidance such as "this is a fact, not a decision" or "do not invent a why beyond the dependency"
@@ -253,7 +253,7 @@ Create a second durable preference whose whole point is how to classify this tra
 Write a fact such as: "Image-enabled workflows require libvips in the environment." Keep the body on the requirement and its effect.
 </good>
 <bad>
-Write a fact body such as: "Do not invent a policy reason here" or "No decision rationale was supplied." Those are meta comments about classification, not durable project memory.
+Write a fact body such as: "Do not invent a policy reason here" or "No decision rationale was supplied." Those are meta comments about classification, not durable project context.
 </bad>
 </example>
 
@@ -303,7 +303,7 @@ Invent a durable record from the sequence of routine commands.
 
 <example id="update_or_create">
 <trace_excerpt>
-- the trace points at an earlier memory that sounds nearby
+- the trace points at an earlier record that sounds nearby
 - new evidence sharpens part of it, but you still need to decide whether the core claim stayed the same
 - there may be more than one plausible existing record
 </trace_excerpt>
@@ -325,7 +325,7 @@ Update from a shortlist or search preview alone, force an update when the new cl
 </finalization>
 
 <forbidden_focus>
-Do not turn filenames, storage mechanics, graph links, or evidence tables into the main memory unless the durable rule is specifically about that boundary.
+Do not turn filenames, storage mechanics, graph links, or evidence tables into the main record unless the durable rule is specifically about that boundary.
 </forbidden_focus>
 """.format(
     durable_signal_bullets=_DURABLE_SIGNAL_BULLETS,
@@ -458,7 +458,7 @@ def run_extraction(
             "Read the trace, write exactly one episode record, and write only the strongest "
             "durable records with non-empty title and body. Store reusable rules and decisions, "
             "not a polished recap of the meeting. "
-            "Durable records must be positive canonical memory: when trace text combines a "
+            "Durable records must be positive canonical context: when trace text combines a "
             "durable point with cleanup/noise/ignore guidance, exclude that guidance entirely "
             "from the durable record. "
             f"This trace has {trace_line_count} lines. Read all chunks before writing. "

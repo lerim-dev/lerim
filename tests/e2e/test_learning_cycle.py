@@ -10,14 +10,12 @@ This is the most important E2E test.
 
 from __future__ import annotations
 
-import json
-import shutil
 from pathlib import Path
 
 import pytest
 
 from tests.e2e.conftest import CLIRunner, LerimServer
-from tests.e2e.helpers import count_records, assert_record_exists, parse_json_output
+from tests.e2e.helpers import parse_json_output
 
 
 @pytest.mark.e2e
@@ -109,8 +107,7 @@ def test_full_learning_cycle(
 
 	This is the core user journey that validates Lerim's value proposition.
 	"""
-	result = cli.run_ok("status", "--json")
-	initial_status = parse_json_output(result.stdout)
+	cli.run_ok("status", "--json")
 
 	result = cli.run("sync", "--dry-run", timeout=60)
 	assert result.returncode == 0

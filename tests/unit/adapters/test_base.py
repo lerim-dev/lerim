@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from lerim.adapters.base import Adapter, SessionRecord, ViewerMessage, ViewerSession
+from lerim.adapters.base import SessionRecord, ViewerMessage, ViewerSession
 
 
 class TestViewerMessage:

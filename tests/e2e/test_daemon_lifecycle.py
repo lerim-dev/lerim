@@ -8,8 +8,6 @@ Tests service management commands:
 
 from __future__ import annotations
 
-import subprocess
-import sys
 import time
 
 import pytest
@@ -36,7 +34,6 @@ def test_server_stops_cleanly(e2e_env: dict, e2e_home) -> None:
 	server.start()
 
 	assert server.process is not None
-	pid = server.process.pid
 
 	server.stop()
 

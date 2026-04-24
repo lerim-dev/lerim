@@ -1,5 +1,5 @@
-case: valuable_recent_learning_preserved
-summary: Keep a recent useful durable learning active.
+case: valuable_recent_record_preserved
+summary: Keep a recent useful durable record active.
 
 expected:
   must_use_tools:

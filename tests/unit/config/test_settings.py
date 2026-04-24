@@ -2,12 +2,14 @@
 
 Tests: load_toml_file, _expand, _to_fallback_models, _to_string_tuple,
 _parse_string_table, _toml_value, _toml_write_dict, save_config_patch,
-layer precedence, port clamping.
+layer precedence, port validation.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+import pytest
 
 from lerim.config.settings import (
     _deep_merge,
@@ -51,10 +53,11 @@ def test_load_toml_file_none():
 
 
 def test_load_toml_file_invalid(tmp_path):
-    """load_toml_file returns empty dict for malformed TOML."""
+    """load_toml_file raises for malformed TOML."""
     bad = tmp_path / "bad.toml"
     bad.write_text("this is not valid toml [[[", encoding="utf-8")
-    assert load_toml_file(bad) == {}
+    with pytest.raises(ValueError, match="invalid TOML config file"):
+        load_toml_file(bad)
 
 
 # ---------------------------------------------------------------------------
@@ -323,17 +326,17 @@ def test_deep_merge_replaces_non_dict_with_dict():
 
 
 # ---------------------------------------------------------------------------
-# Port clamping
+# Port validation
 # ---------------------------------------------------------------------------
 
 
-def test_port_over_65535_resets(tmp_path, monkeypatch):
-    """Port > 65535 resets to default 8765."""
+def test_port_over_65535_raises(tmp_path, monkeypatch):
+    """Port > 65535 is rejected."""
     explicit = tmp_path / "bad_port.toml"
     explicit.write_text("[server]\nport = 99999\n", encoding="utf-8")
     monkeypatch.setenv("LERIM_CONFIG", str(explicit))
-    cfg = reload_config()
-    assert cfg.server_port == 8765
+    with pytest.raises(ValueError, match="port must be <= 65535"):
+        reload_config()
 
 
 # ---------------------------------------------------------------------------

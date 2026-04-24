@@ -14,6 +14,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 from lerim.cloud.shipper import (
 	_ShipperState,
@@ -38,6 +39,20 @@ from tests.helpers import make_config
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def mock_embeddings(monkeypatch):
+	"""Use deterministic in-memory embeddings in cloud shipper tests."""
+	provider = MagicMock()
+	provider.embedding_dims = 384
+	provider.model_id = "test-model"
+	provider.embed_document.return_value = [0.1] * 384
+	provider.embed_query.return_value = [0.1] * 384
+	monkeypatch.setattr("lerim.context.store.get_embedding_provider", lambda: provider)
+	monkeypatch.setattr(
+		"lerim.context.embedding.get_embedding_provider", lambda: provider
+	)
 
 
 def _create_sessions_table(db_path: Path) -> None:
@@ -788,6 +803,7 @@ class TestPullRecords:
 			"records": [
 				{
 					"record_id": "cloud-mem-1",
+					"record_kind": "fact",
 					"title": "Cloud Record",
 					"description": "From dashboard",
 					"body": "Edited body text",
@@ -848,7 +864,7 @@ class TestPullRecords:
 			"records": [
 				{
 					"record_id": "cloud-existing-validity",
-					"record_kind": "decision",
+					"record_kind": "fact",
 					"title": "Updated title",
 					"body": "Updated body",
 					"status": "active",

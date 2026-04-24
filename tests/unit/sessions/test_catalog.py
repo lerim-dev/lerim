@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
@@ -11,11 +10,6 @@ from pathlib import Path
 import pytest
 
 from lerim.sessions.catalog import (
-    JOB_STATUS_DEAD_LETTER,
-    JOB_STATUS_DONE,
-    JOB_STATUS_FAILED,
-    JOB_STATUS_PENDING,
-    JOB_STATUS_RUNNING,
     _connect,
     claim_session_jobs,
     complete_session_job,
@@ -1092,17 +1086,17 @@ class TestJobQueueAdvanced:
         for suffix in ("j1", "j2", "j3"):
             _seed_and_enqueue(
                 f"pa-{suffix}",
-                f"/tmp/proj-pa",
+                "/tmp/proj-pa",
                 start_time=f"2026-03-01T0{int(suffix[1]) + 6}:00:00Z",
             )
             _seed_and_enqueue(
                 f"pb-{suffix}",
-                f"/tmp/proj-pb",
+                "/tmp/proj-pb",
                 start_time=f"2026-03-01T0{int(suffix[1]) + 6}:00:00Z",
             )
             _seed_and_enqueue(
                 f"pc-{suffix}",
-                f"/tmp/proj-pc",
+                "/tmp/proj-pc",
                 start_time=f"2026-03-01T0{int(suffix[1]) + 6}:00:00Z",
             )
         _set_job_status("pa-j1", "dead_letter")

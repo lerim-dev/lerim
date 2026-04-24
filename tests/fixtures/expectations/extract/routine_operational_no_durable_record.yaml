@@ -1,4 +1,4 @@
-case: routine_operational_no_memory
+case: routine_operational_no_durable_record
 summary: Routine maintenance should create only an archived episode and no durable records.
 
 expected:

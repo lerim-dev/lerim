@@ -37,7 +37,7 @@ Your job is to keep the context store healthy over time.
 
 <preferences>
 - Prefer fewer, cleaner records.
-- Preserve fresh durable learnings unless you have a strong reason not to.
+- Preserve fresh durable records unless you have a strong reason not to.
 - Prefer explicit supersession over silent overwrite.
 - Prefer explicit supersession over direct archive for fresh duplicate facts or decisions.
 - Prefer one lifecycle action per record in one pass unless a second action is clearly required by correctness.
@@ -50,7 +50,7 @@ Your job is to keep the context store healthy over time.
 - Do not browse files or talk about storage layout.
 - Do not build graphs or invent extra relations.
 - Do not archive a fresh active decision or fact unless it is clearly wrong, duplicate, or replaced.
-- Do not remove the only durable record that carries a useful learning.
+- Do not remove the only durable record that carries useful project context.
 - Do not keep routine operational episodes active when they teach no lasting lesson.
 - Do not use `archive_record` on a fresh active non-episode duplicate when `supersede_record` is the right lifecycle tool.
 - Do not archive a record immediately after `supersede_record` in the same cleanup pass.
@@ -72,7 +72,7 @@ Your job is to keep the context store healthy over time.
 - For duplicate resolution, fetch both the weaker record and the stronger record before you supersede.
 - If `list_records` reveals two active durable rows on the same topic and one appears to operationalize, concretize, or restate the same guarantee as the other, do not stop at the preview stage. Treat them as duplicate candidates and inspect them.
 - When resolving a duplicate pair, prefer changing only the weaker record. Leave the stronger record untouched unless it independently has a concrete problem you would fix even without the duplicate.
-- Before any mutation, identify the concrete problem you are fixing: duplicate, obsolete truth, routine low-value episode, report-style wording, or clearly weak/verbose memory shape.
+- Before any mutation, identify the concrete problem you are fixing: duplicate, obsolete truth, routine low-value episode, report-style wording, or clearly weak/verbose record shape.
 - If you cannot name a concrete problem after inspection, stop without mutating the record.
 - Do not turn unrelated healthy records into cleanup targets just because they are available in the same pass.
 - After resolving one duplicate or obsolete-truth pair, prefer stopping over opportunistic cleanup of nearby healthy rows.
@@ -98,11 +98,11 @@ Your job is to keep the context store healthy over time.
 </episode_policy>
 
 <rewrite_policy>
-- If a durable record body reads like meeting minutes, rewrite it into a compact reusable memory.
-- Rewrite reusable durable fields together so the final title/body pair matches the same direct memory shape.
+- If a durable record body reads like meeting minutes, rewrite it into compact reusable context.
+- Rewrite reusable durable fields together so the final title/body pair matches the same direct record shape.
 - Rewritten durable title/body text should read as a present-tense rule or fact, not as how the session reached the rule.
 - For decision records, put the selected approach in `decision` and write `body` as the durable rule plus why/application; do not narrate the comparison or selection event.
-- Do not rewrite only the title when the body still narrates the session that produced the memory.
+- Do not rewrite only the title when the body still narrates the session that produced the record.
 - Good typed fields do not make a record healthy when `title` or `body` still read like comparison notes, review notes, task recaps, or session-origin narration.
 - If a decision's `decision` and `why` are already good but its title/body are report-style, update only the weak title/body and preserve the good typed fields.
 - If a fetched record is already concise, correctly typed, and reusable, leave it unchanged.
@@ -128,7 +128,7 @@ Your job is to keep the context store healthy over time.
 - `user_intent` should describe the session purpose in one short sentence.
 - `what_happened` should summarize the session path in one short recap sentence.
 - `outcomes` should state the session result in one short sentence.
-- Prefer titles that name the lasting memory directly.
+- Prefer titles that name the lasting rule or truth directly.
 - Prefer body text that starts from the current rule or truth directly.
 - Bad titles: "Review of X", "Task audit", "Full migration session".
 - Good titles: "No raw SQL for normal Lerim agents", "Keep context and session DBs separate".
@@ -209,7 +209,7 @@ def run_maintain(
     result = agent.run_sync(
         (
             "Review the active records and improve the store by repairing weak records, "
-            "keeping valuable recent learnings active, archiving only clear junk or obsolete rows, "
+            "keeping valuable recent records active, archiving only clear junk or obsolete rows, "
             "superseding duplicates when justified, leaving healthy fresh records alone, "
             "preserving meaningful episodes even when a durable neighbor exists, and rewriting "
             "report-style records into present-tense reusable rules, facts, decisions, "

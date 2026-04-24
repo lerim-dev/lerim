@@ -1,11 +1,11 @@
 ---
 name: lerim
-description: Query Lerim's persistent project memory before coding. Use it to check prior decisions, constraints, preferences, and historical context through exact queries or synthesized answers.
+description: Query Lerim's persistent project context before coding. Use it to check prior decisions, constraints, preferences, and historical context through exact queries or synthesized answers.
 ---
 
 # Lerim
 
-Use this skill when you need project memory before or during coding work.
+Use this skill when you need project context before or during coding work.
 
 Lerim stores durable context from past agent sessions and exposes it through a small CLI/API surface. The important distinction is:
 
@@ -42,8 +42,8 @@ lerim status --json
 
 - Prefer `query` over `ask` when the question is exact.
 - Prefer `ask` over manual browsing when the question needs synthesis across records.
-- Treat Lerim as the memory layer, not as a place to manually edit durable state during normal coding work.
-- Do not recreate old file-era workflows like scanning markdown memory files or editing storage directly.
+- Treat Lerim as the context layer, not as a place to manually edit durable state during normal coding work.
+- Query Lerim through its CLI/API instead of inspecting storage directly.
 - If the runtime is down, say so plainly and use the repo/codebase directly rather than pretending Lerim answered.
 
 ## Operational notes
@@ -51,7 +51,7 @@ lerim status --json
 - `lerim up` runs the local service in Docker.
 - `lerim serve` runs the local API directly without Docker.
 - `lerim dashboard` is only a transition message; the hosted UI lives on Lerim Cloud.
-- Local durable context is stored in the global SQLite store, not in project-local memory folders.
+- Local durable context is stored in the global SQLite store.
 
 ## Read more when needed
 

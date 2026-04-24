@@ -140,6 +140,7 @@ def test_maintain_calls_agent(monkeypatch, tmp_path) -> None:
     )
     code, payload = daemon.run_maintain_once(force=False, dry_run=False)
     assert code == daemon.EXIT_OK
+    assert payload["projects"]
     assert len(called) >= 1
     # Maintain should pass explicit repo_root values, including our test project.
     assert all(r for r in called)

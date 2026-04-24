@@ -163,29 +163,27 @@ def _normalize_cloud_kind(raw: str | None) -> str:
     kind = str(raw or "").strip().lower()
     if kind in ALLOWED_KINDS:
         return kind
-    if kind in {"project", "learning", "feedback", "implementation"}:
-        return "fact"
-    return "fact"
+    raise ValueError(f"invalid_cloud_record_kind:{kind or '<empty>'}")
 
 
 def _typed_fields_from_cloud_record(record: dict[str, Any], *, kind: str) -> dict[str, str]:
     """Derive typed record fields for pulled cloud records."""
-    title = str(record.get("title") or record.get("name") or "").strip()
-    summary = str(record.get("description") or "").strip()
-    body = str(record.get("body") or "").strip()
     kind_spec = RECORD_KIND_SPECS.get(kind)
     if kind_spec is None:
         return {}
     typed_field_names = set(kind_spec.typed_field_names)
     if "decision" in typed_field_names:
         return {
-            "decision": title or summary or body,
-            "why": body or summary,
+            "decision": str(record.get("decision") or "").strip(),
+            "why": str(record.get("why") or "").strip(),
+            "alternatives": str(record.get("alternatives") or "").strip(),
+            "consequences": str(record.get("consequences") or "").strip(),
         }
     if "user_intent" in typed_field_names:
         return {
-            "user_intent": summary or title,
-            "what_happened": body or summary or title,
+            "user_intent": str(record.get("user_intent") or "").strip(),
+            "what_happened": str(record.get("what_happened") or "").strip(),
+            "outcomes": str(record.get("outcomes") or "").strip(),
         }
     return {}
 
@@ -205,15 +203,18 @@ def _upsert_pulled_record(
     store.initialize()
     identity = resolve_project_identity(project_path)
     store.register_project(identity)
-    kind = _normalize_cloud_kind(str(record.get("record_kind") or ""))
+    try:
+        kind = _normalize_cloud_kind(str(record.get("record_kind") or ""))
+    except ValueError as exc:
+        logger.warning("skipping pulled record {}: {}", record_id, exc)
+        return False
     if kind == "episode":
         logger.warning(
             "skipping pulled episode record {} because cloud sync only supports durable records",
             record_id,
         )
         return False
-    summary = str(record.get("description") or "").strip()
-    body = str(record.get("body") or "").strip() or summary or str(record.get("title") or "").strip()
+    body = str(record.get("body") or "").strip()
     typed_fields = _typed_fields_from_cloud_record(record, kind=kind)
     cloud_edited = str(record.get("cloud_edited_at") or "").strip() or datetime.now(timezone.utc).isoformat()
     created_at_raw = str(record.get("created_at") or "").strip()
@@ -228,25 +229,29 @@ def _upsert_pulled_record(
             (record_id, identity.project_id),
         ).fetchone()
     if row is None:
-        store.create_record(
-            project_id=identity.project_id,
-            session_id=None,
-            record_id=record_id,
-            kind=kind,
-            title=str(record.get("title") or record.get("name") or record_id).strip(),
-            body=body,
-            status=str(record.get("status") or "active").strip() or "active",
-            created_at=created_at,
-            updated_at=cloud_edited,
-            valid_from=valid_from_raw or created_at,
-            valid_until=valid_until,
-            change_reason="cloud_pull",
-            **typed_fields,
-        )
+        try:
+            store.create_record(
+                project_id=identity.project_id,
+                session_id=None,
+                record_id=record_id,
+                kind=kind,
+                title=str(record.get("title") or "").strip(),
+                body=body,
+                status=str(record.get("status") or "active").strip() or "active",
+                created_at=created_at,
+                updated_at=cloud_edited,
+                valid_from=valid_from_raw or created_at,
+                valid_until=valid_until,
+                change_reason="cloud_pull",
+                **typed_fields,
+            )
+        except ValueError as exc:
+            logger.warning("skipping pulled record {}: {}", record_id, exc)
+            return False
         return True
     changes: dict[str, Any] = {
         "kind": kind,
-        "title": str(record.get("title") or record.get("name") or record_id).strip(),
+        "title": str(record.get("title") or "").strip(),
         "body": body,
         "status": str(record.get("status") or "active").strip() or "active",
         "updated_at": cloud_edited,
@@ -256,13 +261,17 @@ def _upsert_pulled_record(
         changes["valid_from"] = valid_from_raw
     if valid_until_present:
         changes["valid_until"] = valid_until
-    store.update_record(
-        record_id=record_id,
-        session_id=None,
-        project_ids=[identity.project_id],
-        changes=changes,
-        change_reason="cloud_pull",
-    )
+    try:
+        store.update_record(
+            record_id=record_id,
+            session_id=None,
+            project_ids=[identity.project_id],
+            changes=changes,
+            change_reason="cloud_pull",
+        )
+    except ValueError as exc:
+        logger.warning("skipping pulled record {}: {}", record_id, exc)
+        return False
     return True
 
 
@@ -489,9 +498,6 @@ async def _ship_sessions(
             transcript = _read_transcript(row.get("session_path"))
             if transcript:
                 entry["transcript_jsonl"] = transcript
-            # Use repo_path as project fallback
-            if "project" not in entry and row.get("repo_path"):
-                entry["project"] = Path(row["repo_path"]).name
             sessions_payload.append(entry)
 
         ok = await _post_batch(

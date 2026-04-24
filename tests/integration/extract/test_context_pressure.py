@@ -9,7 +9,7 @@ from tests.live_helpers import (
     EXTRACT_TOOL_NAMES,
     FRAMEWORK_TOOL_NAMES,
     assert_clean_context_schema,
-    assert_no_legacy_tools,
+    assert_no_removed_tools,
     assert_quality_metrics,
     audit_context_db,
     connect_context_db,
@@ -33,7 +33,7 @@ def test_extract_long_trace_requires_note_before_writing(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -107,7 +107,7 @@ def test_extract_very_long_trace_requires_prune(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -164,7 +164,7 @@ def test_extract_late_disambiguation_at_end_of_trace(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     assert tool_names.count("trace_read") >= expectation["min_trace_read_calls"]

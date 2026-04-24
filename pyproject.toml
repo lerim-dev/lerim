@@ -7,14 +7,13 @@ name = "lerim"
 version = "0.1.72"
 description = "Continual learning layer for coding agents and software projects."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "BSL-1.1" }
 dependencies = [
     "pydantic==2.12.5",
     "pydantic-ai==1.70.0",
     "pydantic-evals==1.70.0",
     "eval_type_backport==0.3.1; python_version < '3.13'",
-    "tomli>=2.0; python_version < '3.11'",
     "python-dotenv==1.2.2",
     "PyYAML==6.0.3",
     "loguru==0.7.3",

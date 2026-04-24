@@ -81,8 +81,8 @@ def test_build_pydantic_model_ollama_no_key(tmp_path) -> None:
 	assert model is not None
 
 
-def test_build_pydantic_model_skips_unavailable_fallback_keys(tmp_path) -> None:
-	"""Fallbacks with missing keys should be skipped, not fail the build."""
+def test_build_pydantic_model_requires_available_fallback_keys(tmp_path) -> None:
+	"""Configured fallback models must be buildable."""
 	cfg = make_config(tmp_path)
 	cfg = replace(
 		cfg,
@@ -93,9 +93,8 @@ def test_build_pydantic_model_skips_unavailable_fallback_keys(tmp_path) -> None:
 		),
 		openrouter_api_key=None,
 	)
-	model = build_pydantic_model("agent", config=cfg)
-	assert model is not None
-	assert not isinstance(model, FallbackModel)
+	with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+		build_pydantic_model("agent", config=cfg)
 
 
 def test_build_pydantic_model_with_fallback_chain(tmp_path) -> None:

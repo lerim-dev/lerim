@@ -89,8 +89,20 @@ class OperationResult:
 		"""
 		d = asdict(self)
 		out: dict[str, Any] = {}
+		structured_only_keys = {
+			"indexed_sessions",
+			"queued_sessions",
+			"extracted_sessions",
+			"skipped_sessions",
+			"skipped_unscoped",
+			"failed_sessions",
+			"run_ids",
+			"window_start",
+			"window_end",
+			"projects",
+		}
 		for k, v in d.items():
-			if k in ("operation", "status", "trigger"):
+			if k in ("operation", "status", "trigger") or k in structured_only_keys:
 				continue
 			if k in ("metrics_version", "sync_metrics", "maintain_metrics", "projects_metrics", "events"):
 				out[k] = v
@@ -104,6 +116,13 @@ class OperationResult:
 			):
 				out[k] = v
 
+		return out
+
+	def to_response_json(self) -> dict[str, Any]:
+		"""Serialize the direct CLI/API operation response payload."""
+		out = self.to_details_json()
+		if self.projects:
+			out["projects"] = self.projects
 		return out
 
 	def to_span_attrs(self) -> dict[str, Any]:
@@ -955,7 +974,7 @@ def run_maintain_once(
                 raw_counts = result.get("counts") if isinstance(result.get("counts"), dict) else {}
                 metric_row["maintain_counts"] = {
                     "merged": int(raw_counts.get("merged") or 0),
-                    "archived": int(raw_counts.get("archived") or raw_counts.get("decayed") or 0),
+                    "archived": int(raw_counts.get("archived") or 0),
                     "consolidated": int(raw_counts.get("consolidated") or 0),
                     "unchanged": int(raw_counts.get("unchanged") or 0),
                 }
@@ -1008,7 +1027,7 @@ def run_maintain_once(
             if status == "failed"
             else (EXIT_PARTIAL if status == "partial" else EXIT_OK)
         )
-        return code, op_result.to_details_json()
+        return code, op_result.to_response_json()
     except Exception as exc:
         op_result = OperationResult(
             operation="maintain",

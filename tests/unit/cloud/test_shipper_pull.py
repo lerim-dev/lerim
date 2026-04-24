@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,8 +15,21 @@ from lerim.cloud.shipper import (
     _typed_fields_from_cloud_record,
     _upsert_pulled_record,
 )
-from lerim.context import ContextStore, resolve_project_identity
+from lerim.context import ContextStore
 from tests.helpers import make_config
+
+
+@pytest.fixture
+def mock_embeddings(monkeypatch):
+    provider = MagicMock()
+    provider.embedding_dims = 384
+    provider.model_id = "test-model"
+    provider.embed_document.return_value = [0.1] * 384
+    provider.embed_query.return_value = [0.1] * 384
+    monkeypatch.setattr("lerim.context.store.get_embedding_provider", lambda: provider)
+    monkeypatch.setattr(
+        "lerim.context.embedding.get_embedding_provider", lambda: provider
+    )
 
 
 class TestNormalizeCloudKind:
@@ -34,23 +46,13 @@ class TestNormalizeCloudKind:
         ):
             assert _normalize_cloud_kind(kind) == kind
 
-    def test_project_maps_to_fact(self):
-        assert _normalize_cloud_kind("project") == "fact"
-
-    def test_learning_maps_to_fact(self):
-        assert _normalize_cloud_kind("learning") == "fact"
-
-    def test_feedback_maps_to_fact(self):
-        assert _normalize_cloud_kind("feedback") == "fact"
-
-    def test_implementation_maps_to_fact(self):
-        assert _normalize_cloud_kind("implementation") == "fact"
-
-    def test_unknown_kind_maps_to_fact(self):
-        assert _normalize_cloud_kind("custom_type") == "fact"
-
-    def test_none_maps_to_fact(self):
-        assert _normalize_cloud_kind(None) == "fact"
+    @pytest.mark.parametrize(
+        "kind",
+        ["project", "learning", "feedback", "implementation", "custom_type", None],
+    )
+    def test_invalid_kinds_raise(self, kind):
+        with pytest.raises(ValueError, match="invalid_cloud_record_kind"):
+            _normalize_cloud_kind(kind)
 
     def test_case_insensitive(self):
         assert _normalize_cloud_kind("Decision") == "decision"
@@ -64,13 +66,16 @@ class TestTypedFieldsFromCloudRecord:
     """Tests for _typed_fields_from_cloud_record."""
 
     def test_decision_kind(self):
-        record = {"title": "Use typed tools", "body": "No raw SQL"}
+        record = {"decision": "Use typed tools", "why": "No raw SQL"}
         result = _typed_fields_from_cloud_record(record, kind="decision")
         assert result["decision"] == "Use typed tools"
         assert result["why"] == "No raw SQL"
 
     def test_episode_kind(self):
-        record = {"description": "fix bug", "body": "Fixed the importer bug"}
+        record = {
+            "user_intent": "fix bug",
+            "what_happened": "Fixed the importer bug",
+        }
         result = _typed_fields_from_cloud_record(record, kind="episode")
         assert result["user_intent"] == "fix bug"
         assert result["what_happened"] == "Fixed the importer bug"
@@ -80,16 +85,17 @@ class TestTypedFieldsFromCloudRecord:
         result = _typed_fields_from_cloud_record(record, kind="fact")
         assert result == {}
 
-    def test_decision_uses_name_fallback(self):
+    def test_decision_does_not_use_name_or_description(self):
         record = {"name": "Named decision", "description": "desc"}
         result = _typed_fields_from_cloud_record(record, kind="decision")
-        assert result["decision"] == "Named decision"
+        assert result["decision"] == ""
+        assert result["why"] == ""
 
-    def test_episode_description_fallback(self):
+    def test_episode_does_not_use_description_fallback(self):
         record = {"description": "user intent here"}
         result = _typed_fields_from_cloud_record(record, kind="episode")
-        assert result["user_intent"] == "user intent here"
-        assert result["what_happened"] == "user intent here"
+        assert result["user_intent"] == ""
+        assert result["what_happened"] == ""
 
 
 class TestUpsertPulledRecord:
@@ -104,7 +110,7 @@ class TestUpsertPulledRecord:
         )
         assert result is False
 
-    def test_creates_new_record(self, tmp_path, monkeypatch):
+    def test_creates_new_record(self, tmp_path, monkeypatch, mock_embeddings):
         monkeypatch.setattr(
             "lerim.config.project_scope.git_root_for",
             lambda _p=None: tmp_path,
@@ -119,6 +125,8 @@ class TestUpsertPulledRecord:
                 "record_kind": "decision",
                 "title": "Cloud Decision",
                 "body": "Use typed tools",
+                "decision": "Cloud Decision",
+                "why": "Use typed tools",
                 "status": "active",
                 "cloud_edited_at": "2026-04-01T12:00:00Z",
             },
@@ -133,7 +141,7 @@ class TestUpsertPulledRecord:
         assert row is not None
         assert row["title"] == "Cloud Decision"
 
-    def test_updates_existing_record(self, tmp_path, monkeypatch):
+    def test_updates_existing_record(self, tmp_path, monkeypatch, mock_embeddings):
         monkeypatch.setattr(
             "lerim.config.project_scope.git_root_for",
             lambda _p=None: tmp_path,

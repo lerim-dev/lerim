@@ -15,7 +15,7 @@ override) under `[server]`:
 | `maintain_interval_minutes` | `60` | How often the daemon runs maintain |
 
 Sessions are processed **sequentially in chronological order** (oldest first) so
-later sessions can update memories from earlier ones.
+later sessions can update records from earlier ones.
 
 ## What to run
 

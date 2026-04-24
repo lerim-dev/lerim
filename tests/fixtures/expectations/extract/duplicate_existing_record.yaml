@@ -1,4 +1,4 @@
-case: duplicate_existing_memory
+case: duplicate_existing_record
 summary: Update one existing durable decision instead of creating a duplicate.
 
 expected:
@@ -24,5 +24,5 @@ expected:
     - queue
     - state
   updated_decision_text_must_not_include:
-    - duplicate memory
+    - duplicate record
     - fork it

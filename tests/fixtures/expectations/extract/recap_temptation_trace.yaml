@@ -1,5 +1,5 @@
 case: recap_temptation_trace
-summary: A report-like trace should still yield one compact durable decision instead of a session-style memory.
+summary: A report-like trace should still yield one compact durable decision instead of a session-style record.
 
 expected:
   episode_count: 1

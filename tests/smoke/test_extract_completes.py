@@ -14,8 +14,8 @@ from tests.conftest import EXTRACT_TRACES_DIR
 def test_extract_completes(live_config, live_repo_root):
 	"""Verify extraction completes without crashing.
 
-	Uses the smallest fixture: routine_operational_no_memory.jsonl (5 lines).
-	This trace contains routine cleanup work with no durable memory.
+	Uses the smallest fixture: routine_operational_no_durable_record.jsonl (5 lines).
+	This trace contains routine cleanup work with no durable record.
 	"""
 	store = ContextStore(live_config.context_db_path)
 	store.initialize()
@@ -25,7 +25,7 @@ def test_extract_completes(live_config, live_repo_root):
 	session_id = "smoke-extract"
 	run_folder = live_config.global_data_dir / "workspace" / "sync" / session_id
 	run_folder.mkdir(parents=True, exist_ok=True)
-	trace_path = EXTRACT_TRACES_DIR / "routine_operational_no_memory.jsonl"
+	trace_path = EXTRACT_TRACES_DIR / "routine_operational_no_durable_record.jsonl"
 
 	store.upsert_session(
 		project_id=identity.project_id,

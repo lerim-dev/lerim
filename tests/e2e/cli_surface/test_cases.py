@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -24,6 +23,28 @@ from tests.e2e.conftest import CLIRunner
 from tests.e2e.cli_surface.helpers import load_cli_surface_expectation
 from tests.e2e.helpers import parse_json_output
 from tests.helpers import write_test_config
+
+
+@pytest.fixture(autouse=True)
+def mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use deterministic embeddings while seeding E2E query fixtures."""
+    class _Provider:
+        """Minimal embedding provider double for context store writes."""
+
+        embedding_dims = 384
+        model_id = "test-model"
+
+        def embed_document(self, text: str) -> list[float]:
+            """Return a deterministic document embedding."""
+            return [0.1] * self.embedding_dims
+
+        def embed_query(self, text: str) -> list[float]:
+            """Return a deterministic query embedding."""
+            return [0.1] * self.embedding_dims
+
+    provider = _Provider()
+    monkeypatch.setattr("lerim.context.store.get_embedding_provider", lambda: provider)
+    monkeypatch.setattr("lerim.context.embedding.get_embedding_provider", lambda: provider)
 
 
 class _SurfaceHTTPServer(HTTPServer):

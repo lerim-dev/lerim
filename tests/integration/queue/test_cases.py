@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, Thread
 from typing import Any
@@ -42,7 +42,7 @@ def queue_case_env(tmp_path, monkeypatch) -> QueueCaseEnv:
 
     config_path = write_test_config(
         tmp_path,
-        agent={"provider": "openrouter", "model": "integration-test"},
+        **{"roles.agent": {"provider": "openrouter", "model": "integration-test"}},
         projects={repo_root.name: str(repo_root)},
         server={"sync_window_days": 7, "sync_max_sessions": 10},
     )

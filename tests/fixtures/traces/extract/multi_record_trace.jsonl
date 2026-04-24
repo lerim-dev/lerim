@@ -4,6 +4,6 @@
 {"role":"assistant","content":"The typed tool path keeps validation, project scoping, and lifecycle rules inside code rather than prompt luck."}
 {"role":"assistant","content":"I also checked the CI failures. The raw symptom is an image pipeline crash, but the durable point is the missing dependency requirement."}
 {"role":"assistant","content":"The failing environments run image-enabled code paths but do not install libvips."}
-{"role":"assistant","content":"There was also routine noise: I removed a temporary debug print, shortened one assertion, and renamed a helper variable. Those are not durable memory."}
+{"role":"assistant","content":"There was also routine noise: I removed a temporary debug print, shortened one assertion, and renamed a helper variable. Those are not durable context."}
 {"role":"user","content":"Important: do not merge those two ideas. The raw SQL boundary is one architectural decision. The libvips requirement is a separate environment fact."}
-{"role":"assistant","content":"Agreed. One durable decision and one durable fact. The local cleanup details should stay out of memory."}
+{"role":"assistant","content":"Agreed. One durable decision and one durable fact. The local cleanup details should stay out of durable records."}

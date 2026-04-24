@@ -372,21 +372,16 @@ def build_pydantic_model(
 
 	fallbacks: list[Model] = []
 	for raw in role_cfg.fallback_models:
-		try:
-			spec = parse_fallback_spec(raw)
-			fallbacks.append(
-				_build_pydantic_model_for_provider(
-					provider=spec.provider,
-					model=spec.model,
-					api_base="",
-					cfg=cfg,
-					role_label=f"roles.{role}.fallback={spec.provider}:{spec.model}",
-				)
+		spec = parse_fallback_spec(raw)
+		fallbacks.append(
+			_build_pydantic_model_for_provider(
+				provider=spec.provider,
+				model=spec.model,
+				api_base="",
+				cfg=cfg,
+				role_label=f"roles.{role}.fallback={spec.provider}:{spec.model}",
 			)
-		except RuntimeError:
-			# Missing API key for the fallback — skip it silently. The
-			# primary's HTTP retries still protect against transient errors.
-			continue
+		)
 
 	return _wrap_with_fallback(primary, fallbacks)
 
@@ -433,19 +428,16 @@ def build_pydantic_model_from_provider(
 
 	fallbacks: list[Model] = []
 	for raw in fallback_models or ():
-		try:
-			spec = parse_fallback_spec(raw)
-			fallbacks.append(
-				_build_pydantic_model_for_provider(
-					provider=spec.provider,
-					model=spec.model,
-					api_base="",
-					cfg=cfg,
-					role_label=f"explicit_fallback={spec.provider}:{spec.model}",
-				)
+		spec = parse_fallback_spec(raw)
+		fallbacks.append(
+			_build_pydantic_model_for_provider(
+				provider=spec.provider,
+				model=spec.model,
+				api_base="",
+				cfg=cfg,
+				role_label=f"explicit_fallback={spec.provider}:{spec.model}",
 			)
-		except RuntimeError:
-			continue
+		)
 
 	return _wrap_with_fallback(primary, fallbacks)
 

@@ -12,12 +12,6 @@ What we test:
 - integration tests for runtime orchestration behavior like workspace artifact layout, ask debug trace ordering, and mutation count reporting
 - e2e surface tests for CLI/API rendering and deterministic query behavior
 
-What we do not keep anymore:
-
-- file-based smoke tests
-- file-based index checks
-- file-based extraction / maintain / ask flows
-
 ## Quick reference
 
 ```bash

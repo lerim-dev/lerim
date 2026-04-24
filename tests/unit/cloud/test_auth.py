@@ -58,8 +58,23 @@ def test_emit_empty_message(capsys) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_find_available_port_returns_int() -> None:
+def test_find_available_port_returns_int(monkeypatch) -> None:
 	"""_find_available_port returns a valid port number."""
+	class FakeSocket:
+		"""Socket double that accepts the first requested bind."""
+
+		def bind(self, address):
+			"""Accept the requested address."""
+			self.address = address
+
+		def __enter__(self):
+			"""Context manager enter."""
+			return self
+
+		def __exit__(self, *args):
+			"""Context manager exit."""
+
+	monkeypatch.setattr(socket, "socket", lambda *args, **kwargs: FakeSocket())
 	port = _find_available_port()
 	assert isinstance(port, int)
 	assert port > 0
@@ -67,16 +82,10 @@ def test_find_available_port_returns_int() -> None:
 
 def test_find_available_port_fallback(monkeypatch) -> None:
 	"""When all preferred ports are taken, falls back to OS-assigned port."""
-	original_socket = socket.socket
-
 	call_count = 0
 
 	class FakeSocket:
 		"""Socket that refuses bind on preferred ports."""
-
-		def __init__(self, *args, **kwargs):
-			"""Create real socket for delegation."""
-			self._real = original_socket(*args, **kwargs)
 
 		def bind(self, address):
 			"""Reject preferred-range ports, accept OS-assigned (port 0)."""
@@ -85,11 +94,11 @@ def test_find_available_port_fallback(monkeypatch) -> None:
 			_, port = address
 			if port != 0:
 				raise OSError("port busy")
-			self._real.bind(address)
+			self.address = address
 
 		def getsockname(self):
-			"""Delegate to real socket."""
-			return self._real.getsockname()
+			"""Return a deterministic OS-assigned port."""
+			return ("127.0.0.1", 43210)
 
 		def __enter__(self):
 			"""Context manager enter."""
@@ -97,9 +106,8 @@ def test_find_available_port_fallback(monkeypatch) -> None:
 
 		def __exit__(self, *args):
 			"""Context manager exit."""
-			self._real.close()
 
-	monkeypatch.setattr(socket, "socket", FakeSocket)
+	monkeypatch.setattr(socket, "socket", lambda *args, **kwargs: FakeSocket())
 	port = _find_available_port()
 	assert isinstance(port, int)
 	assert port > 0
@@ -522,14 +530,73 @@ def test_cmd_auth_logout(monkeypatch, capsys) -> None:
 
 def test_run_browser_flow_timeout(monkeypatch) -> None:
 	"""_run_browser_flow returns None when no callback received."""
+	class FakeHTTPServer:
+		"""HTTPServer double that avoids binding a real socket."""
+
+		def __init__(self, *args, **kwargs):
+			"""Accept constructor arguments from the production flow."""
+			self.timeout = None
+
+		def handle_request(self):
+			"""Do not receive a callback token."""
+
+		def server_close(self):
+			"""Close the fake server."""
+
+	class FakeThread:
+		"""Thread double that keeps the unit test synchronous."""
+
+		def __init__(self, target, daemon=False):
+			"""Store the target without running it."""
+			self.target = target
+			self.daemon = daemon
+
+		def start(self):
+			"""Do not start background work."""
+
+		def join(self, timeout=None):
+			"""Return immediately."""
+
+	monkeypatch.setattr(auth_mod, "_find_available_port", lambda: 9876)
+	monkeypatch.setattr(auth_mod, "HTTPServer", FakeHTTPServer)
+	monkeypatch.setattr(auth_mod.threading, "Thread", FakeThread)
 	monkeypatch.setattr(auth_mod.webbrowser, "open", lambda url: None)
-	# Use a very short timeout so the test is fast
 	result = _run_browser_flow("https://api.lerim.dev", timeout_seconds=1)
 	assert result is None
 
 
 def test_run_browser_flow_opens_correct_url(monkeypatch) -> None:
 	"""_run_browser_flow opens the correct auth URL in the browser."""
+	class FakeHTTPServer:
+		"""HTTPServer double that avoids binding a real socket."""
+
+		def __init__(self, *args, **kwargs):
+			"""Accept constructor arguments from the production flow."""
+			self.timeout = None
+
+		def handle_request(self):
+			"""Do not receive a callback token."""
+
+		def server_close(self):
+			"""Close the fake server."""
+
+	class FakeThread:
+		"""Thread double that keeps the unit test synchronous."""
+
+		def __init__(self, target, daemon=False):
+			"""Store the target without running it."""
+			self.target = target
+			self.daemon = daemon
+
+		def start(self):
+			"""Do not start background work."""
+
+		def join(self, timeout=None):
+			"""Return immediately."""
+
+	monkeypatch.setattr(auth_mod, "_find_available_port", lambda: 9876)
+	monkeypatch.setattr(auth_mod, "HTTPServer", FakeHTTPServer)
+	monkeypatch.setattr(auth_mod.threading, "Thread", FakeThread)
 	opened_urls: list[str] = []
 	monkeypatch.setattr(
 		auth_mod.webbrowser, "open", lambda url: opened_urls.append(url)

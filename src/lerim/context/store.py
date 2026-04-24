@@ -26,41 +26,26 @@ from lerim.config.settings import get_config
 from lerim.context.embedding import get_embedding_provider
 from lerim.context.project_identity import ProjectIdentity
 from lerim.context.spec import (
-    ALLOWED_KINDS,
-    ALLOWED_STATUSES,
-    MAX_DURABLE_BODY_CHARS,
-    MAX_EPISODE_BODY_CHARS,
-    MAX_EPISODE_OUTCOMES_CHARS,
-    MAX_EPISODE_USER_INTENT_CHARS,
-    MAX_EPISODE_WHAT_HAPPENED_CHARS,
-    MAX_RECORD_TITLE_CHARS,
+    ALLOWED_KINDS as ALLOWED_KINDS,
+    ALLOWED_STATUSES as ALLOWED_STATUSES,
+    MAX_DURABLE_BODY_CHARS as MAX_DURABLE_BODY_CHARS,
+    MAX_EPISODE_BODY_CHARS as MAX_EPISODE_BODY_CHARS,
+    MAX_EPISODE_OUTCOMES_CHARS as MAX_EPISODE_OUTCOMES_CHARS,
+    MAX_EPISODE_USER_INTENT_CHARS as MAX_EPISODE_USER_INTENT_CHARS,
+    MAX_EPISODE_WHAT_HAPPENED_CHARS as MAX_EPISODE_WHAT_HAPPENED_CHARS,
+    MAX_RECORD_TITLE_CHARS as MAX_RECORD_TITLE_CHARS,
     normalize_record_payload,
     record_search_text,
 )
 
 SCHEMA_VERSION = "2"
-ALLOWED_CHANGE_KINDS = ("create", "update", "archive", "supersede", "migrate")
+ALLOWED_CHANGE_KINDS = ("create", "update", "archive", "supersede")
 QUERY_ENTITIES = ("records", "versions", "sessions")
 QUERY_MODES = ("list", "count")
 QUERY_ORDER_FIELDS = ("created_at", "updated_at", "valid_from")
 RRF_K = 60
-QUERY_ENTITY_ALIASES = {
-    "memory": "records",
-    "memories": "records",
-    "learning": "records",
-    "learnings": "records",
-    "record": "records",
-    "records": "records",
-    "version": "versions",
-    "versions": "versions",
-    "session": "sessions",
-    "sessions": "sessions",
-}
-QUERY_MODE_ALIASES = {
-    "list": "list",
-    "count": "count",
-    "counts": "count",
-}
+QUERY_ENTITY_ALIASES: dict[str, str] = {}
+QUERY_MODE_ALIASES: dict[str, str] = {}
 
 
 def _utc_now() -> str:
@@ -317,7 +302,6 @@ class ContextStore:
                 """
             )
             self._validate_schema(conn)
-            self._repair_archived_validity(conn)
             conn.execute(
                 """
                 INSERT INTO schema_meta(key, value)
@@ -416,16 +400,6 @@ class ContextStore:
         if embedding_count != record_count:
             rebuild = True
         return rebuild
-
-    def _repair_archived_validity(self, conn: sqlite3.Connection) -> None:
-        """Backfill missing valid-until timestamps for archived rows."""
-        conn.execute(
-            """
-            UPDATE records
-            SET valid_until = COALESCE(valid_until, updated_at, created_at)
-            WHERE status = 'archived' AND valid_until IS NULL
-            """
-        )
 
     def register_project(self, identity: ProjectIdentity) -> dict[str, Any]:
         """Upsert one project row."""

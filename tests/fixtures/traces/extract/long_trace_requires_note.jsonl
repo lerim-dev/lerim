@@ -18,7 +18,7 @@
 {"role":"assistant","content":"There is a temporary debug log in the timeout branch."}
 {"role":"assistant","content":"A helper variable is named rcount and should probably be renamed later."}
 {"role":"assistant","content":"One test helper prints the whole payload even though only the id matters."}
-{"role":"assistant","content":"Those look like implementation cleanup, not durable memory."}
+{"role":"assistant","content":"Those look like implementation cleanup, not durable context."}
 {"role":"assistant","content":"I kept reading through the retry scheduler."}
 {"role":"assistant","content":"The scheduler computes backoff from the current attempt number."}
 {"role":"assistant","content":"If the attempt number resets, the backoff resets too."}
@@ -69,7 +69,7 @@
 {"role":"assistant","content":"That keeps the read path straightforward."}
 {"role":"assistant","content":"I noted another small local detail."}
 {"role":"assistant","content":"The timeout test uses a hard-coded sleep value that could be tidied later."}
-{"role":"assistant","content":"Again, not durable memory."}
+{"role":"assistant","content":"Again, not durable context."}
 {"role":"assistant","content":"I kept tracing related code paths so the rule is well grounded."}
 {"role":"assistant","content":"Backoff jitter calculation takes the attempt number as input."}
 {"role":"assistant","content":"Alert suppression also keys off the same attempt number."}
@@ -90,7 +90,7 @@
 {"role":"assistant","content":"There is none."}
 {"role":"assistant","content":"I am ready to summarize."}
 {"role":"assistant","content":"Summary draft: keep authoritative retry budget in persisted per-job metadata so restart, failover, backoff, and dead-letter behavior all use the same durable state."}
-{"role":"assistant","content":"Secondary cleanup like debug logs, helper renames, assertion shortening, and wording tweaks should not become durable memory."}
+{"role":"assistant","content":"Secondary cleanup like debug logs, helper renames, assertion shortening, and wording tweaks should not become durable context."}
 {"role":"assistant","content":"I also want the final memory to stay compact and not read like a debugging transcript."}
 {"role":"assistant","content":"No stable user preference changed in this session."}
 {"role":"assistant","content":"No external reference was introduced."}

@@ -526,8 +526,8 @@ def test_post_ask(test_server):
 	assert "Mocked answer" in body["answer"]
 
 
-def test_post_ask_rejects_limit_field(test_server):
-	"""POST /api/ask rejects removed `limit` field."""
+def test_post_ask_rejects_unknown_field(test_server):
+	"""POST /api/ask rejects unsupported request fields."""
 	port, _, _ = test_server
 	status, body = _api_post_error(
 		port,
@@ -536,6 +536,7 @@ def test_post_ask_rejects_limit_field(test_server):
 	)
 	assert status == 400
 	assert "error" in body
+	assert "Unsupported field" in body["error"]
 
 
 def test_post_ask_missing_question(test_server):
@@ -789,7 +790,7 @@ def test_post_empty_body(test_server):
 
 
 def test_post_invalid_json(test_server):
-	"""POST /api/ask with invalid JSON falls back to empty body -> 400."""
+	"""POST /api/ask with invalid JSON returns 400."""
 	port, _, _ = test_server
 	url = f"http://127.0.0.1:{port}/api/ask"
 	req = urllib.request.Request(
@@ -803,7 +804,6 @@ def test_post_invalid_json(test_server):
 	except urllib.error.HTTPError as exc:
 		status = exc.code
 		json.loads(exc.read())
-	# _read_json_body returns {} on bad JSON, so question will be empty -> 400
 	assert status == 400
 
 

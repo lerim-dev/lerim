@@ -2,23 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import json
-import math
-from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import ModelRetry, RunContext
-from pydantic_ai.messages import ModelResponse
 
 from lerim.context import ContextStore, ProjectIdentity
 from lerim.context.spec import (
     ALLOWED_FINDING_LEVELS,
-    DURABLE_FINDING_LEVELS,
-    IMPLEMENTATION_FINDING_LEVELS,
     format_allowed_finding_levels,
     normalize_finding_level,
     normalize_record_kind,
@@ -44,7 +38,7 @@ class Finding(BaseModel):
     quote: str = Field(description="Short verbatim evidence snippet from the trace.")
     level: str = Field(
         description=(
-            "Signal level: use durable levels only for reusable project memory. "
+            "Signal level: use durable levels only for reusable project context. "
             "Use `implementation` for dead ends, discarded hypotheses, trace-local noise, "
             "and supporting evidence that should not become its own durable theme. "
             "Allowed levels: "
@@ -525,12 +519,12 @@ def create_record(
     """Create one durable record with explicit typed fields.
 
     Durable fact, decision, preference, constraint, and reference records
-    should be canonical project memory, not trace recaps. Do not include
+    should be canonical project context, not trace recaps. Do not include
     comma-separated or parenthetical lists of discarded implementation lures;
     if contrast matters, use one broad category such as ephemeral local state.
     Do not append sentences whose main purpose is to say which cleanup,
-    test, logging, or implementation details are not memory; those exclusions
-    are extraction evidence, not durable project memory.
+    test, logging, or implementation details are not durable context; those
+    exclusions are extraction evidence, not durable project context.
     For dependency or environment facts, name the requirement directly rather
     than copying exception classes, stderr, commands, or log fragments.
     """
@@ -589,11 +583,11 @@ def update_record(
     Call this only after you have already inspected the canonical existing
     record with `fetch_records`. Shortlist summaries, search hits, and injected
     manifests are not sufficient evidence for an update by themselves.
-    Preserve canonical project memory wording: avoid trace recaps and lists of
+    Preserve canonical project context wording: avoid trace recaps and lists of
     discarded implementation lures in updated durable records.
     Do not append sentences whose main purpose is to say which cleanup,
-    test, logging, or implementation details are not memory; those exclusions
-    are extraction evidence, not durable project memory.
+    test, logging, or implementation details are not durable context; those
+    exclusions are extraction evidence, not durable project context.
     For dependency or environment facts, name the requirement directly rather
     than copying exception classes, stderr, commands, or log fragments.
     """
@@ -711,7 +705,7 @@ def context_query(
     """
     store = _store(ctx)
     entity_name = str(entity or "").strip().lower()
-    include_archived = bool(entity_name in {"records", "memories", "learnings"} and str(valid_at or "").strip())
+    include_archived = bool(entity_name == "records" and str(valid_at or "").strip())
     try:
         payload = store.query(
             entity=entity_name,
@@ -735,7 +729,7 @@ def context_query(
         message = str(exc)
         if message.startswith("invalid_query_entity:"):
             raise ModelRetry(
-                "context_query entity must be one of: records, memories, learnings, versions, sessions."
+                "context_query entity must be one of: records, versions, sessions."
             ) from exc
         if message.startswith("invalid_query_mode:"):
             raise ModelRetry("context_query mode must be 'list' or 'count'.") from exc
@@ -744,7 +738,7 @@ def context_query(
                 "context_query order_by must be one of: created_at, updated_at, valid_from."
             ) from exc
         raise
-    if entity_name in {"records", "memories", "learnings"} and str(mode or "").strip().lower() == "list":
+    if entity_name == "records" and str(mode or "").strip().lower() == "list":
         payload["rows"] = [
             {
                 "record_id": row["record_id"],
@@ -768,9 +762,9 @@ def context_query(
 def note(ctx: RunContext[ContextDeps], findings: list[Finding]) -> str:
     """Record structured findings from the trace chunks just read.
 
-    Use durable levels only for reusable project memory. Keep dead ends,
+    Use durable levels only for reusable project context. Keep dead ends,
     discarded hypotheses, and trace-local noise at `implementation` level so
-    they support the main theme without becoming their own durable memory.
+    they support the main theme without becoming their own durable record.
     """
     if not findings:
         return "No findings recorded."

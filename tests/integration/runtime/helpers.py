@@ -63,7 +63,7 @@ def write_sync_trace(repo_root: Path, *, name: str = "runtime-trace.jsonl") -> P
     trace_path.write_text(
         "\n".join(
             [
-                json.dumps({"role": "user", "content": "Investigate the runtime issue and keep only durable memory."}),
+                json.dumps({"role": "user", "content": "Investigate the runtime issue and keep only durable context."}),
                 json.dumps({"role": "assistant", "content": "I will inspect, patch, and write the durable result."}),
             ]
         )

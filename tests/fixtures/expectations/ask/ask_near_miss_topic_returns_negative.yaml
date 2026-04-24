@@ -19,7 +19,7 @@ expected:
   answer_must_include_any:
     - no direct stored support
     - no durable record
-    - do not have a stored memory
+    - do not have a stored record
     - no mention of pgvector
     - no records referencing pgvector
   answer_must_not_include:

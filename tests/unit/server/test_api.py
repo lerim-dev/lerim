@@ -43,6 +43,19 @@ from lerim.server.daemon import SyncSummary
 from tests.helpers import make_config
 
 
+@pytest.fixture
+def mock_embeddings(monkeypatch):
+	provider = MagicMock()
+	provider.embedding_dims = 384
+	provider.model_id = "test-model"
+	provider.embed_document.return_value = [0.1] * 384
+	provider.embed_query.return_value = [0.1] * 384
+	monkeypatch.setattr("lerim.context.store.get_embedding_provider", lambda: provider)
+	monkeypatch.setattr(
+		"lerim.context.embedding.get_embedding_provider", lambda: provider
+	)
+
+
 def _stub_status_catalog(monkeypatch) -> None:
 	"""Stub queue/catalog helpers so unit tests stay local."""
 	monkeypatch.setattr(
@@ -145,7 +158,7 @@ def test_looks_like_auth_error_positive_cases() -> None:
 def test_looks_like_auth_error_negative_cases() -> None:
 	"""looks_like_auth_error returns False for normal responses."""
 	assert not looks_like_auth_error("Memory saved successfully")
-	assert not looks_like_auth_error("3 learnings extracted")
+	assert not looks_like_auth_error("3 records extracted")
 	assert not looks_like_auth_error("")
 	assert not looks_like_auth_error(None)
 
@@ -371,7 +384,7 @@ def test_api_maintain_includes_queue_health_warning(monkeypatch, tmp_path) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_api_status_returns_expected_keys(monkeypatch, tmp_path) -> None:
+def test_api_status_returns_expected_keys(monkeypatch, tmp_path, mock_embeddings) -> None:
 	"""api_status returns dict with all required status fields."""
 	cfg = replace(make_config(tmp_path), projects={"repo": str(tmp_path)})
 	store = api_mod.ContextStore(cfg.context_db_path)
@@ -435,11 +448,14 @@ def test_api_status_scope_skipped_unscoped_from_latest_sync(monkeypatch, tmp_pat
 	monkeypatch.setattr(
 		api_mod,
 		"latest_service_run",
-		lambda svc: {"details": {"skipped_unscoped": 7}} if svc == "sync" else None,
+		lambda svc: {"details": {"sync_metrics": {"skipped_unscoped": 7}}}
+		if svc == "sync"
+		else None,
 	)
 	_stub_status_catalog(monkeypatch)
 	result = api_status()
 	assert result["scope"]["skipped_unscoped"] == 7
+	assert result["latest_sync"]["details"]["skipped_unscoped"] == 7
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +528,9 @@ def test_api_project_add_disambiguates_duplicate_basenames(monkeypatch, tmp_path
 	assert saved[0]["projects"][result["name"]] == str(second.resolve())
 
 
-def test_api_status_reports_projects_and_unscoped(monkeypatch, tmp_path) -> None:
+def test_api_status_reports_projects_and_unscoped(
+	monkeypatch, tmp_path, mock_embeddings
+) -> None:
 	"""api_status includes per-project payloads and unscoped counts."""
 	project_a = tmp_path / "proj-a"
 	project_b = tmp_path / "proj-b"

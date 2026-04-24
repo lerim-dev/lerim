@@ -336,10 +336,8 @@ class LerimRuntime:
 		session_id: str | None = None,
 		agent_type: str = "unknown",
 		session_meta: dict[str, Any] | None = None,
-		adapter: Any | None = None,
 	) -> dict[str, Any]:
 		"""Run record-write sync flow and return stable contract payload."""
-		del adapter  # retained for older call-sites; no longer used
 		trace_file = Path(trace_path).expanduser().resolve()
 		if not trace_file.exists() or not trace_file.is_file():
 			raise FileNotFoundError(f"trace_path_missing:{trace_file}")

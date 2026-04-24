@@ -127,7 +127,7 @@ def test_maintain_change_counts_reflect_real_mutations(monkeypatch, live_config,
 		body="A short archived candidate.",
 		user_intent="Routine cleanup",
 		what_happened="Touched a few files.",
-		outcomes="No durable learning.",
+		outcomes="No durable context.",
 		change_reason="seed_episode",
 	)
 	monkeypatch.setattr(

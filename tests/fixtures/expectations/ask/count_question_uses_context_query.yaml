@@ -30,11 +30,6 @@ expected:
     mode: "count"
     entity_any_of:
       - "records"
-      - "record"
-      - "memories"
-      - "memory"
-      - "learnings"
-      - "learning"
   answer_must_include_any:
     - "2"
     - "two"

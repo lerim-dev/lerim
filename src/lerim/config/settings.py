@@ -54,14 +54,14 @@ class RoleConfig:
 
 
 def load_toml_file(path: Path | None) -> dict[str, Any]:
-    """Load TOML file into a dict; return empty dict on failures."""
+    """Load TOML file into a dict, failing fast on invalid existing files."""
     if not path or not path.exists():
         return {}
     try:
         with path.open("rb") as handle:
             payload = tomllib.load(handle)
-    except Exception:
-        return {}
+    except Exception as exc:
+        raise ValueError(f"invalid TOML config file: {path}") from exc
     return payload if isinstance(payload, dict) else {}
 
 
@@ -78,13 +78,10 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def _expand(value: Any, default: Path) -> Path:
-    """Expand user path with fallback to default path."""
+    """Expand a configured path, using default only when no value is provided."""
     if value in (None, ""):
         return default
-    try:
-        return Path(str(value)).expanduser()
-    except (TypeError, OSError, ValueError):
-        return default
+    return Path(str(value)).expanduser()
 
 
 def _to_non_empty_string(value: Any) -> str:
@@ -95,9 +92,13 @@ def _to_non_empty_string(value: Any) -> str:
 
 
 def _ensure_dict(data: dict[str, Any], key: str) -> dict[str, Any]:
-	"""Get a dict value from data, returning empty dict if missing or wrong type."""
+	"""Get a table value from config data, failing on wrong section types."""
 	val = data.get(key, {})
-	return val if isinstance(val, dict) else {}
+	if val is None:
+		return {}
+	if not isinstance(val, dict):
+		raise ValueError(f"config section [{key}] must be a table")
+	return val
 
 
 def _require_int(raw: dict[str, Any], key: str, minimum: int = 0) -> int:
@@ -139,7 +140,6 @@ def get_user_config_path() -> Path:
 def get_global_data_dir_path() -> Path:
     """Return the effective global data root from layered TOML config."""
     toml_data, _sources = _load_layers()
-    toml_data = _normalize_legacy_config_shape(toml_data)
     data = _ensure_dict(toml_data, "data")
     return _expand(data.get("dir"), GLOBAL_DATA_DIR)
 
@@ -381,44 +381,12 @@ _PROVIDER_KEYS = {
     "auto_unload",
 }
 _CLOUD_KEYS = {"endpoint", "token"}
-_LEGACY_TOP_LEVEL_KEYS = {"openrouter_provider_order"}
-_LEGACY_ROLE_KEYS = {"thinking", "openrouter_provider_order"}
-
-
 def _raise_unknown_keys(section: str, raw: dict[str, Any], allowed: set[str]) -> None:
     """Raise a clear error when config contains unsupported keys."""
     unknown = sorted(key for key in raw if key not in allowed)
     if unknown:
         joined = ", ".join(unknown)
         raise ValueError(f"unknown config key(s) in [{section}]: {joined}")
-
-
-def _normalize_legacy_config_shape(toml_data: dict[str, Any]) -> dict[str, Any]:
-    """Drop known legacy keys before strict validation for upgrade safety."""
-    normalized = _deep_merge({}, toml_data)
-    for key in _LEGACY_TOP_LEVEL_KEYS:
-        normalized.pop(key, None)
-    roles = _ensure_dict(normalized, "roles")
-    for role_payload in roles.values():
-        if isinstance(role_payload, dict):
-            for key in _LEGACY_ROLE_KEYS:
-                role_payload.pop(key, None)
-    return normalized
-
-
-def _platform_agents_fallback(platforms_path: Path) -> dict[str, str]:
-    """Load connected platform paths for installs that still rely on platforms.json."""
-    from lerim.adapters.registry import load_platforms
-
-    fallback: dict[str, str] = {}
-    for name, info in load_platforms(platforms_path).get("platforms", {}).items():
-        raw_path = str((info or {}).get("path") or "").strip()
-        if not raw_path:
-            continue
-        path = Path(raw_path).expanduser().resolve()
-        if path.exists():
-            fallback[str(name).strip()] = str(path)
-    return fallback
 
 
 def _validate_config_shape(toml_data: dict[str, Any]) -> None:
@@ -457,7 +425,6 @@ def load_config() -> Config:
     """Load effective config from TOML layers plus env API keys."""
     ensure_user_config_exists()
     toml_data, sources = _load_layers()
-    toml_data = _normalize_legacy_config_shape(toml_data)
     _validate_config_shape(toml_data)
 
     global _LAST_CONFIG_SOURCES
@@ -477,22 +444,17 @@ def load_config() -> Config:
     )
 
     # Infrastructure (workspace, index, locks) always in global dir.
-    index_dir = global_data_dir / "index"
     _ensure_global_infrastructure(global_data_dir)
 
     agent_role = _build_agent_role(roles)
 
     port = _require_int(server, "port", minimum=1)
     if port > 65535:
-        port = 8765
+        raise ValueError("config key port must be <= 65535")
 
     cloud = _ensure_dict(toml_data, "cloud")
 
-    platforms_path = global_data_dir / "platforms.json"
-    agents = {
-        **_platform_agents_fallback(platforms_path),
-        **_parse_string_table(_ensure_dict(toml_data, "agents")),
-    }
+    agents = _parse_string_table(_ensure_dict(toml_data, "agents"))
     projects = _parse_string_table(_ensure_dict(toml_data, "projects"))
 
     cloud_endpoint = (

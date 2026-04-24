@@ -29,6 +29,19 @@ def _project_id_for(project_path: Path) -> str:
     return resolve_project_identity(project_path).project_id
 
 
+class MockEmbeddingProvider:
+    """Small deterministic embedding provider for cloud integration tests."""
+
+    embedding_dims = 384
+    model_id = "test-model"
+
+    def embed_document(self, text: str) -> list[float]:
+        return [0.1] * self.embedding_dims
+
+    def embed_query(self, text: str) -> list[float]:
+        return [0.1] * self.embedding_dims
+
+
 @pytest.fixture
 def inline_cloud_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run shipper thread offloads inline so tests stay deterministic."""
@@ -49,15 +62,24 @@ def stable_git_roots(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("lerim.context.project_identity.git_root_for", _identity_git_root)
 
 
+@pytest.fixture(autouse=True)
+def mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep cloud integration cases offline and deterministic."""
+    provider = MockEmbeddingProvider()
+    monkeypatch.setattr("lerim.context.store.get_embedding_provider", lambda: provider)
+    monkeypatch.setattr(
+        "lerim.context.embedding.get_embedding_provider", lambda: provider
+    )
+
+
 @pytest.mark.integration
-def test_pull_records_normalizes_legacy_kinds_to_fact(
+def test_pull_records_skips_invalid_cloud_kinds(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     inline_cloud_calls: None,
     stable_git_roots: None,
 ) -> None:
-    """Pull should map legacy cloud kinds onto canonical fact records."""
-    expectation = load_cloud_expectation("pull_records_normalizes_legacy_kinds_to_fact")["expected"]
+    """Pull should reject cloud records that do not use canonical context kinds."""
     project_root = tmp_path / "projects" / "alpha"
     project_root.mkdir(parents=True)
     config = _make_cloud_config(tmp_path, projects={"alpha": project_root})
@@ -71,37 +93,21 @@ def test_pull_records_normalizes_legacy_kinds_to_fact(
                     "record_id": "cloud-project",
                     "record_kind": "project",
                     "title": "Freeze window",
-                    "body": "A project-style cloud record should normalize.",
+                    "body": "Non-canonical cloud kinds should not be rewritten.",
                     "status": "active",
                     "project": "alpha",
                     "cloud_edited_at": "2026-04-20T10:00:00Z",
                 },
                 {
-                    "record_id": "cloud-learning",
-                    "record_kind": "learning",
-                    "title": "Observed lesson",
-                    "body": "A learning-style cloud record should normalize.",
+                    "record_id": "cloud-decision",
+                    "record_kind": "decision",
+                    "title": "Prefer canonical cloud contracts",
+                    "body": "Cloud payloads should use current Lerim record kinds.",
+                    "decision": "Prefer canonical cloud contracts",
+                    "why": "Cloud payloads should use current Lerim record kinds.",
                     "status": "active",
                     "project": "alpha",
                     "cloud_edited_at": "2026-04-20T10:01:00Z",
-                },
-                {
-                    "record_id": "cloud-feedback",
-                    "record_kind": "feedback",
-                    "title": "Style feedback",
-                    "body": "A feedback-style cloud record should normalize.",
-                    "status": "active",
-                    "project": "alpha",
-                    "cloud_edited_at": "2026-04-20T10:02:00Z",
-                },
-                {
-                    "record_id": "cloud-implementation",
-                    "record_kind": "implementation",
-                    "title": "Implementation note",
-                    "body": "An implementation-style cloud record should normalize.",
-                    "status": "active",
-                    "project": "alpha",
-                    "cloud_edited_at": "2026-04-20T10:03:00Z",
                 },
             ]
         },
@@ -109,22 +115,16 @@ def test_pull_records_normalizes_legacy_kinds_to_fact(
 
     pulled = asyncio.run(_pull_records("https://api.test", "tok-test", config, state))
 
-    assert pulled == 4
-    assert state.records_pulled_at == "2026-04-20T10:03:00Z"
+    assert pulled == 1
+    assert state.records_pulled_at == "2026-04-20T10:01:00Z"
 
     store = ContextStore(config.context_db_path)
     project_id = _project_id_for(project_root)
-    for record_id in (
-        "cloud-project",
-        "cloud-learning",
-        "cloud-feedback",
-        "cloud-implementation",
-    ):
-        record = store.fetch_record(record_id, project_ids=[project_id], include_versions=True)
-        assert record is not None
-        assert record["kind"] == expectation["normalized_kind"]
-        assert len(record["versions"]) == 1
-        assert record["versions"][0]["change_kind"] == expectation["version_change_kind"]
+    skipped = store.fetch_record("cloud-project", project_ids=[project_id])
+    kept = store.fetch_record("cloud-decision", project_ids=[project_id])
+    assert skipped is None
+    assert kept is not None
+    assert kept["kind"] == "decision"
 
 
 @pytest.mark.integration
@@ -164,6 +164,8 @@ def test_pull_records_updates_existing_record_and_appends_version(
                     "record_kind": "decision",
                     "title": "Prefer typed sync contracts",
                     "body": "They keep cloud pull and local reads aligned.",
+                    "decision": "Prefer typed sync contracts",
+                    "why": "They keep cloud pull and local reads aligned.",
                     "status": "active",
                     "project": "alpha",
                     "cloud_edited_at": "2026-04-20T11:00:00Z",

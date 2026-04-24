@@ -107,7 +107,7 @@ def _seed_maintain_scope_records(env: ScopeCaseEnv) -> str:
         session_id="maintain-seed-alpha",
         kind="episode",
         title="Routine alpha sync confirmation",
-        body="Routine sync ran successfully with no lasting learning.",
+        body="Routine sync ran successfully with no durable context.",
         user_intent="Confirm the nightly sync completed.",
         what_happened="The operator checked the routine sync and saw no issues.",
         outcomes="No durable action was needed.",

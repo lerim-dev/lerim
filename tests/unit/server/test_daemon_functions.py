@@ -376,9 +376,9 @@ def test_operation_result_to_details_json_sync() -> None:
 	# Stripped: zero/empty values
 	assert "failed_sessions" not in details
 	assert "run_ids" not in details  # empty list
+	assert "extracted_sessions" not in details
 
 	# Present: non-zero values
-	assert details["extracted_sessions"] == 3
 	assert details["cost_usd"] == 0.005
 
 
@@ -822,7 +822,7 @@ def test_operation_result_with_all_fields() -> None:
 	)
 
 	details = op.to_details_json()
-	assert details["extracted_sessions"] == 6
+	assert "extracted_sessions" not in details
 	assert details["error"] == "partial failure"
 	# empty projects and False dry_run excluded
 	assert "projects" not in details

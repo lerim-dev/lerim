@@ -1,5 +1,5 @@
-case: multi_learning_trace
-summary: One trace can yield two clearly independent durable learnings when each is reusable on its own.
+case: multi_record_trace
+summary: One trace can yield two clearly independent durable records when each is reusable on its own.
 
 expected:
   episode_count: 1

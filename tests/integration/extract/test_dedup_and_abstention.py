@@ -9,7 +9,7 @@ from tests.live_helpers import (
     EXTRACT_TOOL_NAMES,
     FRAMEWORK_TOOL_NAMES,
     assert_clean_context_schema,
-    assert_no_legacy_tools,
+    assert_no_removed_tools,
     assert_quality_metrics,
     audit_context_db,
     connect_context_db,
@@ -19,14 +19,14 @@ from tests.live_helpers import (
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_updates_existing_memory_instead_of_creating_duplicate(
+def test_extract_updates_existing_record_instead_of_creating_duplicate(
     live_config,
     live_repo_root,
 ) -> None:
     """Extract should revise one seeded durable record instead of duplicating it."""
-    expectation = load_extract_expectation("duplicate_existing_memory")["expected"]
+    expectation = load_extract_expectation("duplicate_existing_record")["expected"]
     outcome = run_extract_case(
-        case_name="duplicate_existing_memory",
+        case_name="duplicate_existing_record",
         live_config=live_config,
         live_repo_root=live_repo_root,
         seed_records=[
@@ -46,7 +46,7 @@ def test_extract_updates_existing_memory_instead_of_creating_duplicate(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -101,21 +101,21 @@ def test_extract_updates_existing_memory_instead_of_creating_duplicate(
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_routine_operational_trace_creates_no_durable_memory(
+def test_extract_routine_operational_trace_creates_no_durable_record(
     live_config,
     live_repo_root,
 ) -> None:
     """Routine operational cleanup should produce only an archived episode."""
-    expectation = load_extract_expectation("routine_operational_no_memory")["expected"]
+    expectation = load_extract_expectation("routine_operational_no_durable_record")["expected"]
     outcome = run_extract_case(
-        case_name="routine_operational_no_memory",
+        case_name="routine_operational_no_durable_record",
         live_config=live_config,
         live_repo_root=live_repo_root,
     )
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -172,11 +172,11 @@ def test_extract_routine_operational_trace_creates_no_durable_memory(
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_borderline_non_durable_incident_abstains_from_memory(
+def test_extract_borderline_non_durable_incident_abstains_from_record(
     live_config,
     live_repo_root,
 ) -> None:
-    """A one-off branch artifact should stay in the episode instead of becoming durable memory."""
+    """A one-off branch artifact should stay in the episode instead of becoming a durable record."""
     expectation = load_extract_expectation("borderline_non_durable_incident")["expected"]
     outcome = run_extract_case(
         case_name="borderline_non_durable_incident",
@@ -186,7 +186,7 @@ def test_extract_borderline_non_durable_incident_abstains_from_memory(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -247,7 +247,7 @@ def test_extract_similar_but_new_decision_creates_new_record(
     live_config,
     live_repo_root,
 ) -> None:
-    """A semantically nearby existing memory should not block creation of a genuinely new decision."""
+    """A semantically nearby existing record should not block creation of a genuinely new decision."""
     expectation = load_extract_expectation("similar_but_new_decision")["expected"]
     outcome = run_extract_case(
         case_name="similar_but_new_decision",
@@ -267,7 +267,7 @@ def test_extract_similar_but_new_decision_creates_new_record(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -328,7 +328,7 @@ def test_extract_ambiguous_search_hits_update_only_true_target(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:

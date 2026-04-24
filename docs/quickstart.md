@@ -38,5 +38,3 @@ Global Lerim state:
 - `~/.lerim/context.sqlite3`
 - `~/.lerim/index/sessions.sqlite3`
 - `~/.lerim/workspace/`
-
-There is no project-local durable context tree anymore.

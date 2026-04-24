@@ -1,5 +1,5 @@
 case: borderline_non_durable_incident
-summary: A one-off stale branch artifact should stay in the episode and not create durable memory.
+summary: A one-off stale branch artifact should stay in the episode and not create a durable record.
 
 expected:
   episode_count: 1

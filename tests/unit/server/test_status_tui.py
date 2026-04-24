@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
-import pytest
 from rich.console import Console
 from rich.table import Table
 

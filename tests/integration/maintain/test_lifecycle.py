@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 
 import pytest
 
@@ -11,7 +10,7 @@ from tests.live_helpers import (
     FRAMEWORK_TOOL_NAMES,
     MAINTAIN_TOOL_NAMES,
     assert_clean_context_schema,
-    assert_no_legacy_tools,
+    assert_no_removed_tools,
     assert_quality_metrics,
     audit_context_db,
     connect_context_db,
@@ -61,7 +60,7 @@ def test_maintain_duplicate_durable_records_superseded(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -131,7 +130,7 @@ def test_maintain_fresh_duplicate_should_not_be_archived(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -196,7 +195,7 @@ def test_maintain_obsolete_fact_replaced_by_new_truth(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -263,7 +262,7 @@ def test_maintain_no_change_when_store_is_already_clean(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -317,7 +316,7 @@ def test_maintain_healthy_fresh_record_is_true_noop(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -362,7 +361,7 @@ def test_maintain_obsolete_low_value_durable_archived(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -453,7 +452,7 @@ def test_maintain_semantic_duplicate_found_via_search(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:

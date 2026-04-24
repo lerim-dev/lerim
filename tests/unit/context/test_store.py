@@ -196,7 +196,6 @@ class TestConstants:
             "update",
             "archive",
             "supersede",
-            "migrate",
         )
 
     def test_max_record_title_chars(self):
@@ -218,18 +217,10 @@ class TestConstants:
         assert MAX_EPISODE_OUTCOMES_CHARS == 180
 
     def test_query_entity_aliases(self):
-        assert QUERY_ENTITY_ALIASES["memory"] == "records"
-        assert QUERY_ENTITY_ALIASES["memories"] == "records"
-        assert QUERY_ENTITY_ALIASES["learning"] == "records"
-        assert QUERY_ENTITY_ALIASES["learnings"] == "records"
-        assert QUERY_ENTITY_ALIASES["record"] == "records"
-        assert QUERY_ENTITY_ALIASES["version"] == "versions"
-        assert QUERY_ENTITY_ALIASES["session"] == "sessions"
+        assert QUERY_ENTITY_ALIASES == {}
 
     def test_query_mode_aliases(self):
-        assert QUERY_MODE_ALIASES["list"] == "list"
-        assert QUERY_MODE_ALIASES["count"] == "count"
-        assert QUERY_MODE_ALIASES["counts"] == "count"
+        assert QUERY_MODE_ALIASES == {}
 
     def test_query_order_fields(self):
         assert QUERY_ORDER_FIELDS == ("created_at", "updated_at", "valid_from")
@@ -305,22 +296,6 @@ class TestContextStoreInit:
             sqlite3.OperationalError, match="context schema incompatible"
         ):
             store.initialize()
-
-    def test_repair_archived_validity_fills_valid_until(self, mock_seeded):
-        store, pid = mock_seeded
-        rec = _make_decision(store, pid)
-        with store.connect() as conn:
-            conn.execute(
-                "UPDATE records SET status='archived', valid_until=NULL WHERE record_id=?",
-                (rec["record_id"],),
-            )
-        store.initialize()
-        with store.connect() as conn:
-            vu = conn.execute(
-                "SELECT valid_until FROM records WHERE record_id=?",
-                (rec["record_id"],),
-            ).fetchone()["valid_until"]
-        assert vu is not None
 
     def test_initialize_and_register_project_do_not_require_embedding_provider(
         self, tmp_path, monkeypatch, project_id
@@ -990,21 +965,6 @@ class TestQuery:
         assert result["entity"] == "records"
         assert result["mode"] == "count"
         assert result["count"] >= 1
-
-    def test_entity_alias_memory(self, mock_seeded):
-        store, pid = mock_seeded
-        result = store.query(entity="memory", mode="list", project_ids=[pid])
-        assert result["entity"] == "records"
-
-    def test_entity_alias_learning(self, mock_seeded):
-        store, pid = mock_seeded
-        result = store.query(entity="learning", mode="list", project_ids=[pid])
-        assert result["entity"] == "records"
-
-    def test_mode_alias_counts(self, mock_seeded):
-        store, pid = mock_seeded
-        result = store.query(entity="records", mode="counts", project_ids=[pid])
-        assert result["mode"] == "count"
 
     def test_invalid_entity_raises(self, mock_seeded):
         store, pid = mock_seeded

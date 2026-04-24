@@ -46,7 +46,7 @@ def _build_very_long_prune_trace(trace_path: Path) -> None:
             "role": "user",
             "content": (
                 "Investigate the lease-handoff failures in the distributed worker. "
-                "Keep only durable memory. Do not store the long debugging story."
+                "Keep only durable context. Do not store the long debugging story."
             ),
         },
         {
@@ -62,7 +62,7 @@ def _build_very_long_prune_trace(trace_path: Path) -> None:
         "I inspected another noisy segment of the lease handoff path. "
         "This chunk includes temporary debug labels, helper rename ideas, repeated metric wording, "
         "snapshot formatting concerns, command-output comparisons, and local cleanup notes that are "
-        "useful for this investigation but not durable memory. "
+        "useful for this investigation but not durable context. "
         "The implementation noise keeps repeating across worker restarts, queue polling, heartbeats, "
         "timeout handling, and recovery logging, so I am tracking only what could matter later."
     )
@@ -117,7 +117,7 @@ def _build_very_long_prune_trace(trace_path: Path) -> None:
                 "role": "assistant",
                 "content": (
                     "Everything else in this trace is investigation noise or local cleanup. "
-                    "The lasting memory is one state-boundary decision."
+                    "The lasting durable record is one state-boundary decision."
                 ),
             },
         ]
@@ -136,13 +136,13 @@ def _build_late_disambiguation_trace(trace_path: Path) -> None:
             "role": "user",
             "content": (
                 "Figure out the durable lesson from this debugging session. "
-                "Keep only one durable memory if there is one."
+                    "Keep only one durable record if there is one."
             ),
         },
         {
             "role": "assistant",
             "content": (
-                "I will read the full trace before writing memory because the early sections may be misleading."
+                "I will read the full trace before writing durable context because the early sections may be misleading."
             ),
         },
     ]
@@ -187,7 +187,7 @@ def _build_late_disambiguation_trace(trace_path: Path) -> None:
                 "role": "assistant",
                 "content": (
                     "Everything before this point was noisy debugging context. "
-                    "The lasting memory is one lease-ownership rule for restart and failover recovery."
+                    "The lasting durable record is one lease-ownership rule for restart and failover recovery."
                 ),
             },
         ]

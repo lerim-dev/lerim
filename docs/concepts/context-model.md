@@ -27,9 +27,6 @@ Each record can carry:
 
 The database is the source of truth.
 
-There is no second durable copy in markdown.
-There is no generated file index.
-
 ## What maintain does
 
 `maintain` works on records, not files.

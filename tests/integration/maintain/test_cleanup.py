@@ -11,10 +11,9 @@ from tests.live_helpers import (
     FRAMEWORK_TOOL_NAMES,
     MAINTAIN_TOOL_NAMES,
     assert_clean_context_schema,
-    assert_no_legacy_tools,
+    assert_no_removed_tools,
     assert_quality_metrics,
     audit_context_db,
-    connect_context_db,
 )
 
 
@@ -48,7 +47,7 @@ def test_maintain_routine_episode_archived(
                 ),
                 "user_intent": "Check whether the background sync was healthy.",
                 "what_happened": "Retried one sync and confirmed the queue drained normally.",
-                "outcomes": "No lasting learning beyond routine confirmation.",
+                "outcomes": "No durable context beyond routine confirmation.",
                 "backdate_hours": 24,
             }
         ],
@@ -56,7 +55,7 @@ def test_maintain_routine_episode_archived(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -108,7 +107,7 @@ def test_maintain_verbose_episode_compressed(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -150,7 +149,7 @@ def test_maintain_durable_record_rewritten_from_session_report_style(
     live_config,
     live_repo_root,
 ) -> None:
-    """Maintain should rewrite session-report durable records into reusable memory form."""
+    """Maintain should rewrite session-report durable records into reusable context form."""
     expectation = load_maintain_expectation("durable_record_rewritten_from_session_report_style")["expected"]
     outcome = run_maintain_case(
         case_name="durable_record_rewritten_from_session_report_style",
@@ -175,7 +174,7 @@ def test_maintain_durable_record_rewritten_from_session_report_style(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -202,24 +201,24 @@ def test_maintain_durable_record_rewritten_from_session_report_style(
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_maintain_valuable_recent_learning_preserved(
+def test_maintain_valuable_recent_record_preserved(
     live_config,
     live_repo_root,
 ) -> None:
-    """Maintain should keep a fresh useful durable learning active even if it is a bit rough."""
-    expectation = load_maintain_expectation("valuable_recent_learning_preserved")["expected"]
+    """Maintain should keep a fresh useful durable record active even if it is a bit rough."""
+    expectation = load_maintain_expectation("valuable_recent_record_preserved")["expected"]
     outcome = run_maintain_case(
-        case_name="valuable_recent_learning_preserved",
+        case_name="valuable_recent_record_preserved",
         live_config=live_config,
         live_repo_root=live_repo_root,
         seed_records=[
             {
-                "record_id": "rec_recent_provider_learning",
+                "record_id": "rec_recent_provider_record",
                 "kind": "fact",
                 "title": "Provider normalization follow-up",
                 "body": (
                     "Normalize provider event shapes at the adapter boundary so downstream systems can depend on one "
-                    "stable contract. This learning is recent and still useful even if the wording can improve."
+                    "stable contract. This record is recent and still useful even if the wording can improve."
                 ),
                 "backdate_hours": 2,
             }
@@ -228,13 +227,13 @@ def test_maintain_valuable_recent_learning_preserved(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
         assert tool_name not in tool_names
 
-    record = next(record for record in outcome.records if record["record_id"] == "rec_recent_provider_learning")
+    record = next(record for record in outcome.records if record["record_id"] == "rec_recent_provider_record")
     assert outcome.result.completion_summary.strip()
     assert record["status"] == "active"
     assert record["superseded_by_record_id"] in (None, "")
@@ -307,7 +306,7 @@ def test_maintain_mixed_store_cleanup(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
 
@@ -381,7 +380,7 @@ def test_maintain_meaningful_episode_preserved_with_durable_neighbor(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -402,7 +401,7 @@ def test_maintain_concise_report_style_durable_rewritten(
     live_config,
     live_repo_root,
 ) -> None:
-    """Even concise report-style durable wording should be rewritten into direct memory form."""
+    """Even concise report-style durable wording should be rewritten into direct context form."""
     expectation = load_maintain_expectation("concise_report_style_durable_rewritten")["expected"]
     outcome = run_maintain_case(
         case_name="concise_report_style_durable_rewritten",
@@ -423,7 +422,7 @@ def test_maintain_concise_report_style_durable_rewritten(
 
     tool_names = outcome.tool_names
     assert set(tool_names).issubset(MAINTAIN_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
-    assert_no_legacy_tools(tool_names)
+    assert_no_removed_tools(tool_names)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:

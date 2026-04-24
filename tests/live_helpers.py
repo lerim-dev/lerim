@@ -39,7 +39,7 @@ FORBIDDEN_CONTEXT_TABLES = {
     "record_links",
     "session_findings",
 }
-LEGACY_TOOL_NAMES = {
+REMOVED_TOOL_NAMES = {
     "archive",
     "context_apply",
     "context_fetch",
@@ -281,6 +281,6 @@ def assert_quality_metrics(metrics: dict[str, Any]) -> None:
     assert metrics["fts_count"] == metrics["record_count"]
 
 
-def assert_no_legacy_tools(tool_names: list[str]) -> None:
-    """Assert that one agent trace uses only DB-era tool names."""
-    assert not (set(tool_names) & LEGACY_TOOL_NAMES)
+def assert_no_removed_tools(tool_names: list[str]) -> None:
+    """Assert that one agent trace avoids removed tool names."""
+    assert not (set(tool_names) & REMOVED_TOOL_NAMES)

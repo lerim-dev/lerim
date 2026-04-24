@@ -999,16 +999,16 @@ class TestSummarizeToolUse:
 
 
 # ===================================================================
-# Integration: mixed_decisions_learnings fixture
+# Integration: mixed_decisions_records fixture
 # ===================================================================
 
 
-class TestMixedDecisionsLearningsFixture:
-    """Tests using the mixed_decisions_learnings.jsonl fixture."""
+class TestMixedDecisionsRecordsFixture:
+    """Tests using the mixed_decisions_records.jsonl fixture."""
 
     def test_produces_formatted_output(self):
         """The mixed fixture produces non-empty formatted output."""
-        result = format_transcript(_load_trace("mixed_decisions_learnings.jsonl"))
+        result = format_transcript(_load_trace("mixed_decisions_records.jsonl"))
         assert len(result) > 0
         assert "[USER]" in result or "[ASSISTANT]" in result
 

@@ -36,7 +36,6 @@ lerim project add .
 ```
 
 This only registers the repo path.
-It does not create a durable local `.lerim` store.
 
 ## Start Lerim
 

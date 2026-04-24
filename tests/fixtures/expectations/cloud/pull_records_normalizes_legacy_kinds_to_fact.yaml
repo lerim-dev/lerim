@@ -1,4 +1,0 @@
-case: pull_records_normalizes_legacy_kinds_to_fact
-expected:
-  normalized_kind: "fact"
-  version_change_kind: "create"

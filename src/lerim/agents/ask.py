@@ -52,7 +52,7 @@ Answer questions from retrieved context records only.
 - Answer from retrieved records only.
 - Reason about the question first, then choose the smallest retrieval path that can answer it.
 - Keep the answer concise and evidence-backed.
-- Treat "learning" as a durable non-episode record unless the user says otherwise.
+- Treat requests for stored lessons as requests about durable non-episode records unless the user says otherwise.
 - Durable record kinds include `decision`, `fact`, `constraint`, `preference`, and `reference`.
 - Answer the user's actual subquestion, not the full retrieved set.
 - If you retrieved extra rows only to filter them out, act as if those rows were never retrieved when you write the final answer.
@@ -79,7 +79,7 @@ Use exact retrieval first for:
 </exact_first_cases>
 
 <exact_rules>
-- For "how many" questions about records, memories, or learnings, use `context_query(entity="records", mode="count")`.
+- For "how many" questions about records, use `context_query(entity="records", mode="count")`.
 - For latest-by-kind questions, include the exact kind in the first exact retrieval step.
 - For time-window questions about what was made/created/decided, ground the answer in `created_at`.
 - For time-window questions about what changed/updated/shifted, ground the answer in `updated_at`.

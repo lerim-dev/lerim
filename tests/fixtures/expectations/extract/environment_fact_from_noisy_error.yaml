@@ -1,5 +1,5 @@
 case: environment_fact_from_noisy_error
-summary: A noisy failure trace should produce one environment fact, not a raw error memory.
+summary: A noisy failure trace should produce one environment fact, not raw error context.
 
 expected:
   episode_count: 1

@@ -112,7 +112,7 @@ def _iso_now() -> str:
 
 
 def _query_param(query: dict[str, list[str]], key: str, default: str = "") -> str:
-	"""Extract a single query parameter value with fallback."""
+	"""Extract a single query parameter value."""
 	return (query.get(key) or [default])[0]
 
 
@@ -399,11 +399,6 @@ def _compute_stats(rows: list[sqlite3.Row]) -> dict[str, Any]:
         "avg_session_duration_ms": avg_duration,
         "error_rate": run_error_rate,
         "duration_data_available": duration_data_available,
-        # Backward-compatible aliases.
-        "avg_messages_per_run": avg_messages,
-        "avg_tool_calls_per_run": avg_tool_calls,
-        "avg_duration_ms": avg_duration,
-        "run_error_rate": run_error_rate,
     }
     daily_activity = []
     for day in sorted(daily.keys()):
@@ -530,9 +525,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return {}
         try:
             parsed = json.loads(body.decode("utf-8"))
-        except json.JSONDecodeError:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON body") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("JSON body must be an object")
+        return parsed
 
     def _serve_cloud_stub_html(self) -> None:
         """Serve minimal HTML when no bundled dashboard assets exist."""
@@ -862,7 +859,11 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
 
     def _api_config_save(self) -> None:
         """Save config patch to user config TOML file."""
-        body = self._read_json_body()
+        try:
+            body = self._read_json_body()
+        except ValueError as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
         patch = body.get("patch")
         if not isinstance(patch, dict) or not patch:
             self._error(HTTPStatus.BAD_REQUEST, "Missing 'patch' object in body")
@@ -884,16 +885,27 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
 
     def _handle_api_post(self, path: str) -> None:
         """Dispatch POST API routes to supported actions."""
+        def read_body() -> dict[str, Any] | None:
+            try:
+                return self._read_json_body()
+            except ValueError as exc:
+                self._error(HTTPStatus.BAD_REQUEST, str(exc))
+                return None
+
         if path == "/api/ask":
-            body = self._read_json_body()
+            body = read_body()
+            if body is None:
+                return
             question = str(body.get("question") or "").strip()
             if not question:
                 self._error(HTTPStatus.BAD_REQUEST, "Missing 'question'")
                 return
-            if "limit" in body:
+            allowed = {"question", "scope", "project", "verbose"}
+            unknown = sorted(key for key in body if key not in allowed)
+            if unknown:
                 self._error(
                     HTTPStatus.BAD_REQUEST,
-                    "The 'limit' field was removed from /api/ask.",
+                    f"Unsupported field(s): {', '.join(unknown)}",
                 )
                 return
             import threading
@@ -922,7 +934,9 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 self._error(HTTPStatus.GATEWAY_TIMEOUT, "Ask timed out")
             return
         if path == "/api/query":
-            body = self._read_json_body()
+            body = read_body()
+            if body is None:
+                return
             result = api_query(
                 entity=str(body.get("entity") or "").strip(),
                 mode=str(body.get("mode") or "").strip(),
@@ -947,7 +961,9 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             self._json(result)
             return
         if path == "/api/sync":
-            body = self._read_json_body()
+            body = read_body()
+            if body is None:
+                return
             import threading
             import uuid
 
@@ -974,7 +990,9 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             self._json({"status": "started", "job_id": job_id})
             return
         if path == "/api/maintain":
-            body = self._read_json_body()
+            body = read_body()
+            if body is None:
+                return
             import threading
             import uuid
 
@@ -993,7 +1011,9 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             self._json({"status": "started", "job_id": job_id})
             return
         if path == "/api/connect":
-            body = self._read_json_body()
+            body = read_body()
+            if body is None:
+                return
             platform = str(body.get("platform") or "").strip()
             if not platform:
                 self._error(HTTPStatus.BAD_REQUEST, "Missing 'platform'")
@@ -1002,7 +1022,9 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             self._json(result)
             return
         if path == "/api/project/add":
-            body = self._read_json_body()
+            body = read_body()
+            if body is None:
+                return
             proj_path = str(body.get("path") or "").strip()
             if not proj_path:
                 self._error(HTTPStatus.BAD_REQUEST, "Missing 'path'")
@@ -1014,7 +1036,9 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             self._json(result, status=status_code)
             return
         if path == "/api/project/remove":
-            body = self._read_json_body()
+            body = read_body()
+            if body is None:
+                return
             name = str(body.get("name") or "").strip()
             if not name:
                 self._error(HTTPStatus.BAD_REQUEST, "Missing 'name'")

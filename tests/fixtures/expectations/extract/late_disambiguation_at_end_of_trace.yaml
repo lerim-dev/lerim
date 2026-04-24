@@ -1,5 +1,5 @@
 case: late_disambiguation_at_end_of_trace
-summary: The agent should read through the final clarifying chunk before writing the durable memory.
+summary: The agent should read through the final clarifying chunk before writing the durable record.
 
 expected:
   episode_count: 1

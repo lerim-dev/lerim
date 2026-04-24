@@ -22,8 +22,6 @@ from pydantic_ai.messages import (
 )
 
 from lerim.agents.tools import (
-    CONTEXT_HARD_PRESSURE_PCT,
-    CONTEXT_SOFT_PRESSURE_PCT,
     MODEL_CONTEXT_TOKEN_LIMIT,
     PRUNED_STUB,
     _TOKENS_PER_CHAR,

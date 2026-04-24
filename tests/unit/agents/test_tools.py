@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -29,7 +28,6 @@ from lerim.agents.tools import (
     MODEL_CONTEXT_TOKEN_LIMIT,
     PRUNED_STUB,
     TRACE_MAX_LINE_BYTES,
-    TRACE_MAX_LINES_PER_READ,
     ContextDeps,
     Finding,
     _classify_context_pressure,
@@ -348,7 +346,7 @@ class TestTraceRead:
         )
         ctx = make_run_context(deps)
         result = trace_read(ctx, offset=0, limit=20)
-        numbered_lines = [l for l in result.split("\n") if "\t" in l]
+        numbered_lines = [line for line in result.split("\n") if "\t" in line]
         assert len(numbered_lines) < 20
 
     def test_read_ranges_tracking(self, deps_with_trace):
@@ -475,24 +473,24 @@ class TestSearchRecords:
         store.create_record(
             project_id=deps.project_identity.project_id,
             session_id="sess_hist",
-            record_id="rec_hist_markdown_search",
+            record_id="rec_hist_openrouter_search",
             kind="fact",
             status="archived",
-            title="Markdown files were the canonical context store",
-            body="Markdown files were treated as the canonical durable context store.",
+            title="OpenRouter was the default agent provider",
+            body="The default agent role used OpenRouter during this interval.",
             valid_from="2025-01-01T00:00:00+00:00",
             valid_until="2026-03-01T00:00:00+00:00",
         )
 
         result = search_records(
             ctx,
-            query="canonical context store",
+            query="default agent provider",
             valid_at="2026-02-15T00:00:00+00:00",
         )
         parsed = json.loads(result)
 
         assert parsed["count"] >= 1
-        assert any(hit["record_id"] == "rec_hist_markdown_search" for hit in parsed["hits"])
+        assert any(hit["record_id"] == "rec_hist_openrouter_search" for hit in parsed["hits"])
 
 
 # ---------------------------------------------------------------------------
@@ -530,7 +528,7 @@ class TestListRecords:
         assert "count" in parsed
         assert "records" in parsed
 
-    def test_valid_at_includes_archived_history(self, deps):
+    def test_valid_at_includes_archived_history(self, deps, mock_embeddings):
         ctx = make_run_context(deps)
         store = ContextStore(deps.context_db_path)
         store.initialize()
@@ -539,11 +537,11 @@ class TestListRecords:
         store.create_record(
             project_id=deps.project_identity.project_id,
             session_id="sess_hist",
-            record_id="rec_hist_markdown_list",
+            record_id="rec_hist_openrouter_list",
             kind="fact",
             status="archived",
-            title="Markdown files were the canonical context store",
-            body="Markdown files were treated as the canonical durable context store.",
+            title="OpenRouter was the default agent provider",
+            body="The default agent role used OpenRouter during this interval.",
             valid_from="2025-01-01T00:00:00+00:00",
             valid_until="2026-03-01T00:00:00+00:00",
         )
@@ -552,7 +550,7 @@ class TestListRecords:
         parsed = json.loads(result)
 
         assert parsed["count"] >= 1
-        assert any(record["record_id"] == "rec_hist_markdown_list" for record in parsed["records"])
+        assert any(record["record_id"] == "rec_hist_openrouter_list" for record in parsed["records"])
 
 
 # ---------------------------------------------------------------------------
@@ -731,7 +729,7 @@ class TestCreateRecord:
             kind="episode",
             title="Session summary",
             body="The extractor read the trace and captured useful context.",
-            user_intent="Capture memory from a coding session.",
+            user_intent="Capture durable context from a coding session.",
             what_happened="Read the trace and prepared durable records.",
         )
         result = create_record(ctx, kind="fact", title="Fact", body="Reusable fact.")
@@ -886,23 +884,20 @@ class TestContextQuery:
         with pytest.raises(ModelRetry, match="order_by must be one of"):
             context_query(ctx, entity="records", mode="list", order_by="name")
 
-    def test_entity_alias_records(self, deps):
+    def test_removed_entity_alias_memories_raises_retry(self, deps):
         ctx = make_run_context(deps)
-        result = context_query(ctx, entity="memories", mode="list")
-        parsed = json.loads(result)
-        assert "rows" in parsed or "count" in parsed
+        with pytest.raises(ModelRetry, match="entity must be one of"):
+            context_query(ctx, entity="memories", mode="list")
 
-    def test_entity_alias_learnings(self, deps):
+    def test_removed_entity_alias_learnings_raises_retry(self, deps):
         ctx = make_run_context(deps)
-        result = context_query(ctx, entity="learnings", mode="count")
-        parsed = json.loads(result)
-        assert isinstance(parsed, dict)
+        with pytest.raises(ModelRetry, match="entity must be one of"):
+            context_query(ctx, entity="learnings", mode="count")
 
-    def test_mode_alias_counts(self, deps):
+    def test_removed_mode_alias_counts_raises_retry(self, deps):
         ctx = make_run_context(deps)
-        result = context_query(ctx, entity="records", mode="counts")
-        parsed = json.loads(result)
-        assert isinstance(parsed, dict)
+        with pytest.raises(ModelRetry, match="mode must be"):
+            context_query(ctx, entity="records", mode="counts")
 
     def test_valid_records_list(self, deps):
         ctx = make_run_context(deps)
@@ -910,7 +905,7 @@ class TestContextQuery:
         parsed = json.loads(result)
         assert "rows" in parsed
 
-    def test_default_record_count_excludes_archived_rows(self, deps):
+    def test_default_record_count_excludes_archived_rows(self, deps, mock_embeddings):
         ctx = make_run_context(deps)
         store = ContextStore(deps.context_db_path)
         store.initialize()
@@ -941,7 +936,7 @@ class TestContextQuery:
         parsed = json.loads(result)
         assert parsed["count"] == 1
 
-    def test_valid_at_record_query_includes_archived_history(self, deps):
+    def test_valid_at_record_query_includes_archived_history(self, deps, mock_embeddings):
         ctx = make_run_context(deps)
         store = ContextStore(deps.context_db_path)
         store.initialize()
@@ -953,8 +948,8 @@ class TestContextQuery:
             record_id="rec_hist_context_query",
             kind="fact",
             status="archived",
-            title="Markdown files were the canonical context store",
-            body="Markdown files were treated as the canonical durable context store.",
+            title="OpenRouter was the default agent provider",
+            body="The default agent role used OpenRouter during this interval.",
             valid_from="2025-01-01T00:00:00+00:00",
             valid_until="2026-03-01T00:00:00+00:00",
         )

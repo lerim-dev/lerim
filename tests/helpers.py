@@ -60,19 +60,12 @@ def write_test_config(tmp_path: Path, **sections: dict[str, Any]) -> Path:
 
     Usage::
 
-        write_test_config(tmp_path, agent={"provider": "anthropic"})
+        write_test_config(tmp_path, **{"roles.agent": {"provider": "anthropic"}})
     """
     all_sections: dict[str, dict[str, Any]] = {
         "data": {"dir": str(tmp_path)},
     }
 
-    agent_section = sections.pop("agent", None)
-    if isinstance(agent_section, dict):
-        lead = all_sections.setdefault("roles.agent", {})
-        if "provider" in agent_section:
-            lead["provider"] = agent_section["provider"]
-        if "model" in agent_section:
-            lead["model"] = agent_section["model"]
     for name, payload in sections.items():
         if isinstance(payload, dict):
             all_sections[name] = payload

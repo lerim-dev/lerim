@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shutil
 import sqlite3
 import subprocess
 from contextlib import contextmanager
@@ -585,6 +584,12 @@ def _duration_ms_from_run(run: dict[str, Any]) -> int | None:
     return int((completed - started).total_seconds() * 1000)
 
 
+def _sync_metrics_from_details(details: dict[str, Any]) -> dict[str, Any]:
+    """Return the structured sync metrics payload from service-run details."""
+    sync_metrics = details.get("sync_metrics")
+    return sync_metrics if isinstance(sync_metrics, dict) else {}
+
+
 def _normalize_activity_item(run: dict[str, Any]) -> dict[str, Any]:
     """Normalize one service_run row into status activity item."""
     details = run.get("details") if isinstance(run.get("details"), dict) else {}
@@ -623,18 +628,6 @@ def _normalize_activity_item(run: dict[str, Any]) -> dict[str, Any]:
             if isinstance(maintain_metrics.get("counts"), dict)
             else {}
         )
-        if not counts:
-            agg = {"merged": 0, "archived": 0, "consolidated": 0, "unchanged": 0}
-            projects = details.get("projects") if isinstance(details.get("projects"), dict) else {}
-            for project_result in projects.values():
-                if not isinstance(project_result, dict):
-                    continue
-                raw = project_result.get("counts") if isinstance(project_result.get("counts"), dict) else {}
-                agg["merged"] += int(raw.get("merged") or 0)
-                agg["archived"] += int(raw.get("archived") or raw.get("decayed") or 0)
-                agg["consolidated"] += int(raw.get("consolidated") or 0)
-                agg["unchanged"] += int(raw.get("unchanged") or 0)
-            counts = agg
         base.update(
             {
                 "maintain_counts": {
@@ -650,30 +643,14 @@ def _normalize_activity_item(run: dict[str, Any]) -> dict[str, Any]:
         )
         return base
 
-    sync_metrics = details.get("sync_metrics") if isinstance(details.get("sync_metrics"), dict) else {}
+    sync_metrics = _sync_metrics_from_details(details)
     base.update(
         {
-            "sessions_analyzed": int(
-                sync_metrics.get("sessions_analyzed")
-                or details.get("indexed_sessions")
-                or details.get("queued_sessions")
-                or 0
-            ),
-            "sessions_extracted": int(
-                sync_metrics.get("sessions_extracted")
-                or details.get("extracted_sessions")
-                or 0
-            ),
-            "sessions_failed": int(
-                sync_metrics.get("sessions_failed")
-                or details.get("failed_sessions")
-                or 0
-            ),
-            "sessions_skipped": int(
-                sync_metrics.get("sessions_skipped")
-                or details.get("skipped_sessions")
-                or 0
-            ),
+            "sessions_analyzed": int(sync_metrics.get("sessions_analyzed") or 0),
+            "sessions_extracted": int(sync_metrics.get("sessions_extracted") or 0),
+            "sessions_failed": int(sync_metrics.get("sessions_failed") or 0),
+            "sessions_skipped": int(sync_metrics.get("sessions_skipped") or 0),
+            "skipped_unscoped": int(sync_metrics.get("skipped_unscoped") or 0),
             "records_created": int(sync_metrics.get("records_created") or 0),
             "records_updated": int(sync_metrics.get("records_updated") or 0),
             "records_archived": int(sync_metrics.get("records_archived") or 0),
@@ -713,6 +690,7 @@ def _is_empty_activity_item(item: dict[str, Any]) -> bool:
         and int(item.get("sessions_extracted") or 0) == 0
         and int(item.get("sessions_failed") or 0) == 0
         and int(item.get("sessions_skipped") or 0) == 0
+        and int(item.get("skipped_unscoped") or 0) == 0
         and int(item.get("records_created") or 0) == 0
         and int(item.get("records_updated") or 0) == 0
         and int(item.get("records_archived") or 0) == 0
@@ -744,7 +722,7 @@ def _normalize_latest_run(run: dict[str, Any] | None) -> dict[str, Any] | None:
         details_payload["records_created"] = int(normalized.get("records_created") or 0)
         details_payload["records_updated"] = int(normalized.get("records_updated") or 0)
         details_payload["records_archived"] = int(normalized.get("records_archived") or 0)
-        details_payload["skipped_unscoped"] = int(details.get("skipped_unscoped") or 0)
+        details_payload["skipped_unscoped"] = int(normalized.get("skipped_unscoped") or 0)
     return {
         "id": run.get("id"),
         "job_type": run.get("job_type"),
@@ -753,38 +731,6 @@ def _normalize_latest_run(run: dict[str, Any] | None) -> dict[str, Any] | None:
         "completed_at": run.get("completed_at"),
         "trigger": run.get("trigger"),
         "details": details_payload,
-    }
-
-
-def _activity_as_latest_run(item: dict[str, Any]) -> dict[str, Any]:
-    """Convert a normalized activity row into latest-run response shape."""
-    details: dict[str, Any] = {
-        "projects": item.get("projects") or [],
-        "project_label": item.get("project_label") or "",
-        "error": item.get("error") or "",
-    }
-    if item.get("op_type") == "maintain":
-        details["maintain_counts"] = item.get("maintain_counts") or {}
-        details["records_created"] = int(item.get("records_created") or 0)
-        details["records_updated"] = int(item.get("records_updated") or 0)
-        details["records_archived"] = int(item.get("records_archived") or 0)
-    else:
-        details["sessions_analyzed"] = int(item.get("sessions_analyzed") or 0)
-        details["sessions_extracted"] = int(item.get("sessions_extracted") or 0)
-        details["sessions_failed"] = int(item.get("sessions_failed") or 0)
-        details["sessions_skipped"] = int(item.get("sessions_skipped") or 0)
-        details["records_created"] = int(item.get("records_created") or 0)
-        details["records_updated"] = int(item.get("records_updated") or 0)
-        details["records_archived"] = int(item.get("records_archived") or 0)
-        details["skipped_unscoped"] = 0
-    return {
-        "id": None,
-        "job_type": item.get("op_type"),
-        "status": item.get("status"),
-        "started_at": item.get("time"),
-        "completed_at": None,
-        "trigger": "derived",
-        "details": details,
     }
 
 
@@ -892,6 +838,11 @@ def api_status(
     queue = count_session_jobs_by_status()
     queue_health = queue_health_snapshot()
     latest_sync_details = (latest_sync_raw or {}).get("details") or {}
+    latest_sync_metrics = (
+        _sync_metrics_from_details(latest_sync_details)
+        if isinstance(latest_sync_details, dict)
+        else {}
+    )
     unscoped_by_agent = count_unscoped_sessions_by_agent(projects=config.projects)
 
     selected_project_names = {name for name, _ in selected_projects}
@@ -906,15 +857,6 @@ def api_status(
     )[:12]
 
     latest_sync = _normalize_latest_run(latest_sync_raw)
-    if latest_sync and _is_empty_activity_item(
-        _normalize_activity_item(latest_sync_raw or {})
-    ):
-        fallback_sync = next(
-            (item for item in recent_activity if item.get("op_type") == "sync"),
-            None,
-        )
-        if fallback_sync is not None:
-            latest_sync = _activity_as_latest_run(fallback_sync)
 
     payload: dict[str, Any] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -933,7 +875,7 @@ def api_status(
         "scope": {
             "strict_project_only": True,
             "mode": normalized_scope,
-            "skipped_unscoped": int(latest_sync_details.get("skipped_unscoped") or 0),
+            "skipped_unscoped": int(latest_sync_metrics.get("skipped_unscoped") or 0),
         },
         "latest_sync": latest_sync,
         "latest_maintain": _normalize_latest_run(latest_maintain_raw),

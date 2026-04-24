@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
-import pytest
 
 from lerim.context.embedding import (
-    DEFAULT_EMBEDDING_DIMS,
     DEFAULT_EMBEDDING_MODEL_NAME,
     EmbeddingProvider,
     _normalize,
