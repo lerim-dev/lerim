@@ -325,6 +325,12 @@ def test_server(tmp_path, monkeypatch):
 	monkeypatch.setattr("lerim.server.httpd.api_skip_all_dead_letter", lambda: {
 		"skipped": 1, "queue": {"pending": 1},
 	})
+	monkeypatch.setattr("lerim.server.httpd.api_query", lambda **kwargs: {
+		"error": False,
+		"items": [],
+		"total": 0,
+		"query": kwargs,
+	})
 
 	# Mock save_config_patch to avoid writing real config
 	monkeypatch.setattr("lerim.server.httpd.save_config_patch", lambda patch: config)
@@ -710,6 +716,30 @@ def test_post_memory_graph_expand_route_removed(test_server):
 	})
 	assert status == 404
 	assert "error" in body
+
+
+def test_post_query_invalid_limit_returns_400(test_server):
+	"""POST /api/query rejects non-integer limit with a JSON 400."""
+	port, _, _ = test_server
+	status, body = _api_post_error(port, "/api/query", {
+		"entity": "records",
+		"mode": "list",
+		"limit": "not-a-number",
+	})
+	assert status == 400
+	assert body["error"] == "limit and offset must be integers"
+
+
+def test_post_query_invalid_offset_returns_400(test_server):
+	"""POST /api/query rejects non-integer offset with a JSON 400."""
+	port, _, _ = test_server
+	status, body = _api_post_error(port, "/api/query", {
+		"entity": "records",
+		"mode": "list",
+		"offset": "not-a-number",
+	})
+	assert status == 400
+	assert body["error"] == "limit and offset must be integers"
 
 
 def test_post_config_save(test_server):

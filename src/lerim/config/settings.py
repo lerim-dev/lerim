@@ -435,9 +435,12 @@ _ROLE_KEYS = {
     "top_p",
     "top_k",
     "max_tokens",
-    "parallel_tool_calls",
-    "max_iters_maintain",
-    "max_iters_ask",
+	"parallel_tool_calls",
+	"max_iters_maintain",
+	"max_iters_ask",
+	# Retired documented keys: accept them so old configs can still boot.
+	"openrouter_provider_order",
+	"thinking",
 }
 _ROLES_KEYS = {"agent"}
 _PROVIDER_KEYS = {

@@ -446,6 +446,23 @@ def test_provider_auto_unload_is_not_parsed_as_api_base(tmp_path, monkeypatch):
     assert "auto_unload" not in cfg.provider_api_bases
 
 
+def test_config_accepts_retired_documented_agent_role_keys(tmp_path, monkeypatch):
+    """Old documented role keys are ignored instead of blocking startup."""
+    explicit = tmp_path / "retired_role_keys.toml"
+    explicit.write_text(
+        "[roles.agent]\n"
+        'openrouter_provider_order = "x-ai/grok-4.1-fast, openai/gpt-5.2"\n'
+        "thinking = true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LERIM_CONFIG", str(explicit))
+
+    cfg = reload_config()
+
+    assert cfg.agent_role.provider
+    assert cfg.agent_role.model
+
+
 def test_deep_merge_adds_new_keys():
     """_deep_merge adds keys from override that don't exist in base."""
     base = {"a": 1}
