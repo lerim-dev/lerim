@@ -328,31 +328,24 @@ class Config:
     def public_dict(self) -> dict[str, Any]:
         """Return safe serialized config for CLI/dashboard visibility."""
         return {
-            "global_data_dir": str(self.global_data_dir),
-            "sessions_db_path": str(self.sessions_db_path),
-            "context_db_path": str(self.context_db_path),
-            "platforms_path": str(self.platforms_path),
             "embedding_model_id": self.embedding_model_id,
-            "embedding_cache_dir": str(self.embedding_cache_dir),
             "semantic_shortlist_size": self.semantic_shortlist_size,
             "lexical_shortlist_size": self.lexical_shortlist_size,
             "server_host": self.server_host,
             "server_port": self.server_port,
             "sync_interval_minutes": self.sync_interval_minutes,
             "maintain_interval_minutes": self.maintain_interval_minutes,
+            "sync_window_days": self.sync_window_days,
+            "sync_max_sessions": self.sync_max_sessions,
             "agent_role": {
                 "provider": self.agent_role.provider,
                 "model": self.agent_role.model,
-                "api_base": self.agent_role.api_base,
-                "fallback_models": list(self.agent_role.fallback_models),
             },
             "mlflow_enabled": self.mlflow_enabled,
-            "provider_api_bases": dict(self.provider_api_bases),
             "auto_unload": self.auto_unload,
-            "cloud_endpoint": self.cloud_endpoint,
             "cloud_authenticated": self.cloud_token is not None,
-            "agents": dict(self.agents),
-            "projects": dict(self.projects),
+            "connected_agents": sorted(self.agents),
+            "project_names": sorted(self.projects),
         }
 
 
@@ -687,8 +680,8 @@ if __name__ == "__main__":
     assert isinstance(cfg.projects, dict)
     payload = cfg.public_dict()
     assert "agent_role" in payload
-    assert "agents" in payload
-    assert "projects" in payload
+    assert "connected_agents" in payload
+    assert "project_names" in payload
     print(
         f"""\
 Config loaded: \

@@ -80,6 +80,67 @@ PROVIDER_CAPABILITIES: dict[str, dict] = {
 }
 
 
+@dataclass(frozen=True)
+class ProviderSetupMetadata:
+	"""Interactive setup metadata for providers exposed by ``lerim init``."""
+
+	provider_id: str
+	api_key_env: str
+	display_name: str
+	description: str
+
+
+def _provider_setup_metadata(
+	provider_id: str,
+	*,
+	display_name: str,
+	description: str,
+) -> ProviderSetupMetadata:
+	"""Build setup metadata from the capability registry's provider facts."""
+	caps = PROVIDER_CAPABILITIES[provider_id]
+	api_key_env = caps.get("api_key_env") or ""
+	return ProviderSetupMetadata(
+		provider_id=provider_id,
+		api_key_env=api_key_env,
+		display_name=display_name,
+		description=description,
+	)
+
+
+PROVIDER_SETUP_CHOICES: tuple[ProviderSetupMetadata, ...] = (
+	_provider_setup_metadata(
+		"opencode_go",
+		display_name="OpenCode Go",
+		description="Free tier available — opencode.ai",
+	),
+	_provider_setup_metadata(
+		"openrouter",
+		display_name="OpenRouter",
+		description="Access 100+ models — openrouter.ai",
+	),
+	_provider_setup_metadata(
+		"openai",
+		display_name="OpenAI",
+		description="GPT models — platform.openai.com",
+	),
+	_provider_setup_metadata(
+		"minimax",
+		display_name="MiniMax",
+		description="MiniMax models — minimax.io",
+	),
+	_provider_setup_metadata(
+		"zai",
+		display_name="Z.AI",
+		description="GLM models — z.ai",
+	),
+	_provider_setup_metadata(
+		"ollama",
+		display_name="Ollama",
+		description="Local models — no API key needed",
+	),
+)
+
+
 def validate_provider_for_role(provider: str, role: str, model: str = "") -> None:
 	"""Raise RuntimeError with helpful message if provider+model doesn't support the role."""
 	provider = provider.strip().lower()
@@ -309,13 +370,13 @@ def _build_pydantic_model_for_provider(
 	provider = provider.strip().lower()
 	validate_provider_for_role(provider, "agent", model)
 
-	if provider == "ollama":
-		api_key = "ollama"
+	caps = PROVIDER_CAPABILITIES[provider]
+	env_name = caps.get("api_key_env")
+	if env_name is None:
+		api_key = provider
 	else:
 		api_key = _api_key_for_provider(cfg, provider)
 		if not api_key:
-			caps = PROVIDER_CAPABILITIES.get(provider, {})
-			env_name = caps.get("api_key_env", "<unknown>")
 			raise RuntimeError(
 				f"missing_api_key:{env_name} required for {role_label}"
 			)
