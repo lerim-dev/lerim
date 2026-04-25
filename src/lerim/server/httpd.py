@@ -45,6 +45,7 @@ from lerim.config.settings import (
     save_config_patch,
 )
 
+from lerim.adapters.common import load_jsonl_dict_lines
 from lerim.config.providers import list_provider_models
 from lerim.server.dashboard_data import build_extract_report, extract_session_details
 from lerim.sessions.catalog import (
@@ -254,7 +255,7 @@ def _compute_stats(rows: list[sqlite3.Row]) -> dict[str, Any]:
             continue
         if not session_path:
             continue
-        details = _extract_session_details(session_path)
+        details = extract_session_details(session_path)
         model_name = str(details.get("model") or "").strip()
         if model_name:
             bucket = model_usage.setdefault(
