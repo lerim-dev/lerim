@@ -45,7 +45,13 @@ def search_records(
     """Run hybrid retrieval over records for one context store."""
     config = get_config()
     with store.connect() as conn:
-        store._prepare_search_indexes(conn)
+        fts_available = True
+        try:
+            store._prepare_search_fts(conn)
+        except sqlite3.OperationalError:
+            conn.rollback()
+            fts_available = False
+        store._prepare_search_embeddings(conn)
         conn.commit()
         conn.execute("BEGIN")
         semantic_rows = semantic_candidates(
@@ -59,17 +65,22 @@ def search_records(
             limit=max(limit * 3, config.semantic_shortlist_size),
             conn=conn,
         )
-        lexical_rows = lexical_candidates(
-            store,
-            project_ids=project_ids,
-            query=query,
-            kind_filters=kind_filters,
-            statuses=statuses,
-            valid_at=valid_at,
-            include_archived=include_archived,
-            limit=max(limit * 3, config.lexical_shortlist_size),
-            conn=conn,
-        )
+        lexical_rows: list[tuple[str, float]] = []
+        if fts_available:
+            try:
+                lexical_rows = lexical_candidates(
+                    store,
+                    project_ids=project_ids,
+                    query=query,
+                    kind_filters=kind_filters,
+                    statuses=statuses,
+                    valid_at=valid_at,
+                    include_archived=include_archived,
+                    limit=max(limit * 3, config.lexical_shortlist_size),
+                    conn=conn,
+                )
+            except sqlite3.OperationalError:
+                lexical_rows = []
         combined = rrf_fuse(semantic_rows=semantic_rows, lexical_rows=lexical_rows)
         if not combined:
             return []

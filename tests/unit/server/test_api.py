@@ -759,13 +759,18 @@ def test_api_connect(monkeypatch, tmp_path) -> None:
 	monkeypatch.setattr(
 		api_mod, "connect_platform",
 		lambda platforms_path, platform, custom_path=None: {
-			"platform": platform, "connected": True
+			"name": platform,
+			"connected_at": "2026-03-20T10:00:00+00:00",
+			"session_count": 3,
+			"exists": True,
+			"status": "connected",
 		},
 	)
 
 	result = api_connect("claude", "/custom/path")
-	assert result["platform"] == "claude"
-	assert result["connected"] is True
+	assert result["name"] == "claude"
+	assert result["status"] == "connected"
+	assert result["session_count"] == 3
 
 
 # ---------------------------------------------------------------------------

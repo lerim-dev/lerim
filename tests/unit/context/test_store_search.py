@@ -5,6 +5,7 @@ Covers compile_safe_fts_query, rrf_fuse, ContextStore.search, and SearchHit.
 
 from __future__ import annotations
 
+import sqlite3
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 from unittest.mock import MagicMock
@@ -643,6 +644,27 @@ class TestSearchIntegration:
         assert hits
         assert len(opened_connections) == 1
         assert helper_connections == [opened_connections[0], opened_connections[0]]
+
+    def test_search_falls_back_to_semantic_when_fts_is_unavailable(self, tmp_path, monkeypatch):
+        store, pid = _build_store_with_project(tmp_path, monkeypatch)
+        store.create_record(
+            project_id=pid,
+            session_id="sess_search",
+            kind="fact",
+            title="Cache with Redis TTL",
+            body="Use Redis for caching with TTL expiration.",
+        )
+
+        def fail_fts(_conn):
+            raise sqlite3.OperationalError("vtable constructor failed")
+
+        monkeypatch.setattr(store, "_prepare_search_fts", fail_fts)
+
+        hits = store.search(project_ids=[pid], query="Redis cache TTL")
+
+        assert hits
+        assert "semantic" in hits[0].sources
+        assert "fts" not in hits[0].sources
 
 
 class TestSearchHit:

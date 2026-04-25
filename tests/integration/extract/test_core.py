@@ -317,8 +317,8 @@ def test_extract_stable_user_preference_creates_preference_record(
 @pytest.mark.llm
 @pytest.mark.agent
 def test_extract_environment_fact_from_noisy_error_creates_fact_record(
-    live_config,
-    live_repo_root,
+	live_config,
+	live_repo_root,
 ) -> None:
     """A noisy environment failure should become one fact record, not raw error context."""
     expectation = load_extract_expectation("environment_fact_from_noisy_error")["expected"]
@@ -379,6 +379,50 @@ def test_extract_environment_fact_from_noisy_error_creates_fact_record(
 
     assert embedding_count == len(record_ids)
     assert fts_count == len(record_ids)
+    assert_clean_context_schema(live_config.context_db_path)
+    assert_quality_metrics(audit_context_db(live_config.context_db_path))
+
+
+@pytest.mark.integration
+@pytest.mark.llm
+@pytest.mark.agent
+def test_extract_runtime_requirement_from_diagnostics_creates_fact_record(
+    live_config,
+    live_repo_root,
+) -> None:
+    """Diagnostics can reveal a durable requirement without storing diagnostic noise."""
+    expectation = load_extract_expectation("runtime_requirement_from_diagnostics")["expected"]
+    outcome = run_extract_case(
+        case_name="runtime_requirement_from_diagnostics",
+        live_config=live_config,
+        live_repo_root=live_repo_root,
+    )
+
+    tool_names = outcome.tool_names
+    assert set(tool_names).issubset(EXTRACT_TOOL_NAMES | FRAMEWORK_TOOL_NAMES)
+    for tool_name in expectation["must_use_tools"]:
+        assert tool_name in tool_names
+    for tool_name in expectation["must_not_use_tools"]:
+        assert tool_name not in tool_names
+
+    rows = outcome.rows
+    episode_rows = [row for row in rows if row["kind"] == "episode"]
+    durable_rows = [row for row in rows if row["kind"] != "episode"]
+    fact_rows = [row for row in rows if row["kind"] == "fact"]
+
+    assert outcome.result.completion_summary.strip()
+    assert len(episode_rows) == expectation["episode_count"]
+    assert len(durable_rows) == expectation["durable_count"]
+    assert len(fact_rows) == expectation["fact_count"]
+
+    fact = next(record for record in outcome.records if record["kind"] == "fact")
+    fact_text = " ".join(str(fact.get(field) or "") for field in ("title", "body")).lower()
+    for token in expectation["fact_text_must_include_all"]:
+        assert token in fact_text
+    assert any(token in fact_text for token in expectation["fact_text_must_include_any"])
+    for token in expectation["fact_text_must_not_include"]:
+        assert token not in fact_text
+
     assert_clean_context_schema(live_config.context_db_path)
     assert_quality_metrics(audit_context_db(live_config.context_db_path))
 

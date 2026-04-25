@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from lerim import __version__
+from lerim.server import docker_runtime
 from lerim.server.docker_runtime import (
     GHCR_IMAGE,
     _generate_compose_yml,
@@ -129,17 +130,29 @@ def test_compose_has_tmpfs() -> None:
     assert "/tmp:" in content
 
 
-def test_compose_mounts_only_global_lerim_and_agent_dirs(tmp_path, monkeypatch) -> None:
-    """Compose should mount global Lerim state, not per-project local folders."""
+def test_compose_routes_library_caches_to_global_lerim_dir() -> None:
+	"""Container cache writes should stay under the mounted global data dir."""
+	content = _generate_compose_yml(build_local=False)
+	cfg = docker_runtime.reload_config()
+	cache_dir = cfg.global_data_dir / "cache"
+	assert f"XDG_CACHE_HOME={cache_dir}" in content
+	assert f"HF_HOME={cache_dir / 'huggingface'}" in content
+	assert f"HF_HUB_CACHE={cache_dir / 'huggingface' / 'hub'}" in content
+
+
+def test_compose_mounts_global_state_agents_and_project_roots(tmp_path, monkeypatch) -> None:
+    """Compose should mount global state, agent dirs, and registered project roots."""
     from dataclasses import replace
     cfg = make_config(tmp_path)
-    cfg = replace(cfg, projects={"test": str(tmp_path / "myproject")})
+    project_root = tmp_path / "myproject"
+    project_root.mkdir()
+    cfg = replace(cfg, projects={"test": str(project_root)})
     monkeypatch.setattr("lerim.server.docker_runtime.reload_config", lambda: cfg)
 
     content = _generate_compose_yml(build_local=False)
     assert f"{cfg.global_data_dir}:{cfg.global_data_dir}" in content
-    assert str(tmp_path / "myproject" / ".lerim") not in content
-    assert str(tmp_path / "myproject") not in content
+    assert f"{project_root}:{project_root}:ro" in content
+    assert str(project_root / ".lerim") not in content
 
 
 def test_compose_mounts_explicit_config_outside_data_dir(
@@ -185,12 +198,15 @@ def test_compose_does_not_set_project_local_working_dir(tmp_path, monkeypatch) -
     from dataclasses import replace
 
     cfg = make_config(tmp_path)
-    cfg = replace(cfg, projects={"test": str(tmp_path / "myproject")})
+    project_root = tmp_path / "myproject"
+    project_root.mkdir()
+    cfg = replace(cfg, projects={"test": str(project_root)})
     monkeypatch.setattr("lerim.server.docker_runtime.reload_config", lambda: cfg)
 
     content = _generate_compose_yml(build_local=False)
     assert "working_dir:" not in content
-    assert str(tmp_path / "myproject" / ".lerim") not in content
+    assert f"{project_root}:{project_root}:ro" in content
+    assert str(project_root / ".lerim") not in content
 
 
 def test_compose_does_not_pin_container_name() -> None:

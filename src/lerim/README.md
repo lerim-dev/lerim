@@ -13,7 +13,6 @@ The package is organized by feature boundary:
 - `server/`: CLI (`cli.py`), HTTP API (`httpd.py`), daemon (`daemon.py`), runtime orchestrator (`runtime.py`), Docker/runtime API helpers (`api.py`)
 - `config/`: config loading (`settings.py`), PydanticAI model builders (`providers.py`), tracing and logging setup
 - `context/`: global SQLite context store, ONNX embedding provider, `sqlite-vec` index management, and retrieval/write helpers
-- `transcripts/`: transcript normalization helpers used while reading raw session traces (`transcript.py`)
 - `sessions/`: session catalog and queue state (`catalog.py`)
 - `adapters/`: session readers for Claude, Codex, Cursor, OpenCode
 - `cloud/`: hosted auth/shipper integration (`auth.py`, `shipper.py`)
@@ -30,4 +29,3 @@ If you are new to the codebase, read in this order:
    This is where hybrid search happens: local ONNX embeddings, `sqlite-vec` KNN, SQLite FTS5, and RRF fusion.
 5. `agents/tools.py` for the authoritative semantic agent tool surface (`read_trace`, `list_context`, `search_context`, `get_context`, `save_context`, `revise_context`, `archive_context`, `supersede_context`, `count_context`, `note_trace_findings`, `prune_trace_reads`).
 6. `agents/extract.py`, `agents/maintain.py`, `agents/ask.py` for PydanticAI agent behavior.
-7. `transcripts/transcript.py` only when you need to inspect how raw agent traces are normalized before extraction; it is not part of the durable context store.

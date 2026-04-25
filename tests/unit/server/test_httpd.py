@@ -256,9 +256,13 @@ def test_server(tmp_path, monkeypatch):
 	monkeypatch.setattr("lerim.server.httpd.api_connect_list", lambda: [
 		{"name": "claude", "path": "~/.claude/projects"},
 	])
-	monkeypatch.setattr("lerim.server.httpd.api_project_list", lambda: [
-		{"name": "myproject", "path": "/tmp/myproject", "exists": True},
-	])
+	def fake_api_project_list(*, include_paths=True):
+		project = {"name": "myproject", "exists": True}
+		if include_paths:
+			project["path"] = "/tmp/myproject"
+		return [project]
+
+	monkeypatch.setattr("lerim.server.httpd.api_project_list", fake_api_project_list)
 	monkeypatch.setattr("lerim.server.httpd.api_queue_jobs", lambda status=None, project=None: {
 		"jobs": [{"run_id": "run-0000", "status": "pending"}],
 		"total": 1,
@@ -298,9 +302,12 @@ def test_server(tmp_path, monkeypatch):
 		"code": 0, "maintain_counts": {"merged": 1},
 	})
 	monkeypatch.setattr("lerim.server.httpd.api_connect", lambda platform, path=None: {
-		"name": platform, "connected": True,
+		"name": platform,
+		"status": "connected",
+		"session_count": 7,
+		"exists": True,
 	})
-	monkeypatch.setattr("lerim.server.httpd.api_project_add", lambda path: {
+	monkeypatch.setattr("lerim.server.httpd.api_project_add", lambda path, **kwargs: {
 		"name": "added", "path": path,
 	})
 	monkeypatch.setattr("lerim.server.httpd.api_project_remove", lambda name: {
@@ -398,6 +405,7 @@ def test_get_project_list(test_server):
 	assert status == 200
 	assert "projects" in body
 	assert len(body["projects"]) >= 1
+	assert "path" not in body["projects"][0]
 
 
 def test_get_jobs_queue(test_server):
@@ -603,7 +611,10 @@ def test_post_connect(test_server):
 	status, body = _api_post(port, "/api/connect", {"platform": "claude"})
 	assert status == 200
 	assert body["name"] == "claude"
-	assert body["connected"] is True
+	assert body["status"] == "connected"
+	assert body["session_count"] == 7
+	assert body["exists"] is True
+	assert "path" not in body
 
 
 def test_post_connect_missing_platform(test_server):

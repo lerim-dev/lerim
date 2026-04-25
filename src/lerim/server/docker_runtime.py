@@ -66,10 +66,20 @@ def _generate_compose_yml(build_local: bool = False) -> str:
     home = str(Path.home())
     user_spec = f"{os.getuid()}:{os.getgid()}"
 
-    # Mount global Lerim state only. Project roots are identifiers for routing,
-    # not local runtime state.
     lerim_dir = str(config.global_data_dir)
-    volumes = [f"      - {lerim_dir}:{lerim_dir}"]
+    volumes: list[str] = []
+    mounted_paths: set[str] = set()
+
+    def _add_volume(path: Path | str, *, readonly: bool = False) -> None:
+        """Add a same-path bind mount once."""
+        resolved = str(Path(path).expanduser().resolve())
+        if resolved in mounted_paths:
+            return
+        mounted_paths.add(resolved)
+        suffix = ":ro" if readonly else ""
+        volumes.append(f"      - {resolved}:{resolved}{suffix}")
+
+    _add_volume(lerim_dir)
 
     # If the active config or env file lives outside the global data dir, mount
     # it too. Otherwise custom [data].dir / LERIM_CONFIG installs boot the
@@ -86,17 +96,23 @@ def _generate_compose_yml(build_local: bool = False) -> str:
     active_config_path = get_user_config_path()
     if active_config_path.is_file() and not _covered_by_global_data(active_config_path):
         resolved = str(active_config_path.expanduser().resolve())
-        volumes.append(f"      - {resolved}:{resolved}:ro")
+        _add_volume(resolved, readonly=True)
 
     active_env_path = get_user_env_path()
     if active_env_path.is_file() and not _covered_by_global_data(active_env_path):
         resolved = str(active_env_path.expanduser().resolve())
-        volumes.append(f"      - {resolved}:{resolved}:ro")
+        _add_volume(resolved, readonly=True)
 
     # Connected platform session dirs (read-only — Lerim reads traces only).
     for _name, platform_path in get_connected_platform_paths(config.platforms_path).items():
-        resolved = str(platform_path.expanduser().resolve())
-        volumes.append(f"      - {resolved}:{resolved}:ro")
+        _add_volume(platform_path, readonly=True)
+
+    # Registered project roots must be visible at the same absolute paths for
+    # project-scoped sync, status, and maintain flows inside Docker.
+    for project_path in (config.projects or {}).values():
+        resolved = Path(project_path).expanduser().resolve()
+        if resolved.exists():
+            _add_volume(resolved, readonly=True)
 
     volumes_block = "\n".join(volumes)
     port = config.server_port
@@ -106,6 +122,9 @@ def _generate_compose_yml(build_local: bool = False) -> str:
     env_lines = [
         f"      - HOME={home}",
         "      - FASTEMBED_CACHE_PATH=/opt/lerim/models",
+        f"      - XDG_CACHE_HOME={lerim_dir}/cache",
+        f"      - HF_HOME={lerim_dir}/cache/huggingface",
+        f"      - HF_HUB_CACHE={lerim_dir}/cache/huggingface/hub",
     ]
     explicit_config = os.environ.get("LERIM_CONFIG")
     if explicit_config:

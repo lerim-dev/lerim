@@ -72,7 +72,7 @@ For grouped live suites, rerun the affected cluster after the focused case is st
 
 Unit tests live in `tests/unit/` and mirror the source tree. Each `src/lerim/<package>/` has a corresponding `tests/unit/<package>/` with one test file per source module.
 
-Subpackages: `agents/`, `adapters/`, `config/`, `context/`, `server/`, `sessions/`, `cloud/`, `transcripts/`, `skills/`.
+Subpackages: `agents/`, `adapters/`, `config/`, `context/`, `server/`, `sessions/`, `cloud/`, `skills/`.
 
 Rules:
 

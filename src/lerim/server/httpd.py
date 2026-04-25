@@ -53,6 +53,7 @@ from lerim.sessions.catalog import (
     init_sessions_db,
     latest_service_run,
     list_session_jobs,
+    list_sessions_window,
 )
 
 

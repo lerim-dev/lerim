@@ -71,6 +71,8 @@ A temporary code-state finding, audit observation, open task, or release-risk re
 - code structure, file paths, git history, or storage mechanics by themselves
 - generic programming knowledge or facts already obvious from the repo
 - rejected lures, discarded explanations, or implementation-only distractions
+- one-run validation findings, approval flow, queue state, DB resets, rebuilds, or
+  runtime diagnostics by themselves
 </what_not_to_save>
 
 <workflow>
@@ -101,6 +103,10 @@ A temporary code-state finding, audit observation, open task, or release-risk re
 - Do not store one durable point as both a preference and a decision, a fact and a decision, or any other cross-kind duplicate.
 - A stable workflow preference is not also a decision unless the trace separately states an explicit project decision with rationale.
 - A dependency, setup, or environment truth without durable rationale is a fact, not also a decision.
+- A failure caused by the current run's temporary validation setup is not itself a
+  durable environment truth. If the investigation reveals a stable requirement that
+  future sessions must apply, save that requirement as the durable point and omit
+  the temporary validation story.
 - Merge candidates when one only states how to apply the other in local operations, routing, or ownership.
 - If two candidates share the same core claim, merge them.
 - If the difference is only evidence framing, symptom wording, or local-vs-CI phrasing around the same durable fact, keep one record and fold the extra context into it.
@@ -146,6 +152,10 @@ A temporary code-state finding, audit observation, open task, or release-risk re
 - If a fact still reads like stderr, an exception symptom, or copied command output, rewrite it again before writing.
 - When the durable lesson is an environment or dependency requirement, do not center the fact on the observed failure symptom. Name the requirement directly and mention the symptom only if it is needed as brief supporting context.
 - If brief supporting context is useful, lead with the requirement and keep the symptom generic. Never include exception class names, quoted error fragments, or copied failure strings in the durable fact.
+- If the candidate is mainly "this validation run failed until we changed the setup",
+  it belongs in the archived episode. If the candidate names a reusable setup or
+  runtime requirement discovered through that validation, keep the requirement and
+  drop the failure narrative.
 - When no durable rationale exists, do not spend the fact body explaining that the rationale is absent. Just state the stable dependency, setup requirement, or operational truth directly.
 - Do not quote or paraphrase trace instructions about how to classify the evidence inside the final fact body. Final fact text should describe the underlying truth, not the extraction rule you followed.
 - References must answer both "where should future sessions look?" and "when should they consult it?"
