@@ -32,13 +32,15 @@ from lerim.server.api import (
     api_project_list,
     api_query,
     api_project_remove,
-    api_up,
-    api_down,
     detect_agents,
-    docker_available,
-    is_docker_container_running,
     parse_duration_to_seconds,
     write_init_config,
+)
+from lerim.server.docker_runtime import (
+    api_down,
+    api_up,
+    docker_available,
+    is_docker_container_running,
 )
 from lerim.server.daemon import (
     run_maintain_once,

@@ -505,6 +505,47 @@ def test_api_status_scope_skipped_unscoped_from_latest_sync(monkeypatch, tmp_pat
 	assert result["latest_sync"]["details"]["skipped_unscoped"] == 7
 
 
+def test_api_status_preserves_bad_project_selection_error(monkeypatch, tmp_path) -> None:
+	"""Project status reports which project argument was not registered."""
+	cfg = replace(make_config(tmp_path), projects={"known": str(tmp_path)})
+	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+	monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])
+	monkeypatch.setattr(api_mod, "count_fts_indexed", lambda: 0)
+	monkeypatch.setattr(api_mod, "count_session_jobs_by_status", lambda: {})
+	monkeypatch.setattr(api_mod, "latest_service_run", lambda svc: None)
+	_stub_status_catalog(monkeypatch)
+
+	result = api_status(scope="project", project="missing")
+
+	assert result["error"] == "Project not found: missing"
+	assert result["projects"] == []
+
+
+def test_api_status_preserves_missing_project_selection_error(monkeypatch, tmp_path) -> None:
+	"""Project status explains when a project argument is required."""
+	project_a = tmp_path / "a"
+	project_b = tmp_path / "b"
+	project_a.mkdir()
+	project_b.mkdir()
+	cfg = replace(
+		make_config(tmp_path),
+		projects={"a": str(project_a), "b": str(project_b)},
+	)
+	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+	monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])
+	monkeypatch.setattr(api_mod, "count_fts_indexed", lambda: 0)
+	monkeypatch.setattr(api_mod, "count_session_jobs_by_status", lambda: {})
+	monkeypatch.setattr(api_mod, "latest_service_run", lambda svc: None)
+	_stub_status_catalog(monkeypatch)
+
+	result = api_status(scope="project")
+
+	assert result["error"] == (
+		"scope=project requires a project name when multiple projects are registered."
+	)
+	assert result["projects"] == []
+
+
 # ---------------------------------------------------------------------------
 # api_project_list / api_project_add / api_project_remove
 # ---------------------------------------------------------------------------

@@ -169,10 +169,10 @@ def test_index_new_sessions_marks_changed_when_known_hash_differs(
     assert "run-x" in ids
 
 
-def test_index_new_sessions_refreshes_known_unchanged_rows(
+def test_index_new_sessions_skips_known_unchanged_rows(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """Known unchanged sessions keep extraction metadata when hashes match."""
+    """Known unchanged sessions do not churn index rows when hashes match."""
     config_path = write_test_config(tmp_path)
     monkeypatch.setenv("LERIM_CONFIG", str(config_path))
     reload_config()
@@ -231,9 +231,7 @@ def test_index_new_sessions_refreshes_known_unchanged_rows(
     out = catalog.index_new_sessions(return_details=True)
 
     assert observed_known_args == [None]
-    assert len(out) == 1
-    assert out[0].run_id == "run-refresh"
-    assert out[0].changed is False
+    assert out == []
     doc = fetch_session_doc("run-refresh")
     assert doc is not None
     assert doc["summary_text"] == "extracted durable summary"

@@ -491,9 +491,10 @@ def index_new_sessions(
 ) -> int | list[IndexedSession]:
     """Discover and index new sessions from connected adapters.
 
-    Uses ID-based skip to avoid re-processing sessions that are already
-    indexed.  New sessions are returned with ``changed=False``; sessions
-    whose ID was already present are marked ``changed=True``.
+    Known sessions with the same content hash are skipped. New sessions are
+    returned with ``changed=False``; known sessions with a missing or different
+    stored hash are returned with ``changed=True`` so extraction can backfill or
+    refresh their DB context.
 
     When ``skip_unscoped=True`` and ``projects`` is provided, sessions whose
     ``repo_path`` does not map to a registered project are ignored and counted
@@ -544,12 +545,9 @@ def index_new_sessions(
             content_hash = getattr(session, "content_hash", None)
             previous_hash = known_hashes.get(session.run_id)
             is_known = session.run_id in known_ids
-            is_changed = (
-                is_known
-                and content_hash is not None
-                and previous_hash is not None
-                and content_hash != previous_hash
-            )
+            if is_known and content_hash is not None and previous_hash == content_hash:
+                continue
+            is_changed = is_known
 
             summaries_json = json.dumps(session.summaries, ensure_ascii=True)
             summary_text = "\n".join(item for item in session.summaries if item)

@@ -32,24 +32,12 @@ from lerim.server.daemon import (
     run_maintain_once,
     run_sync_once,
 )
-from lerim.server.docker_runtime import (
-    COMPOSE_PATH,
-    GHCR_IMAGE,
-    _find_package_root,
-    _generate_compose_yml,
-    api_down,
-    api_up,
-    docker_available,
-    is_docker_container_running,
-)
+from lerim.server.docker_runtime import docker_available
 from lerim.config.settings import (
     Config,
     get_config,
-    get_global_data_dir_path,
     get_user_config_path,
-    get_user_env_path,
     load_toml_file,
-    reload_config,
     save_config_patch,
     _write_config_full,
 )
@@ -908,7 +896,7 @@ def api_status(
         "recent_activity": recent_activity,
     }
     if selection_error:
-        payload["error"] = _public_error_message(selection_error)
+        payload["error"] = selection_error
     return payload
 
 

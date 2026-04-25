@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from lerim.adapters.base import SessionRecord
 from lerim.sessions.catalog import (
     _connect,
     claim_session_jobs,
@@ -352,6 +353,93 @@ class TestFtsIndexing:
         )
         doc = fetch_session_doc("sum-2")
         assert doc["summary_text"] == ""
+
+    def test_index_new_sessions_skips_known_same_hash(self, sessions_db, monkeypatch, tmp_path):
+        from lerim.sessions.catalog import index_new_sessions
+
+        index_session_for_fts(
+            run_id="known-same",
+            agent_type="claude",
+            content="old content",
+            summary_text="old summary",
+            session_path="/tmp/known-same.jsonl",
+            content_hash="same-hash",
+        )
+        with _connect() as conn:
+            conn.execute(
+                "UPDATE session_docs SET indexed_at = ? WHERE run_id = ?",
+                ("2000-01-01T00:00:00+00:00", "known-same"),
+            )
+            conn.commit()
+
+        class FakeAdapter:
+            def iter_sessions(self, **kwargs):
+                return [
+                    SessionRecord(
+                        run_id="known-same",
+                        agent_type="claude",
+                        session_path="/tmp/known-same.jsonl",
+                        summaries=["new summary should not index"],
+                        content_hash="same-hash",
+                    )
+                ]
+
+        monkeypatch.setattr(
+            "lerim.sessions.catalog.adapter_registry.get_connected_platform_paths",
+            lambda path: {"claude": tmp_path},
+        )
+        monkeypatch.setattr(
+            "lerim.sessions.catalog.adapter_registry.get_adapter",
+            lambda name: FakeAdapter(),
+        )
+
+        details = index_new_sessions(agents=["claude"], return_details=True)
+
+        assert details == []
+        doc = fetch_session_doc("known-same")
+        assert doc["indexed_at"] == "2000-01-01T00:00:00+00:00"
+        assert doc["summary_text"] == "old summary"
+
+    def test_index_new_sessions_marks_known_missing_hash_changed(
+        self, sessions_db, monkeypatch, tmp_path
+    ):
+        from lerim.sessions.catalog import index_new_sessions
+
+        index_session_for_fts(
+            run_id="known-missing",
+            agent_type="claude",
+            content="old content",
+            session_path="/tmp/known-missing.jsonl",
+            content_hash=None,
+        )
+
+        class FakeAdapter:
+            def iter_sessions(self, **kwargs):
+                return [
+                    SessionRecord(
+                        run_id="known-missing",
+                        agent_type="claude",
+                        session_path="/tmp/known-missing.jsonl",
+                        summaries=["backfill summary"],
+                        content_hash="new-hash",
+                    )
+                ]
+
+        monkeypatch.setattr(
+            "lerim.sessions.catalog.adapter_registry.get_connected_platform_paths",
+            lambda path: {"claude": tmp_path},
+        )
+        monkeypatch.setattr(
+            "lerim.sessions.catalog.adapter_registry.get_adapter",
+            lambda name: FakeAdapter(),
+        )
+
+        details = index_new_sessions(agents=["claude"], return_details=True)
+
+        assert len(details) == 1
+        assert details[0].run_id == "known-missing"
+        assert details[0].changed is True
+        assert fetch_session_doc("known-missing")["content_hash"] == "new-hash"
 
     def test_update_session_extract_fields(self, sessions_db):
         _seed("upd-1")
