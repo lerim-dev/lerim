@@ -215,6 +215,32 @@ def _seed_jobs(db_path: Path) -> None:
 		)
 
 
+def _write_dashboard_trace(path: Path) -> None:
+	"""Write a tiny trace with message, model, and tool metadata."""
+	path.write_text(
+		"\n".join(
+			[
+				json.dumps({
+					"role": "user",
+					"content": "Show me the run details.",
+					"timestamp": "2026-03-20T10:00:01Z",
+				}),
+				json.dumps({
+					"type": "assistant",
+					"message": {
+						"role": "assistant",
+						"model": "claude-test-model",
+						"content": [{"type": "tool_use", "name": "Bash", "input": {}}],
+					},
+					"timestamp": "2026-03-20T10:00:02Z",
+				}),
+			]
+		)
+		+ "\n",
+		encoding="utf-8",
+	)
+
+
 @pytest.fixture()
 def test_server(tmp_path, monkeypatch):
 	"""Start a DashboardHandler server with mocked config and catalog.
@@ -439,6 +465,24 @@ def test_get_runs_stats(test_server):
 	assert status == 200
 	assert "totals" in body
 	assert "derived" in body
+
+
+def test_get_runs_stats_reads_session_details(test_server):
+	"""GET /api/runs/stats reads model and tool details from session_path."""
+	port, config, tmp_path = test_server
+	trace_path = tmp_path / "dashboard_trace.jsonl"
+	_write_dashboard_trace(trace_path)
+	with sqlite3.connect(config.sessions_db_path) as conn:
+		conn.execute(
+			"UPDATE session_docs SET session_path = ? WHERE run_id = ?",
+			(str(trace_path), "run-0000"),
+		)
+
+	status, body = _api_get(port, "/api/runs/stats?scope=all")
+
+	assert status == 200
+	assert body["model_usage"]["claude-test-model"]["total"] == 1000
+	assert body["tool_usage"]["Bash"] == 1
 
 
 def test_get_refine_status(test_server):
@@ -831,6 +875,23 @@ def test_run_messages_not_found(test_server):
 	status, body = _api_get_error(port, "/api/runs/nonexistent/messages")
 	assert status == 404
 	assert "error" in body
+
+
+def test_run_messages_reads_session_path(test_server, monkeypatch):
+	"""GET /api/runs/<id>/messages loads normalized messages from session_path."""
+	port, _, tmp_path = test_server
+	trace_path = tmp_path / "dashboard_messages.jsonl"
+	_write_dashboard_trace(trace_path)
+	monkeypatch.setattr(
+		"lerim.server.httpd.fetch_session_doc",
+		lambda run_id: {"run_id": run_id, "session_path": str(trace_path)},
+	)
+
+	status, body = _api_get(port, "/api/runs/run-0000/messages")
+
+	assert status == 200
+	assert body["messages"][0]["role"] == "user"
+	assert body["messages"][0]["content"] == "Show me the run details."
 
 
 def test_search_with_fts_query(test_server):
