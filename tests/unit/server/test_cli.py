@@ -38,13 +38,14 @@ def test_help_lists_minimal_commands() -> None:
         "dashboard",
         "ask",
         "status",
+        "memory",
     ):
         assert command in text
     # Verify removed subcommands don't appear in the subcommand list.
     # Check the {connect,sync,...} subcommand choices section, not the full text
     # (description text may legitimately use these words).
     subcommand_choices = text.split("{")[1].split("}")[0] if "{" in text else ""
-    for removed in ("readiness", "admin", "sessions", "config", "memory"):
+    for removed in ("readiness", "admin", "sessions", "config"):
         assert removed not in subcommand_choices, (
             f"removed command '{removed}' still in subcommands"
         )
@@ -212,10 +213,10 @@ def test_ask_returns_nonzero_when_server_not_running(
     assert code == 1
 
 
-def test_memory_command_removed() -> None:
+def test_memory_command_shows_help() -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main(["memory"])
-    assert exc.value.code == 2
+    assert exc.value.code == 0
 
 
 def test_json_flag_hoisting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -242,9 +243,9 @@ def test_json_flag_hoisting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert set(payload1.keys()) == set(payload2.keys())
 
 
-def test_memory_list_command_removed() -> None:
+def test_memory_reset_requires_scope() -> None:
     with pytest.raises(SystemExit) as exc:
-        cli.main(["memory", "list"])
+        cli.main(["memory", "reset"])
     assert exc.value.code == 2
 
 

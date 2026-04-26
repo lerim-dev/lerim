@@ -22,6 +22,7 @@ import pytest
 
 import lerim.server.api as api_mod
 import lerim.server.docker_runtime as docker_mod
+import lerim.sessions.catalog as catalog_mod
 from lerim.adapters.registry import KNOWN_PLATFORMS
 from lerim.context import ContextStore, resolve_project_identity
 from lerim.server.api import (
@@ -29,6 +30,7 @@ from lerim.server.api import (
 	api_connect_list,
 	api_health,
 	api_maintain,
+	api_memory_reset,
 	api_project_add,
 	api_project_list,
 	api_project_remove,
@@ -549,6 +551,189 @@ def test_api_status_preserves_missing_project_selection_error(monkeypatch, tmp_p
 # ---------------------------------------------------------------------------
 # api_project_list / api_project_add / api_project_remove
 # ---------------------------------------------------------------------------
+
+
+def _seed_memory_reset_project(
+	tmp_path: Path,
+	cfg: Any,
+	project_name: str,
+	project_path: Path,
+) -> str:
+	"""Seed context and session rows for memory reset tests."""
+	store = ContextStore(cfg.context_db_path)
+	store.initialize()
+	identity = resolve_project_identity(project_path)
+	store.register_project(identity)
+	store.upsert_session(
+		project_id=identity.project_id,
+		session_id=f"{project_name}-session",
+		agent_type="codex",
+		source_trace_ref=str(tmp_path / f"{project_name}.jsonl"),
+		repo_path=str(project_path),
+		cwd=str(project_path),
+		started_at="2026-04-01T00:00:00+00:00",
+		model_name="test-model",
+		instructions_text=None,
+		prompt_text=None,
+	)
+	store.create_record(
+		project_id=identity.project_id,
+		session_id=f"{project_name}-session",
+		kind="fact",
+		title=f"{project_name} fact",
+		body=f"{project_name} body",
+	)
+	catalog_mod.index_session_for_fts(
+		run_id=f"{project_name}-run",
+		agent_type="codex",
+		content=f"{project_name} indexed content",
+		repo_path=str(project_path),
+		session_path=str(tmp_path / f"{project_name}.jsonl"),
+		content_hash=f"{project_name}-hash",
+	)
+	catalog_mod.enqueue_session_job(
+		f"{project_name}-run",
+		agent_type="codex",
+		session_path=str(tmp_path / f"{project_name}.jsonl"),
+		repo_path=str(project_path),
+	)
+	return identity.project_id
+
+
+def test_api_memory_reset_rejects_missing_scope(monkeypatch, tmp_path) -> None:
+	cfg = make_config(tmp_path)
+	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+	result = api_memory_reset()
+
+	assert result["error"] is True
+	assert "exactly one" in result["message"]
+
+
+def test_api_memory_reset_rejects_bad_project(monkeypatch, tmp_path) -> None:
+	cfg = replace(make_config(tmp_path), projects={"known": str(tmp_path)})
+	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+	result = api_memory_reset(project="missing")
+
+	assert result["error"] is True
+	assert result["message"] == "Project not found: missing"
+
+
+def test_api_memory_reset_dry_run_does_not_register_project(monkeypatch, tmp_path) -> None:
+	project_path = tmp_path / "proj-a"
+	project_path.mkdir()
+	cfg = replace(make_config(tmp_path), projects={"proj-a": str(project_path)})
+	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+	monkeypatch.setattr(catalog_mod, "get_config", lambda: cfg)
+
+	result = api_memory_reset(project="proj-a", dry_run=True)
+
+	assert result["error"] is False
+	assert result["dry_run"] is True
+	store = ContextStore(cfg.context_db_path)
+	with store.connect() as conn:
+		assert conn.execute("SELECT COUNT(1) FROM projects").fetchone()[0] == 0
+
+
+def test_api_memory_reset_project_deletes_only_that_project(
+	monkeypatch, tmp_path, mock_embeddings
+) -> None:
+	project_a = tmp_path / "proj-a"
+	project_b = tmp_path / "proj-b"
+	project_a.mkdir()
+	project_b.mkdir()
+	cfg = replace(
+		make_config(tmp_path),
+		projects={"proj-a": str(project_a), "proj-b": str(project_b)},
+	)
+	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+	monkeypatch.setattr(catalog_mod, "get_config", lambda: cfg)
+	project_a_id = _seed_memory_reset_project(tmp_path, cfg, "proj-a", project_a)
+	project_b_id = _seed_memory_reset_project(tmp_path, cfg, "proj-b", project_b)
+
+	result = api_memory_reset(project="proj-a")
+
+	assert result["error"] is False
+	assert result["scope"] == "project"
+	assert result["deleted"]["records"] == 1
+	assert result["deleted"]["record_versions"] == 1
+	assert result["deleted"]["context_sessions"] == 1
+	assert result["deleted"]["records_fts"] == 1
+	assert result["deleted"]["indexed_sessions"] == 1
+	assert result["deleted"]["session_jobs"] == 1
+	store = ContextStore(cfg.context_db_path)
+	with store.connect() as conn:
+		assert conn.execute(
+			"SELECT COUNT(1) FROM records WHERE project_id = ?",
+			(project_a_id,),
+		).fetchone()[0] == 0
+		assert conn.execute(
+			"SELECT COUNT(1) FROM records WHERE project_id = ?",
+			(project_b_id,),
+		).fetchone()[0] == 1
+		assert conn.execute(
+			"SELECT COUNT(1) FROM record_versions WHERE project_id = ?",
+			(project_a_id,),
+		).fetchone()[0] == 0
+		assert conn.execute(
+			"SELECT COUNT(1) FROM records_fts WHERE project_id = ?",
+			(project_a_id,),
+		).fetchone()[0] == 0
+		assert conn.execute(
+			"SELECT COUNT(1) FROM record_embeddings WHERE project_id = ?",
+			(project_a_id,),
+		).fetchone()[0] == 0
+		assert conn.execute(
+			"SELECT COUNT(1) FROM projects WHERE project_id IN (?, ?)",
+			(project_a_id, project_b_id),
+		).fetchone()[0] == 2
+	assert catalog_mod.fetch_session_doc("proj-a-run") is None
+	assert catalog_mod.fetch_session_doc("proj-b-run") is not None
+
+
+def test_api_memory_reset_all_clears_memory_and_cloud_state(
+	monkeypatch, tmp_path, mock_embeddings
+) -> None:
+	project_a = tmp_path / "proj-a"
+	project_b = tmp_path / "proj-b"
+	project_a.mkdir()
+	project_b.mkdir()
+	cfg = replace(
+		make_config(tmp_path),
+		projects={"proj-a": str(project_a), "proj-b": str(project_b)},
+	)
+	monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+	monkeypatch.setattr(catalog_mod, "get_config", lambda: cfg)
+	_seed_memory_reset_project(tmp_path, cfg, "proj-a", project_a)
+	_seed_memory_reset_project(tmp_path, cfg, "proj-b", project_b)
+	catalog_mod.record_service_run(
+		job_type="sync",
+		status="completed",
+		started_at="2026-04-01T00:00:00+00:00",
+		completed_at="2026-04-01T00:00:01+00:00",
+		trigger="test",
+		details={},
+	)
+	cloud_state = cfg.global_data_dir / "cloud_shipper_state.json"
+	cloud_state.write_text('{"records_shipped_at":"2026-04-01T00:00:00Z"}', encoding="utf-8")
+
+	result = api_memory_reset(all_projects=True)
+
+	assert result["error"] is False
+	assert result["scope"] == "all"
+	assert result["deleted"]["records"] == 2
+	assert result["deleted"]["indexed_sessions"] == 2
+	assert result["deleted"]["session_jobs"] == 2
+	assert result["deleted"]["service_runs"] == 1
+	assert result["deleted"]["cloud_shipper_state"] == 1
+	assert not cloud_state.exists()
+	store = ContextStore(cfg.context_db_path)
+	with store.connect() as conn:
+		assert conn.execute("SELECT COUNT(1) FROM records").fetchone()[0] == 0
+		assert conn.execute("SELECT COUNT(1) FROM projects").fetchone()[0] == 2
+	assert catalog_mod.count_fts_indexed() == 0
+	assert sum(catalog_mod.count_session_jobs_by_status().values()) == 0
 
 
 def test_api_project_list_empty(monkeypatch, tmp_path) -> None:

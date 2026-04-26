@@ -479,6 +479,116 @@ def list_sessions_window(
     return rows, int((total_row or {}).get("total") or 0)
 
 
+def reset_indexed_sessions_for_project(repo_path: str) -> dict[str, int]:
+    """Delete indexed session and queue state for one registered project path."""
+    _ensure_sessions_db_initialized()
+    normalized = str(Path(repo_path).expanduser().resolve())
+    with _connect() as conn:
+        counts = _count_project_session_state(conn, normalized)
+        _delete_project_session_jobs(conn, normalized)
+        conn.execute("DELETE FROM session_docs WHERE repo_path = ?", (normalized,))
+        conn.commit()
+    return counts
+
+
+def count_indexed_sessions_for_project(repo_path: str) -> dict[str, int]:
+    """Count indexed session and queue state for one registered project path."""
+    _ensure_sessions_db_initialized()
+    normalized = str(Path(repo_path).expanduser().resolve())
+    with _connect() as conn:
+        return _count_project_session_state(conn, normalized)
+
+
+def reset_all_session_state() -> dict[str, int]:
+    """Delete all indexed session, queue, and service-run state."""
+    _ensure_sessions_db_initialized()
+    with _connect() as conn:
+        counts = _count_all_session_state(conn)
+        conn.execute("DELETE FROM session_jobs")
+        conn.execute("DELETE FROM session_docs")
+        conn.execute("DELETE FROM service_runs")
+        conn.commit()
+    return counts
+
+
+def count_all_session_state() -> dict[str, int]:
+    """Count all indexed session, queue, and service-run state."""
+    _ensure_sessions_db_initialized()
+    with _connect() as conn:
+        return _count_all_session_state(conn)
+
+
+def _count_project_session_state(
+    conn: sqlite3.Connection, repo_path: str
+) -> dict[str, int]:
+    """Count session catalog rows that belong to repo_path."""
+    rows = conn.execute(
+        "SELECT run_id FROM session_docs WHERE repo_path = ?",
+        (repo_path,),
+    ).fetchall()
+    run_ids = [str(row.get("run_id") or "") for row in rows if row.get("run_id")]
+    if run_ids:
+        placeholders = ",".join("?" for _ in run_ids)
+        job_count = int(
+            conn.execute(
+                f"SELECT COUNT(1) AS total FROM session_jobs WHERE repo_path = ? OR run_id IN ({placeholders})",
+                (repo_path, *run_ids),
+            ).fetchone()["total"]
+            or 0
+        )
+    else:
+        job_count = int(
+            conn.execute(
+                "SELECT COUNT(1) AS total FROM session_jobs WHERE repo_path = ?",
+                (repo_path,),
+            ).fetchone()["total"]
+            or 0
+        )
+    return {
+        "indexed_sessions": len(run_ids),
+        "session_jobs": job_count,
+        "service_runs": 0,
+    }
+
+
+def _delete_project_session_jobs(conn: sqlite3.Connection, repo_path: str) -> None:
+    """Delete session jobs for repo_path, including jobs linked by indexed run id."""
+    rows = conn.execute(
+        "SELECT run_id FROM session_docs WHERE repo_path = ?",
+        (repo_path,),
+    ).fetchall()
+    run_ids = [str(row.get("run_id") or "") for row in rows if row.get("run_id")]
+    if not run_ids:
+        conn.execute("DELETE FROM session_jobs WHERE repo_path = ?", (repo_path,))
+        return
+    placeholders = ",".join("?" for _ in run_ids)
+    conn.execute(
+        f"DELETE FROM session_jobs WHERE repo_path = ? OR run_id IN ({placeholders})",
+        (repo_path, *run_ids),
+    )
+
+
+def _count_all_session_state(conn: sqlite3.Connection) -> dict[str, int]:
+    """Count all session catalog rows."""
+    indexed_count = int(
+        conn.execute("SELECT COUNT(1) AS total FROM session_docs").fetchone()["total"]
+        or 0
+    )
+    job_count = int(
+        conn.execute("SELECT COUNT(1) AS total FROM session_jobs").fetchone()["total"]
+        or 0
+    )
+    service_run_count = int(
+        conn.execute("SELECT COUNT(1) AS total FROM service_runs").fetchone()["total"]
+        or 0
+    )
+    return {
+        "indexed_sessions": indexed_count,
+        "session_jobs": job_count,
+        "service_runs": service_run_count,
+    }
+
+
 def index_new_sessions(
     *,
     agents: list[str] | None = None,

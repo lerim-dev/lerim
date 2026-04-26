@@ -43,7 +43,9 @@ from lerim.config.settings import (
 )
 from lerim.server.runtime import LerimRuntime
 from lerim.sessions.catalog import (
+    count_all_session_state,
     count_fts_indexed,
+    count_indexed_sessions_for_project,
     count_session_jobs_by_status,
     count_unscoped_sessions_by_agent,
     latest_service_run,
@@ -52,6 +54,8 @@ from lerim.sessions.catalog import (
     list_queue_jobs,
     list_unscoped_sessions,
     queue_health_snapshot,
+    reset_all_session_state,
+    reset_indexed_sessions_for_project,
     retry_all_dead_letter_jobs,
     retry_session_job,
     skip_all_dead_letter_jobs,
@@ -494,6 +498,89 @@ def api_query(
         "error": False,
         "projects_used": [name for name, _ in selected_projects],
         "scope": normalized_scope,
+    }
+
+
+def api_memory_reset(
+    *,
+    project: str | None = None,
+    all_projects: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Reset learned memory for one project or all projects, preserving setup."""
+    if bool(all_projects) == bool(project):
+        return {
+            "error": True,
+            "message": "Provide exactly one of --project or --all.",
+        }
+
+    config = get_config()
+    store = _context_store(config)
+    kept = ["config", "env", "platforms", "projects"]
+
+    if all_projects:
+        context_counts = store.count_all_memory() if dry_run else store.reset_all_memory()
+        session_counts = (
+            count_all_session_state() if dry_run else reset_all_session_state()
+        )
+        cloud_state_path = config.global_data_dir / "cloud_shipper_state.json"
+        cloud_state_count = 1 if cloud_state_path.exists() else 0
+        if not dry_run and cloud_state_path.exists():
+            cloud_state_path.unlink()
+        return {
+            "error": False,
+            "scope": "all",
+            "project": None,
+            "dry_run": dry_run,
+            "deleted": {
+                **context_counts,
+                **session_counts,
+                "cloud_shipper_state": cloud_state_count,
+            },
+            "kept": kept,
+            "notes": [],
+        }
+
+    try:
+        selected = _resolve_selected_projects(
+            config=config,
+            scope="project",
+            project=project,
+        )
+    except ValueError as exc:
+        return {"error": True, "message": str(exc)}
+    if not selected:
+        return {"error": True, "message": "No registered project matched reset scope."}
+
+    project_name, project_path = selected[0]
+    identity = resolve_project_identity(project_path)
+    context_counts = (
+        store.count_project_memory(identity.project_id)
+        if dry_run
+        else store.reset_project_memory(identity.project_id)
+    )
+    session_counts = (
+        count_indexed_sessions_for_project(str(project_path))
+        if dry_run
+        else reset_indexed_sessions_for_project(str(project_path))
+    )
+    return {
+        "error": False,
+        "scope": "project",
+        "project": project_name,
+        "project_path": str(project_path),
+        "project_id": identity.project_id,
+        "dry_run": dry_run,
+        "deleted": {
+            **context_counts,
+            **session_counts,
+            "cloud_shipper_state": 0,
+        },
+        "kept": kept,
+        "notes": [
+            "service_runs unchanged for project reset because service runs are global",
+            "cloud_shipper_state unchanged for project reset because watermarks are global",
+        ],
     }
 
 

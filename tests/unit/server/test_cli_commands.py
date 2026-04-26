@@ -1351,9 +1351,117 @@ class TestCmdProject:
 		assert code == 2
 
 
-# ===================================================================
-# _cmd_up / _cmd_down
-# ===================================================================
+class TestCmdMemory:
+	"""Tests for the memory command handler."""
+
+	def test_memory_no_action(self) -> None:
+		args = _ns(command="memory", json=False, memory_action=None)
+		buf = io.StringIO()
+		with redirect_stderr(buf):
+			code = cli._cmd_memory(args)
+		assert code == 2
+
+	def test_memory_reset_requires_one_scope(self) -> None:
+		args = _ns(
+			command="memory",
+			json=False,
+			memory_action="reset",
+			project=None,
+			all=False,
+			yes=True,
+		)
+		buf = io.StringIO()
+		with redirect_stderr(buf):
+			code = cli._cmd_memory(args)
+		assert code == 2
+
+	def test_memory_reset_project_yes_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+		calls: list[dict[str, Any]] = []
+
+		def fake_reset(**kwargs: Any) -> dict[str, Any]:
+			calls.append(kwargs)
+			return {
+				"error": False,
+				"scope": "project",
+				"project": "myapp",
+				"dry_run": kwargs.get("dry_run"),
+				"deleted": {"records": 1},
+				"kept": ["config"],
+				"notes": [],
+			}
+
+		monkeypatch.setattr(cli, "api_memory_reset", fake_reset)
+		args = _ns(
+			command="memory",
+			json=True,
+			memory_action="reset",
+			project="myapp",
+			all=False,
+			yes=True,
+		)
+		buf = io.StringIO()
+		with redirect_stdout(buf):
+			code = cli._cmd_memory(args)
+
+		assert code == 0
+		assert calls == [
+			{"project": "myapp", "all_projects": False, "dry_run": True},
+			{"project": "myapp", "all_projects": False, "dry_run": False},
+		]
+		assert json.loads(buf.getvalue())["deleted"]["records"] == 1
+
+	def test_memory_reset_json_requires_yes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+		calls: list[dict[str, Any]] = []
+		monkeypatch.setattr(cli, "api_memory_reset", lambda **kwargs: calls.append(kwargs))
+		args = _ns(
+			command="memory",
+			json=True,
+			memory_action="reset",
+			project=None,
+			all=True,
+			yes=False,
+		)
+		buf = io.StringIO()
+		with redirect_stdout(buf):
+			code = cli._cmd_memory(args)
+
+		assert code == 2
+		assert calls == []
+		assert json.loads(buf.getvalue())["error"] is True
+
+	def test_memory_reset_cancelled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+		monkeypatch.setattr(
+			cli,
+			"api_memory_reset",
+			lambda **kwargs: {
+				"error": False,
+				"scope": "all",
+				"dry_run": kwargs.get("dry_run"),
+				"deleted": {"records": 1},
+				"kept": ["config"],
+				"notes": [],
+			},
+		)
+		monkeypatch.setattr("builtins.input", lambda _prompt: "n")
+		args = _ns(
+			command="memory",
+			json=False,
+			memory_action="reset",
+			project=None,
+			all=True,
+			yes=False,
+		)
+		buf = io.StringIO()
+		with redirect_stdout(buf):
+			code = cli._cmd_memory(args)
+
+		assert code == 1
+		assert "cancelled" in buf.getvalue().lower()
+
+
+	# ===================================================================
+	# _cmd_up / _cmd_down
+	# ===================================================================
 
 
 class TestCmdUp:

@@ -28,6 +28,7 @@ from lerim.adapters.registry import (
 )
 
 from lerim.server.api import (
+    api_memory_reset,
     api_project_add,
     api_project_list,
     api_query,
@@ -876,6 +877,88 @@ def _cmd_project(args: argparse.Namespace) -> int:
     return 2
 
 
+def _cmd_memory(args: argparse.Namespace) -> int:
+    """Dispatch memory subcommands."""
+    action = getattr(args, "memory_action", None)
+    if action != "reset":
+        _emit("Usage: lerim memory reset (--project <name-or-path> | --all)", file=sys.stderr)
+        return 2
+
+    project = getattr(args, "project", None)
+    all_projects = bool(getattr(args, "all", False))
+    if bool(project) == all_projects:
+        _emit("Provide exactly one of --project or --all.", file=sys.stderr)
+        return 2
+
+    if args.json and not bool(getattr(args, "yes", False)):
+        _emit(
+            json.dumps(
+                {
+                    "error": True,
+                    "message": "--yes is required with --json for memory reset.",
+                },
+                indent=2,
+                ensure_ascii=True,
+            )
+        )
+        return 2
+
+    preview = api_memory_reset(project=project, all_projects=all_projects, dry_run=True)
+    if preview.get("error"):
+        _emit(str(preview.get("message") or "memory reset failed"), file=sys.stderr)
+        return 1
+
+    if not bool(getattr(args, "yes", False)):
+        _print_memory_reset_preview(preview)
+        answer = input("Continue? [y/N] ").strip().lower()
+        if answer not in {"y", "yes"}:
+            _emit("Memory reset cancelled.")
+            return 1
+
+    result = api_memory_reset(project=project, all_projects=all_projects, dry_run=False)
+    if args.json:
+        _emit(json.dumps(result, indent=2, ensure_ascii=True))
+        return 1 if result.get("error") else 0
+    if result.get("error"):
+        _emit(str(result.get("message") or "memory reset failed"), file=sys.stderr)
+        return 1
+    _print_memory_reset_result(result)
+    return 0
+
+
+def _print_memory_reset_preview(payload: dict[str, Any]) -> None:
+    """Print a confirmation summary for memory reset."""
+    scope = str(payload.get("scope") or "")
+    if scope == "all":
+        _emit("This will reset Lerim memory for all registered projects.")
+    else:
+        _emit(f'This will reset Lerim memory for project "{payload.get("project")}".')
+    _emit("It will delete:")
+    for key, value in (payload.get("deleted") or {}).items():
+        _emit(f"- {key}: {value}")
+    kept = ", ".join(str(item) for item in payload.get("kept") or [])
+    if kept:
+        _emit(f"It will keep: {kept}.")
+    for note in payload.get("notes") or []:
+        _emit(f"Note: {note}.")
+
+
+def _print_memory_reset_result(payload: dict[str, Any]) -> None:
+    """Print memory reset completion details."""
+    scope = str(payload.get("scope") or "")
+    if scope == "all":
+        _emit("Reset Lerim memory for all registered projects.")
+    else:
+        _emit(f'Reset Lerim memory for project "{payload.get("project")}".')
+    for key, value in (payload.get("deleted") or {}).items():
+        _emit(f"- {key}: {value}")
+    kept = ", ".join(str(item) for item in payload.get("kept") or [])
+    if kept:
+        _emit(f"Kept: {kept}.")
+    for note in payload.get("notes") or []:
+        _emit(f"Note: {note}.")
+
+
 def _cmd_up(args: argparse.Namespace) -> int:
 	"""Start the Docker container."""
 	config = get_config()
@@ -1600,6 +1683,39 @@ def build_parser() -> argparse.ArgumentParser:
 
     project.set_defaults(func=_cmd_project)
 
+    # ── memory ───────────────────────────────────────────────────────
+    memory = sub.add_parser(
+        "memory",
+        formatter_class=_F,
+        help="Reset learned memory while keeping setup",
+        description="Reset Lerim learned memory without removing config, API keys, agents, or project registration.",
+    )
+    memory_sub = memory.add_subparsers(dest="memory_action")
+    memory_reset = memory_sub.add_parser(
+        "reset",
+        formatter_class=_F,
+        help="Reset context records and session index state",
+        description=(
+            "Reset learned context and indexing state so sessions can be re-indexed and re-extracted.\n\n"
+            "Examples:\n"
+            "  lerim memory reset --project myrepo --yes\n"
+            "  lerim memory reset --all --yes"
+        ),
+    )
+    reset_scope = memory_reset.add_mutually_exclusive_group(required=True)
+    reset_scope.add_argument("--project", help="Registered project name or path to reset.")
+    reset_scope.add_argument(
+        "--all",
+        action="store_true",
+        help="Reset memory for all registered projects.",
+    )
+    memory_reset.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation prompt.",
+    )
+    memory.set_defaults(func=_cmd_memory)
+
     # ── up ───────────────────────────────────────────────────────────
     up = sub.add_parser(
         "up",
@@ -1750,6 +1866,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "project" and not getattr(args, "project_action", None):
+        parser.parse_args([args.command, "--help"])
+        return 0
+
+    if args.command == "memory" and not getattr(args, "memory_action", None):
         parser.parse_args([args.command, "--help"])
         return 0
 

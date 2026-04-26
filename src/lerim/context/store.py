@@ -436,6 +436,102 @@ class ContextStore:
             "repo_path": str(identity.repo_path),
         }
 
+    def reset_project_memory(self, project_id: str) -> dict[str, int]:
+        """Delete learned context for one project while keeping its registration row."""
+        self.initialize()
+        if not project_id:
+            return self._empty_reset_counts()
+        with self.connect() as conn:
+            return self._reset_memory(conn, project_id=project_id)
+
+    def reset_all_memory(self) -> dict[str, int]:
+        """Delete learned context for all projects while keeping project registrations."""
+        self.initialize()
+        with self.connect() as conn:
+            return self._reset_memory(conn, project_id=None)
+
+    def count_project_memory(self, project_id: str) -> dict[str, int]:
+        """Count learned context rows for one project."""
+        self.initialize()
+        if not project_id:
+            return self._empty_reset_counts()
+        with self.connect() as conn:
+            return self._count_memory(conn, project_id=project_id)
+
+    def count_all_memory(self) -> dict[str, int]:
+        """Count learned context rows for all projects."""
+        self.initialize()
+        with self.connect() as conn:
+            return self._count_memory(conn, project_id=None)
+
+    def _reset_memory(
+        self, conn: sqlite3.Connection, *, project_id: str | None
+    ) -> dict[str, int]:
+        """Delete context rows for project_id, or all context rows when omitted."""
+        counts = self._count_memory(conn, project_id=project_id)
+        self._delete_rows(conn, "records_fts", project_id=project_id)
+        self._delete_rows(conn, "record_embeddings", project_id=project_id)
+        self._delete_rows(conn, "record_versions", project_id=project_id)
+        self._delete_rows(conn, "records", project_id=project_id)
+        self._delete_rows(conn, "sessions", project_id=project_id)
+        return counts
+
+    def _count_memory(
+        self, conn: sqlite3.Connection, *, project_id: str | None
+    ) -> dict[str, int]:
+        """Count context rows for project_id, or all context rows when omitted."""
+        return {
+            "records": self._count_rows(conn, "records", project_id=project_id),
+            "record_versions": self._count_rows(conn, "record_versions", project_id=project_id),
+            "context_sessions": self._count_rows(conn, "sessions", project_id=project_id),
+            "records_fts": self._count_rows(conn, "records_fts", project_id=project_id),
+            "record_embeddings": self._count_rows(conn, "record_embeddings", project_id=project_id),
+        }
+
+    def _empty_reset_counts(self) -> dict[str, int]:
+        """Return the context reset counter shape with zero values."""
+        return {
+            "records": 0,
+            "record_versions": 0,
+            "context_sessions": 0,
+            "records_fts": 0,
+            "record_embeddings": 0,
+        }
+
+    def _count_rows(
+        self, conn: sqlite3.Connection, table_name: str, *, project_id: str | None
+    ) -> int:
+        """Count rows in a resettable table if it exists."""
+        if not self._table_exists(conn, table_name):
+            return 0
+        if project_id is None:
+            row = conn.execute(f"SELECT COUNT(1) AS total FROM {table_name}").fetchone()
+        else:
+            row = conn.execute(
+                f"SELECT COUNT(1) AS total FROM {table_name} WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+        return int(row["total"] or 0) if row else 0
+
+    def _delete_rows(
+        self, conn: sqlite3.Connection, table_name: str, *, project_id: str | None
+    ) -> None:
+        """Delete rows from a resettable table if it exists."""
+        if not self._table_exists(conn, table_name):
+            return
+        if project_id is None:
+            conn.execute(f"DELETE FROM {table_name}")
+        else:
+            conn.execute(f"DELETE FROM {table_name} WHERE project_id = ?", (project_id,))
+
+    def _table_exists(self, conn: sqlite3.Connection, table_name: str) -> bool:
+        """Return whether a SQLite table or virtual table exists."""
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = ? LIMIT 1",
+            (table_name,),
+        ).fetchone()
+        return row is not None
+
     def upsert_session(
         self,
         *,
