@@ -1,7 +1,9 @@
 # Tracing
 
 Lerim uses [MLflow](https://mlflow.org) for PydanticAI agent observability.
-Tracing is opt-in and controlled by the `LERIM_MLFLOW` environment variable.
+Tracing is opt-in and controlled by `[observability].mlflow_enabled` in
+`~/.lerim/config.toml`. The `LERIM_MLFLOW` environment variable can override it
+for one-off runs.
 
 ## What gets traced
 
@@ -25,9 +27,24 @@ MLflow ships as a Lerim dependency, so `pip install lerim` already includes it.
 
 ## Enable tracing
 
-Set `LERIM_MLFLOW=true` for the long-running Lerim server process. Setting it
-only on a client command like `lerim sync` will not enable tracing for a server
-that is already running.
+Enable tracing for the long-running Lerim server process. Setting it only on a
+client command like `lerim sync` will not enable tracing for a server that is
+already running.
+
+=== "config.toml"
+
+	Add this to `~/.lerim/config.toml`:
+
+	```toml
+	[observability]
+	mlflow_enabled = true
+	```
+
+	Restart the service after changing the file:
+
+	```bash
+	lerim up
+	```
 
 === "Environment variable"
 
@@ -37,7 +54,7 @@ that is already running.
 	LERIM_MLFLOW=true lerim serve
 	```
 
-=== ".env file"
+=== ".env file override"
 
 	Persistent toggle for `lerim serve` and `lerim up` in `~/.lerim/.env`:
 
@@ -83,4 +100,5 @@ mlflow ui --backend-store-uri sqlite:///$HOME/.lerim/observability/mlflow.db
 ## Notes
 
 - Lerim configures MLflow tracking to a local SQLite store (`~/.lerim/observability/mlflow.db`).
-- `LERIM_MLFLOW=true` is the main switch to enable or disable tracing for the server process.
+- `[observability].mlflow_enabled = true` is the persistent switch for the server process.
+- `LERIM_MLFLOW=true` is still supported as an environment override.

@@ -133,9 +133,10 @@ def _generate_compose_yml(build_local: bool = False) -> str:
     for key in _API_KEY_ENV_NAMES:
         if os.environ.get(key):
             env_lines.append(f"      - {key}")
-    # Forward MLflow flag so tracing is enabled inside the container
-    if os.environ.get("LERIM_MLFLOW"):
-        env_lines.append("      - LERIM_MLFLOW")
+    # Make tracing explicit for Docker; config.toml is mounted too, but this
+    # keeps generated compose output honest about observability being enabled.
+    if config.mlflow_enabled:
+        env_lines.append("      - LERIM_MLFLOW=true")
     env_block = "\n".join(env_lines)
 
     if build_local:

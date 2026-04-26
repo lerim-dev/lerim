@@ -405,6 +405,7 @@ _TOP_LEVEL_CONFIG_KEYS = {
     "data",
     "server",
     "semantic_search",
+    "observability",
     "roles",
     "providers",
     "cloud",
@@ -426,6 +427,7 @@ _SERVER_KEYS = {
     "sync_window_days",
     "sync_max_sessions",
 }
+_OBSERVABILITY_KEYS = {"mlflow_enabled"}
 _ROLE_KEYS = {
     "provider",
     "model",
@@ -469,6 +471,11 @@ def _validate_config_shape(toml_data: dict[str, Any]) -> None:
     _raise_unknown_keys("data", _ensure_dict(toml_data, "data"), _DATA_KEYS)
     _raise_unknown_keys("server", _ensure_dict(toml_data, "server"), _SERVER_KEYS)
     _raise_unknown_keys(
+        "observability",
+        _ensure_dict(toml_data, "observability"),
+        _OBSERVABILITY_KEYS,
+    )
+    _raise_unknown_keys(
         "semantic_search",
         _ensure_dict(toml_data, "semantic_search"),
         _SEMANTIC_SEARCH_KEYS,
@@ -506,6 +513,7 @@ def load_config() -> Config:
 
     data = toml_data.get("data", {})
     server = toml_data.get("server", {})
+    observability = _ensure_dict(toml_data, "observability")
     roles = _ensure_dict(toml_data, "roles")
     semantic_search = _ensure_dict(toml_data, "semantic_search")
     global_data_dir = _read_optional_path(data, "dir", GLOBAL_DATA_DIR)
@@ -568,8 +576,11 @@ def load_config() -> Config:
         sync_window_days=_require_int(server, "sync_window_days", minimum=1),
         sync_max_sessions=_require_int(server, "sync_max_sessions", minimum=1),
         agent_role=agent_role,
-        mlflow_enabled=os.getenv("LERIM_MLFLOW", "").strip().lower()
-        in ("1", "true", "yes", "on"),
+        mlflow_enabled=(
+            os.getenv("LERIM_MLFLOW", "").strip().lower() in ("1", "true", "yes", "on")
+            if os.getenv("LERIM_MLFLOW") is not None
+            else _read_bool(observability, "mlflow_enabled", default=False)
+        ),
         anthropic_api_key=_to_non_empty_string(os.environ.get("ANTHROPIC_API_KEY"))
         or None,
         openai_api_key=_to_non_empty_string(os.environ.get("OPENAI_API_KEY")) or None,

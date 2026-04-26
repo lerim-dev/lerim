@@ -34,6 +34,9 @@ embedding_cache_dir = "~/.lerim/cache/embeddings"
 semantic_shortlist_size = 40
 lexical_shortlist_size = 40
 
+[observability]
+mlflow_enabled = false
+
 [roles.agent]
 provider = "minimax"
 model = "MiniMax-M2.7"
@@ -77,6 +80,7 @@ endpoint = "https://api.lerim.dev"
 - `dir` is the global Lerim root
 - `context_db_path` is optional; default is `dir/context.sqlite3`
 - `[semantic_search]` configures local ONNX embeddings, the embedding cache directory, and the semantic/lexical candidate counts used before RRF fusion
+- `[observability].mlflow_enabled` enables local MLflow tracing for the long-running server process
 - there is one active model role today: `[roles.agent]`
 - API keys come from environment variables, not TOML
 - `fallback_models` entries can be `"provider:model"` or, when you want the primary provider, just `"model"`

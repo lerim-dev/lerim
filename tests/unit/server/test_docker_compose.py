@@ -140,6 +140,18 @@ def test_compose_routes_library_caches_to_global_lerim_dir() -> None:
 	assert f"HF_HUB_CACHE={cache_dir / 'huggingface' / 'hub'}" in content
 
 
+def test_compose_enables_mlflow_when_configured(tmp_path, monkeypatch) -> None:
+    """Docker server should inherit persistent MLflow tracing config."""
+    from dataclasses import replace
+
+    cfg = replace(make_config(tmp_path), mlflow_enabled=True)
+    monkeypatch.setattr("lerim.server.docker_runtime.reload_config", lambda: cfg)
+
+    content = _generate_compose_yml(build_local=False)
+
+    assert "LERIM_MLFLOW=true" in content
+
+
 def test_compose_mounts_global_state_agents_and_project_roots(tmp_path, monkeypatch) -> None:
     """Compose should mount global state, agent dirs, and registered project roots."""
     from dataclasses import replace

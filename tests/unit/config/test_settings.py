@@ -298,6 +298,53 @@ def test_layer_precedence_explicit_context_db_path_override(tmp_path, monkeypatc
     assert cfg.context_db_path == tmp_path / "db" / "ctx.sqlite3"
 
 
+def test_observability_mlflow_enabled_from_config(tmp_path, monkeypatch):
+    """MLflow tracing can be enabled persistently from config.toml."""
+    explicit = tmp_path / "observability.toml"
+    explicit.write_text(
+        f'[data]\ndir = "{tmp_path}"\n\n'
+        "[observability]\nmlflow_enabled = true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LERIM_CONFIG", str(explicit))
+    monkeypatch.delenv("LERIM_MLFLOW", raising=False)
+
+    cfg = reload_config()
+
+    assert cfg.mlflow_enabled is True
+
+
+def test_mlflow_env_override_takes_precedence_over_config(tmp_path, monkeypatch):
+    """LERIM_MLFLOW remains a one-off override over the persistent setting."""
+    explicit = tmp_path / "observability.toml"
+    explicit.write_text(
+        f'[data]\ndir = "{tmp_path}"\n\n'
+        "[observability]\nmlflow_enabled = true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LERIM_CONFIG", str(explicit))
+    monkeypatch.setenv("LERIM_MLFLOW", "false")
+
+    cfg = reload_config()
+
+    assert cfg.mlflow_enabled is False
+
+
+def test_observability_mlflow_enabled_rejects_quoted_boolean(tmp_path, monkeypatch):
+    """Observability booleans must be native TOML booleans."""
+    explicit = tmp_path / "bad_observability.toml"
+    explicit.write_text(
+        f'[data]\ndir = "{tmp_path}"\n\n'
+        '[observability]\nmlflow_enabled = "true"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LERIM_CONFIG", str(explicit))
+    monkeypatch.delenv("LERIM_MLFLOW", raising=False)
+
+    with pytest.raises(ValueError, match="mlflow_enabled must be a boolean"):
+        reload_config()
+
+
 def test_config_rejects_quoted_boolean_role_value(tmp_path, monkeypatch):
     """Quoted booleans stay strings and must not be coerced truthy."""
     explicit = tmp_path / "quoted_bool.toml"

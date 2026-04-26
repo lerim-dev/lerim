@@ -19,6 +19,9 @@ embedding_cache_dir = "~/.lerim/cache/embeddings"
 semantic_shortlist_size = 40
 lexical_shortlist_size = 40
 
+[observability]
+mlflow_enabled = false
+
 [roles.agent]
 provider = "minimax"               # opencode_go | minimax | zai | openrouter | openai | ollama
 model = "MiniMax-M2.7"                 # package default model for minimax provider
