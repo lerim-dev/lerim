@@ -31,6 +31,14 @@ Enable tracing for the long-running Lerim server process. Setting it only on a
 client command like `lerim sync` will not enable tracing for a server that is
 already running.
 
+MLflow has two separate roles in Lerim:
+
+- **Lerim server writes traces.** This happens during `lerim serve` or the
+  Docker service started by `lerim up`, when tracing is enabled in config.
+- **MLflow UI reads traces.** `mlflow ui` only starts a local web viewer for the
+  SQLite trace database. It does not need to be running while sync/maintain
+  jobs execute, and it does not cause Lerim to log anything.
+
 === "config.toml"
 
 	Add this to `~/.lerim/config.toml`:
@@ -70,38 +78,64 @@ already running.
 
 ## Viewing traces
 
-Start the MLflow UI and open your browser:
-
-```bash
-mlflow ui
-```
-
-Then navigate to [http://localhost:5000](http://localhost:5000). You'll see:
-
-- **Runs** -- each sync or maintain cycle appears as a separate run with
-  parameters, metrics, and artifacts.
-- **Traces** -- expand a run to see the full trace tree of model calls.
-- **Model calls** -- every PydanticAI model request is logged with input prompts,
-  outputs, token counts, and latency.
-- **Spans** -- nested spans show the call hierarchy from the top-level
-  orchestration down to individual LM calls and tool invocations.
-
 Lerim stores trace data in `~/.lerim/observability/mlflow.db` (SQLite).
-If you run `mlflow ui` from any directory, you can point it explicitly:
+Start the MLflow UI pointed at that database:
 
 ```bash
 mlflow ui --backend-store-uri sqlite:///$HOME/.lerim/observability/mlflow.db
 ```
 
+Then navigate to [http://localhost:5000](http://localhost:5000).
+
+When working from the source checkout, prefer the locked project environment so
+the UI uses the same MLflow schema version as Lerim:
+
+```bash
+uv run mlflow ui --backend-store-uri sqlite:///$HOME/.lerim/observability/mlflow.db
+```
+
+The UI command is only a viewer. You can stop it without stopping tracing;
+Lerim continues writing traces as long as the server is running with
+`mlflow_enabled = true`.
+
+In the UI, look for:
+
+- **Experiments** -- select the `lerim` experiment.
+- **Traces** -- the primary view for PydanticAI autologging. Expand a trace to
+  see the model/tool span tree.
+- **Model calls** -- every PydanticAI model request is logged with input prompts,
+  outputs, token counts, and latency.
+- **Spans** -- nested spans show the call hierarchy from the top-level
+  orchestration down to individual LM calls and tool invocations.
+
+Classic MLflow **Runs** may be empty for PydanticAI traces. That does not mean
+tracing is broken; check the Traces view or verify the SQLite counts below.
+
 !!! tip "Filtering"
-	Use the MLflow search bar to filter runs by experiment name, tags, or
-	parameters. This is useful when you have many sync/maintain cycles logged.
+	Use the MLflow search bar to filter traces by experiment name, tags, status,
+	or text. This is useful when you have many sync/maintain cycles logged.
+
+## Verify Logging
+
+You do not need the UI to confirm that Lerim is logging. From the source
+checkout, inspect the trace tables directly:
+
+```bash
+uv run python -c "import sqlite3, pathlib; p=pathlib.Path.home()/'.lerim/observability/mlflow.db'; con=sqlite3.connect(p); print('trace_info', con.execute('select count(*) from trace_info').fetchone()[0]); print('spans', con.execute('select count(*) from spans').fetchone()[0])"
+```
+
+You should see `trace_info` and `spans` counts increase while sync/maintain/ask
+work runs.
 
 ## Notes
 
 - Lerim configures MLflow tracking to a local SQLite store (`~/.lerim/observability/mlflow.db`).
 - `[observability].mlflow_enabled = true` is the persistent switch for the server process.
 - `LERIM_MLFLOW=true` is still supported as an environment override.
+- The UI command can be run later, after the traces were already recorded.
+- Hidden provider chain-of-thought is not available to Lerim or MLflow unless a
+  provider exposes it. Visible prompts, model responses, tool calls, tool
+  results, timing, token metadata, and spans are the expected trace payload.
 
 ## Troubleshooting
 

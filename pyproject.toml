@@ -19,7 +19,7 @@ dependencies = [
     "loguru==0.7.3",
     "python-frontmatter==1.1.0",
     "openrouter==0.7.11",
-    "mlflow>=3.10.1",
+    "mlflow==3.11.1",
     "rich==14.3.3",
     "numpy>=2.0",
     "onnxruntime>=1.22.0",
