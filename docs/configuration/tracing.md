@@ -102,3 +102,11 @@ mlflow ui --backend-store-uri sqlite:///$HOME/.lerim/observability/mlflow.db
 - Lerim configures MLflow tracking to a local SQLite store (`~/.lerim/observability/mlflow.db`).
 - `[observability].mlflow_enabled = true` is the persistent switch for the server process.
 - `LERIM_MLFLOW=true` is still supported as an environment override.
+
+## Troubleshooting
+
+If `mlflow ui` reports an out-of-date or unknown database revision, start Lerim
+once with tracing enabled. Lerim checks the MLflow schema at startup and will
+upgrade compatible databases. If MLflow cannot migrate the recorded revision,
+Lerim backs up the incompatible DB under `~/.lerim/observability/backups/` and
+creates a fresh trace DB.
