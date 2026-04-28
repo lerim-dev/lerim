@@ -993,9 +993,9 @@ def note_trace_findings(
     quote: str = "",
     level: str = "implementation",
 ) -> str:
-    """Record one trace finding, or call with no theme to save an empty checkpoint."""
-    ctx.deps.findings_checked = True
+    """Record one trace finding with line evidence, or call with no args for none."""
     if not str(theme or "").strip() and not str(quote or "").strip() and not line:
+        ctx.deps.findings_checked = True
         return "No findings recorded; trace findings checkpoint saved."
     try:
         line_number = int(_clean_scalar(line) or 0)
@@ -1014,6 +1014,7 @@ def note_trace_findings(
             f"Allowed levels: {format_allowed_finding_levels()}."
         ) from exc
     ctx.deps.notes.append(finding)
+    ctx.deps.findings_checked = True
     total = len(ctx.deps.notes)
     return f"Noted 1 finding (total {total} so far)."
 

@@ -1476,6 +1476,7 @@ class TestNote:
         ctx = make_run_context(deps)
         with pytest.raises(ModelRetry, match="valid 1-based line"):
             note_trace_findings(ctx, theme="auth", line=0, quote="q", level="decision")
+        assert deps.findings_checked is False
 
     def test_appends_findings(self, deps):
         ctx = make_run_context(deps)
@@ -1486,6 +1487,7 @@ class TestNote:
         assert "1 finding" in result
         assert "total 2" in result
         assert len(deps.notes) == 2
+        assert deps.findings_checked is True
 
     def test_empty_findings(self, deps):
         ctx = make_run_context(deps)

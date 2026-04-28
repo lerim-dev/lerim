@@ -81,7 +81,7 @@ A temporary code-state finding, audit observation, open task, or release-risk re
 - Use the findings scratchpad for evidence from chunks you have already read. Notes are summarized back to you on later turns; do not record the same point again unless you learned something new.
 - Keep each durable theme and its supporting implementation evidence together. Do not record a rejected lure or discarded explanation as its own durable finding/theme.
 - If one apparent finding only applies, routes, or operationalizes another finding, keep them as one durable theme instead of separate durable themes.
-- If the trace needs more than one read, call `note_trace_findings` once per useful finding before saving or revising context. Call it with no arguments when the full trace has no reusable signal.
+- If the trace needs more than one read, call `note_trace_findings` once per useful finding with theme, line, quote, and level before saving or revising context. Call it with no arguments when the full trace has no reusable signal.
 - If you read many chunks, prune older read results only after those chunks have already been captured in notes.
 - Search existing context before creating a durable record whenever the trace suggests an earlier record, duplicate risk, or "same meaning vs new meaning" judgment.
 - The injected existing-record manifest is only a shortlist. It is never enough evidence for a revision.
