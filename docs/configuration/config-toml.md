@@ -30,7 +30,8 @@ sync_max_sessions = 50
 
 [semantic_search]
 embedding_model_id = "mixedbread-ai/mxbai-embed-xsmall-v1"
-embedding_cache_dir = "~/.lerim/cache/embeddings"
+# Optional; defaults to dir/models/embeddings.
+# embedding_cache_dir = "~/.lerim/models/embeddings"
 semantic_shortlist_size = 40
 lexical_shortlist_size = 40
 

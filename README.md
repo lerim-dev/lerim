@@ -126,10 +126,12 @@ Global Lerim state lives under `~/.lerim/`:
 - `context.sqlite3` — canonical durable context store
 - `index/sessions.sqlite3` — session catalog and queue
 - `workspace/` — sync and maintain run artifacts
-- `cache/embeddings/` — local embedding model cache
+- `cache/traces/` — compacted agent trace cache
+- `models/embeddings/` — local embedding model cache
+- `models/huggingface/` — Hugging Face library cache
 - `config.toml` — user config
 - `platforms.json` — connected platform paths
-- `logs/` — runtime logs including `activity.log`
+- `logs/YYYY/MM/DD/` — dated runtime logs (`lerim.log`, `lerim.jsonl`, and `activity.log`)
 
 Project registration only stores host paths in config.
 Project separation happens inside the database by `project_id`.

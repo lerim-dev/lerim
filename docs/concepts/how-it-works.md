@@ -22,7 +22,9 @@ Canonical storage is global:
 - `~/.lerim/context.sqlite3` — projects, sessions, records, versions, embeddings, and FTS
 - `~/.lerim/index/sessions.sqlite3` — session catalog and queue
 - `~/.lerim/workspace/` — run artifacts and logs
-- `~/.lerim/cache/embeddings/` — local ONNX embedding model cache
+- `~/.lerim/cache/traces/` — compacted agent trace cache
+- `~/.lerim/models/embeddings/` — local ONNX embedding model cache
+- `~/.lerim/models/huggingface/` — Hugging Face library cache
 
 Projects are scoped by `project_id` inside the database.
 

@@ -16,6 +16,9 @@ When tracing is enabled, MLflow records:
 - **agent_trace.json** -- each sync/maintain run also writes a local
   `agent_trace.json` under the run workspace for a full tool/message history
   (not MLflow-specific).
+- **Lerim run id correlation** -- each sync/maintain trace is tagged with
+  `lerim.run_id`, and MLflow `client_request_id` is set to the same value used
+  in the local run `manifest.json` and workspace folder name.
 
 ## Setup
 
@@ -103,6 +106,9 @@ In the UI, look for:
 - **Experiments** -- select the `lerim` experiment.
 - **Traces** -- the primary view for PydanticAI autologging. Expand a trace to
   see the model/tool span tree.
+- **Run id** -- match a local run folder to MLflow by searching for the
+  `manifest.json` `run_id` value. It is also stored as `client_request_id` and
+  the `lerim.run_id` tag.
 - **Model calls** -- every PydanticAI model request is logged with input prompts,
   outputs, token counts, and latency.
 - **Spans** -- nested spans show the call hierarchy from the top-level
@@ -126,6 +132,23 @@ uv run python -c "import sqlite3, pathlib; p=pathlib.Path.home()/'.lerim/observa
 
 You should see `trace_info` and `spans` counts increase while sync/maintain/ask
 work runs.
+
+## Local Run Artifacts
+
+Each sync or maintain execution writes a local artifact bundle under:
+
+```text
+~/.lerim/workspace/YYYY/MM/DD/<sync-or-maintain>/<run_id>/
+```
+
+Important files:
+
+- `manifest.json` -- run id, operation, project, session id, artifact paths, and
+  status. `mlflow_client_request_id` matches the MLflow trace request id.
+- `events.jsonl` -- compact started/succeeded/failed events for that run.
+- `agent_trace.json` -- serialized PydanticAI messages when available.
+- `agent.log` -- short human-readable agent summary on success.
+- `error.json` -- structured error details on failure.
 
 ## Notes
 

@@ -44,6 +44,7 @@ API. Most other commands are **host-only**
 - `unscoped`
 - `retry`
 - `skip`
+- `memory` (`reset`) (host-only)
 - `skill` (`install`) (host-only)
 - `auth` (`login`, `status`, `logout`, or bare `lerim auth`)
 
@@ -79,17 +80,17 @@ Docker container lifecycle.
 
 ```bash
 lerim up                    # start Lerim (pull GHCR image)
-lerim up --build            # build from local Dockerfile instead
+lerim up --build            # build/recreate from the local Dockerfile
 lerim down                  # stop it
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--build` | off | Build from local Dockerfile instead of pulling the GHCR image |
+| `--build` | off | Build from local Dockerfile, tag it as `lerim-lerim:local`, and recreate the container instead of pulling the GHCR image |
 
 ### `lerim logs` (host-only)
 
-View local log entries from the active Lerim log dir (default: `~/.lerim/logs/lerim.jsonl`).
+View local log entries from dated JSONL files under `~/.lerim/logs/YYYY/MM/DD/`.
 
 ```bash
 lerim logs                      # show recent logs
@@ -105,6 +106,21 @@ lerim logs --json               # raw JSONL output
 | `--level` | -- | Filter by log level (case-insensitive): error, warning, info |
 | `--since` | -- | Show entries from the last N hours/minutes/days (e.g. `1h`, `30m`, `2d`) |
 | `--json` | off | Output raw JSONL lines instead of formatted text |
+
+### `lerim memory reset` (host-only)
+
+Delete learned context while keeping setup files, project registration, and agent connections.
+
+```bash
+lerim memory reset --project my-repo --yes
+lerim memory reset --all --yes
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--project` | -- | Reset one registered project by name or path |
+| `--all` | off | Reset learned context for every registered project |
+| `--yes` | off | Confirm the reset without an interactive prompt |
 
 ### `lerim serve`
 

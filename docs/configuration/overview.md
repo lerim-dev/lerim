@@ -30,4 +30,5 @@ Key paths derived from that root:
 - `context_db_path = ~/.lerim/context.sqlite3`
 - `sessions_db_path = ~/.lerim/index/sessions.sqlite3`
 - `platforms_path = ~/.lerim/platforms.json`
-- `embedding_cache_dir = ~/.lerim/cache/embeddings`
+- `trace_cache_dir = ~/.lerim/cache/traces/<agent>`
+- `embedding_cache_dir = ~/.lerim/models/embeddings`
