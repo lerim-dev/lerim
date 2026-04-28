@@ -34,7 +34,6 @@ _TOKENS_PER_CHAR = 0.25
 
 ContextKind = Literal.__getitem__(ALLOWED_KINDS)
 ContextStatus = Literal.__getitem__(ALLOWED_STATUSES)
-ContextOrder = Literal["created_at", "updated_at", "valid_from"]
 DetailLevel = Literal["concise", "detailed"]
 
 
@@ -65,55 +64,6 @@ class TraceFinding(BaseModel):
             allowed = ", ".join(ALLOWED_FINDING_LEVELS)
             raise ValueError(f"level must be one of: {allowed}")
         return normalized
-
-
-class ContextFilters(BaseModel):
-    """Filters shared by context retrieval tools."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: ContextKind | None = Field(default=None, description="Context kind to match.")
-    status: ContextStatus | None = Field(
-        default=None, description="Record lifecycle status."
-    )
-    source_session_id: str | None = Field(
-        default=None, description="Only records extracted from this source session."
-    )
-    created_since: str | None = Field(
-        default=None, description="Inclusive created_at lower bound."
-    )
-    created_until: str | None = Field(
-        default=None, description="Exclusive created_at upper bound."
-    )
-    updated_since: str | None = Field(
-        default=None, description="Inclusive updated_at lower bound."
-    )
-    updated_until: str | None = Field(
-        default=None, description="Exclusive updated_at upper bound."
-    )
-    valid_at: str | None = Field(
-        default=None, description="Return records valid at this time."
-    )
-    include_archived: bool = Field(
-        default=False, description="Include archived records."
-    )
-
-
-class SearchFilters(BaseModel):
-    """Filters supported by semantic context search."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: ContextKind | None = Field(default=None, description="Context kind to match.")
-    status: ContextStatus | None = Field(
-        default=None, description="Record lifecycle status."
-    )
-    valid_at: str | None = Field(
-        default=None, description="Return records valid at this time."
-    )
-    include_archived: bool = Field(
-        default=False, description="Include archived records."
-    )
 
 
 class ContextDraft(BaseModel):
@@ -324,14 +274,20 @@ def read_trace(
 def search_context(
     ctx: RunContext[ContextDeps],
     query: str,
-    filters: SearchFilters | None = None,
+    kind: str | None = None,
+    status: str | None = None,
+    valid_at: str | None = None,
+    include_archived: bool | str = False,
     limit: int = 8,
 ) -> str:
     """Search saved context by meaning.
 
     Args:
         query: Natural-language search text.
-        filters: Optional kind, status, valid_at, or archived-scope filters.
+        kind: Optional context kind to match.
+        status: Optional record lifecycle status.
+        valid_at: Optional timestamp for historical lookup.
+        include_archived: Include archived records.
         limit: Maximum hits to return.
     """
     store = _store(ctx)
@@ -341,7 +297,12 @@ def search_context(
             "search_context needs a real text query. "
             "Use list_context when you want to browse recent or filtered context."
         )
-    active_filters = _search_filters(filters)
+    active_filters = _filters(
+        kind=kind,
+        status=status,
+        valid_at=valid_at,
+        include_archived=include_archived,
+    )
     normalized_kinds = [active_filters["kind"]] if active_filters["kind"] else None
     normalized_statuses = (
         [active_filters["status"]] if active_filters["status"] else None
@@ -382,20 +343,46 @@ def search_context(
 
 def list_context(
     ctx: RunContext[ContextDeps],
-    filters: ContextFilters | None = None,
-    order_by: ContextOrder = "updated_at",
+    kind: str | None = None,
+    status: str | None = None,
+    source_session_id: str | None = None,
+    created_since: str | None = None,
+    created_until: str | None = None,
+    updated_since: str | None = None,
+    updated_until: str | None = None,
+    valid_at: str | None = None,
+    include_archived: bool | str = False,
+    order_by: str = "updated_at",
     limit: int = 8,
 ) -> str:
     """List saved context with exact filters and ordering.
 
     Args:
-        filters: Optional kind, status, session, time, or archived-scope filters.
+        kind: Optional context kind to match.
+        status: Optional record lifecycle status.
+        source_session_id: Optional source session filter.
+        created_since: Optional inclusive created_at lower bound.
+        created_until: Optional exclusive created_at upper bound.
+        updated_since: Optional inclusive updated_at lower bound.
+        updated_until: Optional exclusive updated_at upper bound.
+        valid_at: Optional timestamp for historical lookup.
+        include_archived: Include archived records.
         order_by: Timestamp field used for newest-first ordering.
         limit: Maximum rows to return.
     """
     store = _store(ctx)
-    active_filters = _filters(filters)
-    order = str(order_by or "updated_at").strip().lower()
+    active_filters = _filters(
+        kind=kind,
+        status=status,
+        source_session_id=source_session_id,
+        created_since=created_since,
+        created_until=created_until,
+        updated_since=updated_since,
+        updated_until=updated_until,
+        valid_at=valid_at,
+        include_archived=include_archived,
+    )
+    order = str(_clean_scalar(order_by) or "updated_at").strip().lower()
     if order not in {"created_at", "updated_at", "valid_from"}:
         raise ModelRetry(
             "list_context order_by must be one of: created_at, updated_at, valid_from."
@@ -446,15 +433,41 @@ def list_context(
 
 def count_context(
     ctx: RunContext[ContextDeps],
-    filters: ContextFilters | None = None,
+    kind: str | None = None,
+    status: str | None = None,
+    source_session_id: str | None = None,
+    created_since: str | None = None,
+    created_until: str | None = None,
+    updated_since: str | None = None,
+    updated_until: str | None = None,
+    valid_at: str | None = None,
+    include_archived: bool | str = False,
 ) -> str:
     """Count saved context records with exact filters.
 
     Args:
-        filters: Optional kind, status, session, time, or archived-scope filters.
+        kind: Optional context kind to match.
+        status: Optional record lifecycle status.
+        source_session_id: Optional source session filter.
+        created_since: Optional inclusive created_at lower bound.
+        created_until: Optional exclusive created_at upper bound.
+        updated_since: Optional inclusive updated_at lower bound.
+        updated_until: Optional exclusive updated_at upper bound.
+        valid_at: Optional timestamp for historical lookup.
+        include_archived: Include archived records.
     """
     store = _store(ctx)
-    active_filters = _filters(filters)
+    active_filters = _filters(
+        kind=kind,
+        status=status,
+        source_session_id=source_session_id,
+        created_since=created_since,
+        created_until=created_until,
+        updated_since=updated_since,
+        updated_until=updated_until,
+        valid_at=valid_at,
+        include_archived=include_archived,
+    )
     effective_include_archived = bool(
         active_filters["include_archived"] or active_filters["valid_at"]
     )
@@ -567,34 +580,73 @@ def _normalize_status(status: str) -> str:
     return normalize_record_status(status)
 
 
-def _filters(filters: ContextFilters | None) -> dict[str, Any]:
+def _clean_scalar(value: Any) -> Any:
+    """Strip accidental JSON quoting from simple tool arguments."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    for _ in range(2):
+        if len(text) < 2:
+            return text or None
+        if text[0] == '"' and text[-1] == '"':
+            try:
+                decoded = json.loads(text)
+            except json.JSONDecodeError:
+                return text
+            if isinstance(decoded, str):
+                text = decoded.strip()
+                continue
+            return decoded
+        if text[0] == "'" and text[-1] == "'":
+            text = text[1:-1].strip()
+            continue
+        return text or None
+    return text or None
+
+
+def _clean_bool(value: bool | str | None) -> bool:
+    """Normalize boolean-ish tool arguments."""
+    value = _clean_scalar(value)
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off", ""}:
+        return False
+    return bool(text)
+
+
+def _filters(
+    *,
+    kind: str | None = None,
+    status: str | None = None,
+    source_session_id: str | None = None,
+    created_since: str | None = None,
+    created_until: str | None = None,
+    updated_since: str | None = None,
+    updated_until: str | None = None,
+    valid_at: str | None = None,
+    include_archived: bool | str = False,
+) -> dict[str, Any]:
     """Normalize optional retrieval filters into store query arguments."""
-    if filters is None:
-        filters = ContextFilters()
-    data = filters.model_dump()
-    data["kind"] = _normalize_kind(data.get("kind") or "") or None
+    data = {
+        "kind": _clean_scalar(kind),
+        "status": _clean_scalar(status),
+        "source_session_id": _clean_scalar(source_session_id),
+        "created_since": _clean_scalar(created_since),
+        "created_until": _clean_scalar(created_until),
+        "updated_since": _clean_scalar(updated_since),
+        "updated_until": _clean_scalar(updated_until),
+        "valid_at": _clean_scalar(valid_at),
+        "include_archived": _clean_bool(include_archived),
+    }
+    data["kind"] = _normalize_kind(str(data["kind"] or "")) or None
     data["status"] = (
-        _normalize_status(data.get("status")) if data.get("status") else None
+        _normalize_status(str(data["status"])) if data.get("status") else None
     )
-    for key, value in list(data.items()):
-        if isinstance(value, str):
-            data[key] = value.strip() or None
-    data["include_archived"] = bool(data.get("include_archived"))
-    return data
-
-
-def _search_filters(filters: SearchFilters | None) -> dict[str, Any]:
-    """Normalize optional semantic search filters into store search arguments."""
-    if filters is None:
-        filters = SearchFilters()
-    data = filters.model_dump()
-    data["kind"] = _normalize_kind(data.get("kind") or "") or None
-    data["status"] = (
-        _normalize_status(data.get("status")) if data.get("status") else None
-    )
-    if isinstance(data.get("valid_at"), str):
-        data["valid_at"] = data["valid_at"].strip() or None
-    data["include_archived"] = bool(data.get("include_archived"))
     return data
 
 

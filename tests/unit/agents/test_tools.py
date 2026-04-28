@@ -31,8 +31,6 @@ from lerim.agents.tools import (
     TRACE_MAX_LINE_BYTES,
     ContextDeps,
     ContextDraft,
-    ContextFilters,
-    SearchFilters,
     TraceFinding,
     _classify_context_pressure,
     _first_uncovered_offset,
@@ -593,7 +591,33 @@ class TestSearchContext:
         result = search_context(
             ctx,
             query="filter normalization",
-            filters=SearchFilters(kind="fact", status="active"),
+            kind="fact",
+            status="active",
+        )
+        parsed = json.loads(result)
+
+        assert parsed["count"] >= 1
+
+    def test_accepts_quoted_filter_scalars(self, deps, mock_embeddings):
+        ctx = make_run_context(deps)
+        store = ContextStore(deps.context_db_path)
+        store.initialize()
+        store.register_project(deps.project_identity)
+        _seed_session(store, deps.project_identity.project_id)
+        store.create_record(
+            project_id=deps.project_identity.project_id,
+            session_id="sess_test",
+            kind="fact",
+            title="Quoted filter fact",
+            body="The quoted filter path should still find this record.",
+        )
+
+        result = search_context(
+            ctx,
+            query="quoted filter",
+            kind='"fact"',
+            status='"active"',
+            include_archived='"false"',
         )
         parsed = json.loads(result)
 
@@ -620,7 +644,7 @@ class TestSearchContext:
         result = search_context(
             ctx,
             query="default agent provider",
-            filters=SearchFilters(valid_at="2026-02-15T00:00:00+00:00"),
+            valid_at="2026-02-15T00:00:00+00:00",
         )
         parsed = json.loads(result)
 
@@ -628,11 +652,6 @@ class TestSearchContext:
         assert any(
             hit["record_id"] == "rec_hist_openrouter_search" for hit in parsed["hits"]
         )
-
-    def test_search_filters_reject_unsupported_exact_fields(self):
-        with pytest.raises(ValidationError):
-            SearchFilters(created_since="2026-01-01T00:00:00+00:00")
-
 
 # ---------------------------------------------------------------------------
 # list_context
@@ -651,6 +670,12 @@ class TestListContext:
             result = list_context(ctx, order_by=order)
             parsed = json.loads(result)
             assert "count" in parsed
+
+    def test_accepts_json_quoted_order_by(self, deps):
+        ctx = make_run_context(deps)
+        result = list_context(ctx, order_by='"updated_at"')
+        parsed = json.loads(result)
+        assert "count" in parsed
 
     def test_default_returns_json(self, deps):
         ctx = make_run_context(deps)
@@ -679,7 +704,7 @@ class TestListContext:
 
         result = list_context(
             ctx,
-            filters=ContextFilters(valid_at="2026-02-15T00:00:00+00:00"),
+            valid_at="2026-02-15T00:00:00+00:00",
         )
         parsed = json.loads(result)
 
@@ -688,6 +713,25 @@ class TestListContext:
             record["record_id"] == "rec_hist_openrouter_list"
             for record in parsed["records"]
         )
+
+    def test_accepts_flat_filters(self, deps):
+        ctx = make_run_context(deps)
+        store = ContextStore(deps.context_db_path)
+        store.initialize()
+        store.register_project(deps.project_identity)
+        _seed_session(store, deps.project_identity.project_id)
+        store.create_record(
+            project_id=deps.project_identity.project_id,
+            session_id="sess_test",
+            kind="fact",
+            title="Flat filter fact",
+            body="Flat filter arguments should find this record.",
+        )
+
+        result = list_context(ctx, kind="fact", status='"active"', order_by='"updated_at"')
+        parsed = json.loads(result)
+
+        assert parsed["count"] >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -1303,7 +1347,7 @@ class TestCountContext:
             why="It was replaced.",
             valid_until="2026-03-01T00:00:00+00:00",
         )
-        result = count_context(ctx, filters=ContextFilters(kind="decision"))
+        result = count_context(ctx, kind="decision")
         parsed = json.loads(result)
         assert parsed["count"] == 1
 
@@ -1324,9 +1368,27 @@ class TestCountContext:
             valid_from="2025-01-01T00:00:00+00:00",
             valid_until="2026-03-01T00:00:00+00:00",
         )
-        result = count_context(
-            ctx, filters=ContextFilters(valid_at="2026-02-15T00:00:00+00:00")
+        result = count_context(ctx, valid_at="2026-02-15T00:00:00+00:00")
+        parsed = json.loads(result)
+        assert parsed["count"] == 1
+
+    def test_accepts_quoted_scalars(self, deps, mock_embeddings):
+        ctx = make_run_context(deps)
+        store = ContextStore(deps.context_db_path)
+        store.initialize()
+        store.register_project(deps.project_identity)
+        _seed_session(store, deps.project_identity.project_id)
+        store.create_record(
+            project_id=deps.project_identity.project_id,
+            session_id="sess_test",
+            kind="decision",
+            title="Quoted count decision",
+            body="Current active decision.",
+            decision="Current active decision",
+            why="It is still current.",
         )
+
+        result = count_context(ctx, kind='"decision"', status='"active"')
         parsed = json.loads(result)
         assert parsed["count"] == 1
 

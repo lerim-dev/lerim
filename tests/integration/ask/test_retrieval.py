@@ -241,7 +241,19 @@ def test_ask_count_question_uses_count_context(
 
     count_call = _find_first_tool_call(outcome.tool_calls, "count_context")
     args = count_call["args"] or {}
-    assert set(args).issubset({"filters"})
+    assert set(args).issubset(
+        {
+            "kind",
+            "status",
+            "source_session_id",
+            "created_since",
+            "created_until",
+            "updated_since",
+            "updated_until",
+            "valid_at",
+            "include_archived",
+        }
+    )
 
     assert any(token in answer for token in expectation["answer_must_include_any"])
 
