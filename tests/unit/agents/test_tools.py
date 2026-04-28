@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -30,7 +31,6 @@ from lerim.agents.tools import (
     MODEL_CONTEXT_TOKEN_LIMIT,
     TRACE_MAX_LINE_BYTES,
     ContextDeps,
-    ContextDraft,
     TraceFinding,
     _classify_context_pressure,
     _first_uncovered_offset,
@@ -99,9 +99,9 @@ def _seed_session(store, project_id: str, session_id: str = "sess_test") -> None
     )
 
 
-def _fact(title: str = "Fact", body: str = "Reusable fact.", **kwargs) -> ContextDraft:
-    """Return a fact context draft for direct tool tests."""
-    return ContextDraft(kind="fact", title=title, body=body, **kwargs)
+def _fact(title: str = "Fact", body: str = "Reusable fact.", **kwargs) -> dict:
+    """Return fact tool args for direct tool tests."""
+    return {"kind": "fact", "title": title, "body": body, **kwargs}
 
 
 def _fetch_records(ctx, *record_ids: str) -> None:
@@ -115,16 +115,16 @@ def _decision(
     decision: str = "Use the selected approach.",
     why: str = "It is the supported path.",
     **kwargs,
-) -> ContextDraft:
-    """Return a decision context draft for direct tool tests."""
-    return ContextDraft(
-        kind="decision",
-        title=title,
-        body=body,
-        decision=decision,
-        why=why,
+) -> dict:
+    """Return decision tool args for direct tool tests."""
+    return {
+        "kind": "decision",
+        "title": title,
+        "body": body,
+        "decision": decision,
+        "why": why,
         **kwargs,
-    )
+    }
 
 
 def _episode(
@@ -133,16 +133,16 @@ def _episode(
     user_intent: str = "Do the requested work.",
     what_happened: str = "Completed the requested work.",
     **kwargs,
-) -> ContextDraft:
-    """Return an episode context draft for direct tool tests."""
-    return ContextDraft(
-        kind="episode",
-        title=title,
-        body=body,
-        user_intent=user_intent,
-        what_happened=what_happened,
+) -> dict:
+    """Return episode tool args for direct tool tests."""
+    return {
+        "kind": "episode",
+        "title": title,
+        "body": body,
+        "user_intent": user_intent,
+        "what_happened": what_happened,
         **kwargs,
-    )
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -806,18 +806,57 @@ class TestGetContext:
 
 
 class TestSaveContext:
-    def test_context_draft_rejects_unknown_fields(self):
-        with pytest.raises(ValidationError):
-            ContextDraft(kind="fact", title="Fact", body="Body", unknown="ignored")
+    def test_write_tools_expose_flat_record_fields(self):
+        save_params = inspect.signature(save_context).parameters
+        revise_params = inspect.signature(revise_context).parameters
+
+        assert "context" not in save_params
+        assert "context" not in revise_params
+        for field_name in ("kind", "title", "body"):
+            assert field_name in save_params
+            assert field_name in revise_params
 
     def test_basic_create(self, deps_with_session, mock_embeddings):
         ctx = make_run_context(deps_with_session)
         result = save_context(
             ctx,
-            _fact(title="Test fact", body="A test body."),
+            **_fact(title="Test fact", body="A test body."),
         )
         parsed = json.loads(result)
         assert parsed["ok"] is True
+
+    def test_create_accepts_json_quoted_scalars(
+        self, deps_with_session, mock_embeddings
+    ):
+        ctx = make_run_context(deps_with_session)
+        result = save_context(
+            ctx,
+            kind='"fact"',
+            title="Quoted fact",
+            body="A quoted body.",
+            status='"active"',
+        )
+        record = json.loads(result)["result"]
+
+        assert record["kind"] == "fact"
+        assert record["title"] == "Quoted fact"
+        assert record["body"] == "A quoted body."
+
+    def test_invalid_kind_raises_retry(self, deps_with_session, mock_embeddings):
+        ctx = make_run_context(deps_with_session)
+        with pytest.raises(ModelRetry, match="Record kind is invalid"):
+            save_context(ctx, kind="note", title="Bad kind", body="Body")
+
+    def test_invalid_status_raises_retry(self, deps_with_session, mock_embeddings):
+        ctx = make_run_context(deps_with_session)
+        with pytest.raises(ModelRetry, match="status must be one of"):
+            save_context(
+                ctx,
+                kind="fact",
+                title="Bad status",
+                body="Body",
+                status="pending",
+            )
 
     def test_create_anchors_record_time_to_source_session(
         self, deps_with_session, mock_embeddings
@@ -825,7 +864,7 @@ class TestSaveContext:
         ctx = make_run_context(deps_with_session)
         result = save_context(
             ctx,
-            _fact(
+            **_fact(
                 title="Historical source fact",
                 body="This fact was learned from a historical session.",
             ),
@@ -842,7 +881,7 @@ class TestSaveContext:
         ctx = make_run_context(deps_with_session)
         result = save_context(
             ctx,
-            _fact(
+            **_fact(
                 title="Explicit validity fact",
                 body="This fact became valid at a specific time.",
                 valid_from="2026-02-01T00:00:00+00:00",
@@ -856,30 +895,30 @@ class TestSaveContext:
     def test_missing_title_raises_retry(self, deps_with_session, mock_embeddings):
         ctx = make_run_context(deps_with_session)
         with pytest.raises(ModelRetry, match="non-empty title"):
-            save_context(ctx, _fact(title="", body="body"))
+            save_context(ctx, **_fact(title="", body="body"))
 
     def test_missing_body_raises_retry(self, deps_with_session, mock_embeddings):
         ctx = make_run_context(deps_with_session)
         with pytest.raises(ModelRetry, match="non-empty body"):
-            save_context(ctx, _fact(title="title", body=""))
+            save_context(ctx, **_fact(title="title", body=""))
 
     def test_title_too_long_raises_retry(self, deps_with_session, mock_embeddings):
         ctx = make_run_context(deps_with_session)
         with pytest.raises(ModelRetry, match="too long"):
-            save_context(ctx, _fact(title="x" * 200, body="body"))
+            save_context(ctx, **_fact(title="x" * 200, body="body"))
 
     def test_guard_full_trace_coverage(self, deps_with_trace, mock_embeddings):
         ctx = make_run_context(deps_with_trace)
         deps_with_trace.read_ranges = [(0, 5)]
         with pytest.raises(ModelRetry, match="Unread trace lines"):
-            save_context(ctx, _fact(title="t", body="b"))
+            save_context(ctx, **_fact(title="t", body="b"))
 
     def test_guard_refuses_create_before_any_read_trace(
         self, deps_with_trace, mock_embeddings
     ):
         ctx = make_run_context(deps_with_trace)
         with pytest.raises(ModelRetry, match=r"read_trace\(start_line=1"):
-            save_context(ctx, _fact(title="t", body="b"))
+            save_context(ctx, **_fact(title="t", body="b"))
 
     def test_guard_notes_before_long_trace(
         self, tmp_path, project_identity, mock_embeddings
@@ -901,7 +940,7 @@ class TestSaveContext:
         )
         ctx = make_run_context(deps)
         with pytest.raises(ModelRetry, match="read_trace chunk"):
-            save_context(ctx, _fact(title="t", body="b"))
+            save_context(ctx, **_fact(title="t", body="b"))
 
     def test_guard_allows_archived_episode_after_full_long_trace(
         self, tmp_path, project_identity, mock_embeddings
@@ -923,7 +962,7 @@ class TestSaveContext:
         )
         ctx = make_run_context(deps)
 
-        result = save_context(ctx, _episode(status="archived"))
+        result = save_context(ctx, **_episode(status="archived"))
 
         assert json.loads(result)["ok"] is True
 
@@ -934,7 +973,7 @@ class TestSaveContext:
         with pytest.raises(ModelRetry, match="both `decision` and `why`"):
             save_context(
                 ctx,
-                _decision(
+                **_decision(
                     title="A decision",
                     body="We decided something.",
                     decision="Use X",
@@ -948,7 +987,7 @@ class TestSaveContext:
         ctx = make_run_context(deps_with_session)
         save_context(
             ctx,
-            _episode(
+            **_episode(
                 title="Session title",
                 body="Short session recap.",
                 user_intent="Fix the extractor.",
@@ -959,7 +998,7 @@ class TestSaveContext:
         with pytest.raises(ModelRetry, match="already has an episode record"):
             save_context(
                 ctx,
-                _episode(
+                **_episode(
                     title="Another session title",
                     body="Another short session recap.",
                     user_intent="Fix the extractor.",
@@ -972,7 +1011,7 @@ class TestSaveContext:
     ):
         ctx = make_run_context(deps_with_session)
 
-        result = save_context(ctx, _fact(title="Fact", body="Reusable fact."))
+        result = save_context(ctx, **_fact(title="Fact", body="Reusable fact."))
 
         assert json.loads(result)["ok"] is True
 
@@ -1000,8 +1039,8 @@ class TestReviseContext:
         result = revise_context(
             ctx,
             record_id=rec["record_id"],
-            context=_fact(title="New title", body="Old body"),
             reason="tighten title",
+            **_fact(title="New title", body="Old body"),
         )
         parsed = json.loads(result)
         assert parsed["ok"] is True
@@ -1024,8 +1063,8 @@ class TestReviseContext:
             revise_context(
                 ctx,
                 record_id=rec["record_id"],
-                context=_fact(title="New title", body="Old body"),
                 reason="tighten title",
+                **_fact(title="New title", body="Old body"),
             )
 
     def test_guard_full_trace_coverage(self, deps_with_trace, mock_embeddings):
@@ -1047,8 +1086,8 @@ class TestReviseContext:
             revise_context(
                 ctx,
                 record_id=rec["record_id"],
-                context=_fact(title="t", body="b"),
                 reason="test",
+                **_fact(title="t", body="b"),
             )
 
     def test_guard_refuses_update_before_any_read_trace(
@@ -1071,8 +1110,8 @@ class TestReviseContext:
             revise_context(
                 ctx,
                 record_id=rec["record_id"],
-                context=_fact(title="t", body="b"),
                 reason="test",
+                **_fact(title="t", body="b"),
             )
 
     def test_update_does_not_require_episode_ordering(
@@ -1094,8 +1133,8 @@ class TestReviseContext:
         result = revise_context(
             ctx,
             record_id=rec["record_id"],
-            context=_fact(title="New title", body="Old body"),
             reason="tighten title",
+            **_fact(title="New title", body="Old body"),
         )
 
         assert json.loads(result)["ok"] is True
@@ -1121,14 +1160,37 @@ class TestReviseContext:
         result = revise_context(
             ctx,
             record_id=rec["record_id"],
-            context=_fact(title="New title", body="Old body"),
             reason="tighten title",
+            **_fact(title="New title", body="Old body"),
         )
         record = json.loads(result)["result"]
 
         assert record["status"] == "archived"
         assert record["valid_from"] == "2025-01-01T00:00:00+00:00"
         assert record["valid_until"] == "2025-02-01T00:00:00+00:00"
+
+    def test_no_meaningful_change_raises_retry(self, deps, mock_embeddings):
+        ctx = make_run_context(deps)
+        store = ContextStore(deps.context_db_path)
+        store.initialize()
+        store.register_project(deps.project_identity)
+        _seed_session(store, deps.project_identity.project_id)
+        rec = store.create_record(
+            project_id=deps.project_identity.project_id,
+            session_id="sess_test",
+            kind="fact",
+            title="Old title",
+            body="Old body",
+        )
+        _fetch_records(ctx, rec["record_id"])
+
+        with pytest.raises(ModelRetry, match="meaningful field change"):
+            revise_context(
+                ctx,
+                record_id=rec["record_id"],
+                reason="same payload",
+                **_fact(title="Old title", body="Old body"),
+            )
 
     def test_rejects_kind_change(self, deps, mock_embeddings):
         ctx = make_run_context(deps)
@@ -1149,8 +1211,8 @@ class TestReviseContext:
             revise_context(
                 ctx,
                 record_id=rec["record_id"],
-                context=_decision(title="Decision", body="Decision body"),
                 reason="wrong kind",
+                **_decision(title="Decision", body="Decision body"),
             )
 
 
@@ -1399,43 +1461,50 @@ class TestCountContext:
 
 
 class TestNote:
+    def test_tool_exposes_flat_finding_fields(self):
+        params = inspect.signature(note_trace_findings).parameters
+
+        assert "findings" not in params
+        for field_name in ("theme", "line", "quote", "level"):
+            assert field_name in params
+
     def test_finding_line_is_one_based(self):
         with pytest.raises(ValidationError):
             TraceFinding(theme="auth", line=0, quote="q", level="decision")
 
+    def test_tool_rejects_zero_line(self, deps):
+        ctx = make_run_context(deps)
+        with pytest.raises(ModelRetry, match="valid 1-based line"):
+            note_trace_findings(ctx, theme="auth", line=0, quote="q", level="decision")
+
     def test_appends_findings(self, deps):
         ctx = make_run_context(deps)
-        findings = [
-            TraceFinding(theme="auth", line=1, quote="use JWT", level="decision"),
-            TraceFinding(theme="db", line=5, quote="use sqlite", level="fact"),
-        ]
-        result = note_trace_findings(ctx, findings=findings)
-        assert "2 findings" in result
+        note_trace_findings(ctx, theme="auth", line=1, quote="use JWT", level="decision")
+        result = note_trace_findings(
+            ctx, theme="db", line=5, quote="use sqlite", level="fact"
+        )
+        assert "1 finding" in result
         assert "total 2" in result
         assert len(deps.notes) == 2
 
     def test_empty_findings(self, deps):
         ctx = make_run_context(deps)
-        result = note_trace_findings(ctx, findings=[])
+        result = note_trace_findings(ctx)
         assert "No findings" in result
         assert deps.findings_checked is True
 
     def test_accumulates_across_calls(self, deps):
         ctx = make_run_context(deps)
-        note_trace_findings(
-            ctx, findings=[TraceFinding(theme="a", line=1, quote="q", level="fact")]
-        )
+        note_trace_findings(ctx, theme="a", line=1, quote="q", level="fact")
         result = note_trace_findings(
-            ctx, findings=[TraceFinding(theme="b", line=1, quote="q", level="decision")]
+            ctx, theme="b", line=1, quote="q", level="decision"
         )
         assert "total 2" in result
         assert len(deps.notes) == 2
 
     def test_runtime_only_no_db(self, deps):
         ctx = make_run_context(deps)
-        note_trace_findings(
-            ctx, findings=[TraceFinding(theme="a", line=1, quote="q", level="fact")]
-        )
+        note_trace_findings(ctx, theme="a", line=1, quote="q", level="fact")
         assert len(deps.notes) == 1
 
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import ValidationError
 from pydantic_ai import ModelRetry, RunContext
 
 from lerim.context import ContextStore, ProjectIdentity
@@ -32,8 +33,6 @@ CONTEXT_SOFT_PRESSURE_PCT = 0.60
 CONTEXT_HARD_PRESSURE_PCT = 0.80
 _TOKENS_PER_CHAR = 0.25
 
-ContextKind = Literal.__getitem__(ALLOWED_KINDS)
-ContextStatus = Literal.__getitem__(ALLOWED_STATUSES)
 DetailLevel = Literal["concise", "detailed"]
 
 
@@ -64,46 +63,6 @@ class TraceFinding(BaseModel):
             allowed = ", ".join(ALLOWED_FINDING_LEVELS)
             raise ValueError(f"level must be one of: {allowed}")
         return normalized
-
-
-class ContextDraft(BaseModel):
-    """Context record payload for save_context and revise_context."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: ContextKind = Field(description="Context kind.")
-    title: str = Field(description="Short reusable title.")
-    body: str = Field(description="Canonical context text.")
-    status: ContextStatus = Field(
-        default="active", description="Record lifecycle status."
-    )
-    valid_from: str | None = Field(
-        default=None, description="When this context became valid."
-    )
-    valid_until: str | None = Field(
-        default=None, description="When this context stopped being valid."
-    )
-    decision: str | None = Field(
-        default=None, description="Decision records only: chosen approach."
-    )
-    why: str | None = Field(
-        default=None, description="Decision records only: rationale."
-    )
-    alternatives: str | None = Field(
-        default=None, description="Decision records only: alternatives considered."
-    )
-    consequences: str | None = Field(
-        default=None, description="Decision records only: practical effects."
-    )
-    user_intent: str | None = Field(
-        default=None, description="Episode records only: session purpose."
-    )
-    what_happened: str | None = Field(
-        default=None, description="Episode records only: session recap."
-    )
-    outcomes: str | None = Field(
-        default=None, description="One short sentence with the result."
-    )
 
 
 @dataclass
@@ -650,14 +609,43 @@ def _filters(
     return data
 
 
-def _context_changes(context: ContextDraft) -> dict[str, Any]:
-    """Convert one typed context draft into store fields."""
-    data = context.model_dump()
+def _context_changes(
+    *,
+    kind: str,
+    title: str,
+    body: str,
+    status: str | None = "active",
+    valid_from: str | None = None,
+    valid_until: str | None = None,
+    decision: str | None = None,
+    why: str | None = None,
+    alternatives: str | None = None,
+    consequences: str | None = None,
+    user_intent: str | None = None,
+    what_happened: str | None = None,
+    outcomes: str | None = None,
+) -> dict[str, Any]:
+    """Convert flat tool arguments into store fields."""
+    data = {
+        "kind": _clean_scalar(kind),
+        "title": title,
+        "body": body,
+        "status": _clean_scalar(status),
+        "valid_from": _clean_scalar(valid_from),
+        "valid_until": _clean_scalar(valid_until),
+        "decision": decision,
+        "why": why,
+        "alternatives": alternatives,
+        "consequences": consequences,
+        "user_intent": user_intent,
+        "what_happened": what_happened,
+        "outcomes": outcomes,
+    }
     changes: dict[str, Any] = {
-        "kind": _normalize_kind(data.pop("kind")),
-        "title": data.pop("title"),
-        "body": data.pop("body"),
-        "status": _normalize_status(data.pop("status")),
+        "kind": _normalize_kind(str(data["kind"] or "")),
+        "title": str(data["title"] or ""),
+        "body": str(data["body"] or ""),
+        "status": _normalize_status(str(data["status"] or "active")),
         "valid_from": data.pop("valid_from") or None,
         "valid_until": data.pop("valid_until") or None,
     }
@@ -677,6 +665,14 @@ def _maybe_raise_record_retry(exc: ValueError) -> None:
     message = record_validation_message(code)
     if message:
         raise ModelRetry(message) from exc
+    if code.startswith("invalid_kind:"):
+        raise ModelRetry(
+            f"Record kind is invalid. Use one of: {', '.join(ALLOWED_KINDS)}."
+        ) from exc
+    if code.startswith("invalid_status:"):
+        raise ModelRetry(
+            f"Record status must be one of: {', '.join(ALLOWED_STATUSES)}."
+        ) from exc
 
 
 def _trace_line_count(ctx: RunContext[ContextDeps]) -> int:
@@ -731,8 +727,8 @@ def _require_trace_ready_for_write(
     ):
         raise ModelRetry(
             "This trace is longer than one read_trace chunk. "
-            "Call note_trace_findings with the strongest durable and implementation findings, "
-            "or with an empty findings list if the full trace has no reusable signal, then create or update records."
+            "Call note_trace_findings once for each strongest durable or implementation finding, "
+            "or call it with no arguments if the full trace has no reusable signal, then create or update records."
         )
 
 
@@ -762,13 +758,38 @@ def _first_uncovered_offset(
     return None
 
 
-def save_context(ctx: RunContext[ContextDeps], context: ContextDraft) -> str:
-    """Save one typed context record.
-
-    Args:
-        context: Complete context payload to persist.
-    """
-    changes = _context_changes(context)
+def save_context(
+    ctx: RunContext[ContextDeps],
+    kind: str,
+    title: str,
+    body: str,
+    status: str = "active",
+    valid_from: str | None = None,
+    valid_until: str | None = None,
+    decision: str | None = None,
+    why: str | None = None,
+    alternatives: str | None = None,
+    consequences: str | None = None,
+    user_intent: str | None = None,
+    what_happened: str | None = None,
+    outcomes: str | None = None,
+) -> str:
+    """Save one context record."""
+    changes = _context_changes(
+        kind=kind,
+        title=title,
+        body=body,
+        status=status,
+        valid_from=valid_from,
+        valid_until=valid_until,
+        decision=decision,
+        why=why,
+        alternatives=alternatives,
+        consequences=consequences,
+        user_intent=user_intent,
+        what_happened=what_happened,
+        outcomes=outcomes,
+    )
     _require_trace_ready_for_write(ctx, changes)
     store = _store(ctx)
     project_id = ctx.deps.project_identity.project_id
@@ -802,21 +823,25 @@ def save_context(ctx: RunContext[ContextDeps], context: ContextDraft) -> str:
 def revise_context(
     ctx: RunContext[ContextDeps],
     record_id: str,
-    context: ContextDraft,
     reason: str,
+    kind: str,
+    title: str,
+    body: str,
+    status: str | None = "",
+    valid_from: str | None = "",
+    valid_until: str | None = "",
+    decision: str | None = None,
+    why: str | None = None,
+    alternatives: str | None = None,
+    consequences: str | None = None,
+    user_intent: str | None = None,
+    what_happened: str | None = None,
+    outcomes: str | None = None,
 ) -> str:
-    """Revise an existing context record with a complete improved payload.
-
-    Args:
-        record_id: Existing record to revise.
-        context: Complete corrected context payload after revision.
-        reason: Short reason for the revision.
-    """
+    """Revise an existing context record with a complete improved payload."""
     [target_record_id] = _require_fetched_context_records(
         ctx, "revise_context", record_id
     )
-    changes = _context_changes(context)
-    _require_trace_ready_for_write(ctx, changes)
     store = _store(ctx)
     existing = store.fetch_record(
         target_record_id,
@@ -828,15 +853,42 @@ def revise_context(
             "The record to revise does not exist in the current project scope. "
             "Search or list context again, fetch the target, then retry with its record_id."
         )
+    status_value = _clean_scalar(status)
+    valid_from_value = _clean_scalar(valid_from)
+    valid_until_value = _clean_scalar(valid_until)
+    changes = _context_changes(
+        kind=kind,
+        title=title,
+        body=body,
+        status=status_value if status_value is not None else existing["status"],
+        valid_from=(
+            None
+            if valid_from is None
+            else valid_from_value
+            if valid_from_value is not None
+            else existing["valid_from"]
+        ),
+        valid_until=(
+            None
+            if valid_until is None
+            else valid_until_value
+            if valid_until_value is not None
+            else existing["valid_until"]
+        ),
+        decision=decision,
+        why=why,
+        alternatives=alternatives,
+        consequences=consequences,
+        user_intent=user_intent,
+        what_happened=what_happened,
+        outcomes=outcomes,
+    )
+    _require_trace_ready_for_write(ctx, changes)
     if changes["kind"] != existing["kind"]:
         raise ModelRetry(
             "revise_context cannot change a record's kind. "
             "Create a new context record when the corrected context belongs to a different kind."
         )
-    explicit_fields = context.model_fields_set
-    for field_name in ("status", "valid_from", "valid_until"):
-        if field_name not in explicit_fields:
-            changes[field_name] = existing[field_name]
     try:
         result = store.update_record(
             record_id=target_record_id,
@@ -931,19 +983,35 @@ def supersede_context(
 
 
 def note_trace_findings(
-    ctx: RunContext[ContextDeps], findings: list[TraceFinding]
+    ctx: RunContext[ContextDeps],
+    theme: str = "",
+    line: int | str = 0,
+    quote: str = "",
+    level: str = "implementation",
 ) -> str:
-    """Record findings from trace chunks already read.
-
-    Args:
-        findings: Durable and implementation findings from read trace lines.
-    """
+    """Record one trace finding, or call with no theme to save an empty checkpoint."""
     ctx.deps.findings_checked = True
-    if not findings:
+    if not str(theme or "").strip() and not str(quote or "").strip() and not line:
         return "No findings recorded; trace findings checkpoint saved."
-    ctx.deps.notes.extend(findings)
+    try:
+        line_number = int(_clean_scalar(line) or 0)
+    except (TypeError, ValueError) as exc:
+        raise ModelRetry("Finding line must be a 1-based trace line number.") from exc
+    try:
+        finding = TraceFinding(
+            theme=str(theme or "").strip(),
+            line=line_number,
+            quote=str(quote or "").strip(),
+            level=str(_clean_scalar(level) or "").strip(),
+        )
+    except ValidationError as exc:
+        raise ModelRetry(
+            "Finding must include a valid 1-based line and level. "
+            f"Allowed levels: {format_allowed_finding_levels()}."
+        ) from exc
+    ctx.deps.notes.append(finding)
     total = len(ctx.deps.notes)
-    return f"Noted {len(findings)} findings (total {total} so far)."
+    return f"Noted 1 finding (total {total} so far)."
 
 
 def prune_trace_reads(ctx: RunContext[ContextDeps], start_lines: list[int]) -> str:
