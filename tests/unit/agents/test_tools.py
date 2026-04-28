@@ -297,33 +297,38 @@ class TestComputeRequestBudget:
     def test_zero_lines(self, tmp_path):
         p = tmp_path / "trace.jsonl"
         p.write_text("", encoding="utf-8")
-        assert compute_request_budget(p) == 40
+        assert compute_request_budget(p) == 50
 
     def test_200_lines(self, tmp_path):
         p = _make_trace(tmp_path / "t.jsonl", 200)
-        assert compute_request_budget(p) == 40
+        assert compute_request_budget(p) == 83
 
     def test_500_lines(self, tmp_path):
         p = _make_trace(tmp_path / "t.jsonl", 500)
         budget = compute_request_budget(p)
-        assert budget == 45
+        assert budget == 89
 
     def test_1000_lines(self, tmp_path):
         p = _make_trace(tmp_path / "t.jsonl", 1000)
         budget = compute_request_budget(p)
-        assert budget == 50
+        assert budget == 99
 
     def test_5000_lines(self, tmp_path):
         p = _make_trace(tmp_path / "t.jsonl", 5000)
-        assert compute_request_budget(p) == 100
+        assert compute_request_budget(p) == 179
+
+    def test_large_lines_budget_for_byte_limited_chunks(self, tmp_path):
+        p = tmp_path / "trace.jsonl"
+        p.write_text("\n".join("x" * 4000 for _ in range(200)), encoding="utf-8")
+        assert compute_request_budget(p) == 111
 
     def test_missing_file(self, tmp_path):
         p = tmp_path / "nonexistent.jsonl"
-        assert compute_request_budget(p) == 40
+        assert compute_request_budget(p) == 50
 
     def test_100_lines(self, tmp_path):
         p = _make_trace(tmp_path / "t.jsonl", 100)
-        assert compute_request_budget(p) == 40
+        assert compute_request_budget(p) == 50
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +416,37 @@ class TestTraceRead:
         assert deps_with_trace.read_ranges[0] == (0, 5)
         assert deps_with_trace.read_ranges[1] == (5, 10)
 
+    def test_overlapping_read_advances_to_first_unread_line(self, deps_with_trace):
+        ctx = make_run_context(deps_with_trace)
+        read_trace(ctx, start_line=1, line_count=5)
+
+        result = read_trace(ctx, start_line=3, line_count=3)
+
+        assert "showing 6-8" in result
+        assert "advanced from requested line 3 to first unread line 6" in result
+        assert deps_with_trace.read_ranges[-1] == (5, 8)
+
+    def test_completed_trace_read_returns_done_message(self, deps_with_trace):
+        ctx = make_run_context(deps_with_trace)
+        read_trace(ctx, start_line=1, line_count=5)
+        read_trace(ctx, start_line=6, line_count=5)
+
+        result = read_trace(ctx, start_line=1, line_count=5)
+
+        assert "trace coverage complete" in result
+        assert len(deps_with_trace.read_ranges) == 2
+
+    def test_read_trace_auto_prunes_under_context_pressure(self, deps_with_trace):
+        ctx = make_run_context(deps_with_trace)
+        read_trace(ctx, start_line=1, line_count=3)
+        read_trace(ctx, start_line=4, line_count=3)
+        deps_with_trace.last_context_fill_ratio = CONTEXT_SOFT_PRESSURE_PCT
+
+        result = read_trace(ctx, start_line=7, line_count=3)
+
+        assert 0 in deps_with_trace.pruned_offsets
+        assert "auto-pruned older read_trace start lines: 1" in result
+
 
 # ---------------------------------------------------------------------------
 # _require_trace_ready_for_write
@@ -481,8 +517,24 @@ class TestRequireTraceReadyForWrite:
             read_ranges=[(0, 200)],
         )
         ctx = make_run_context(deps)
-        with pytest.raises(ModelRetry, match="read_trace chunk"):
+        with pytest.raises(ModelRetry, match="note_trace_findings"):
             _require_trace_ready_for_write(ctx)
+
+    def test_long_trace_empty_findings_checkpoint_passes(
+        self, tmp_path, project_identity
+    ):
+        trace_path = tmp_path / "trace.jsonl"
+        _make_trace(trace_path, 200)
+        deps = ContextDeps(
+            context_db_path=tmp_path / "context.sqlite3",
+            project_identity=project_identity,
+            session_id="sess_test",
+            trace_path=trace_path,
+            read_ranges=[(0, 200)],
+            findings_checked=True,
+        )
+        ctx = make_run_context(deps)
+        _require_trace_ready_for_write(ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -573,7 +625,9 @@ class TestSearchContext:
         parsed = json.loads(result)
 
         assert parsed["count"] >= 1
-        assert any(hit["record_id"] == "rec_hist_openrouter_search" for hit in parsed["hits"])
+        assert any(
+            hit["record_id"] == "rec_hist_openrouter_search" for hit in parsed["hits"]
+        )
 
     def test_search_filters_reject_unsupported_exact_fields(self):
         with pytest.raises(ValidationError):
@@ -630,7 +684,10 @@ class TestListContext:
         parsed = json.loads(result)
 
         assert parsed["count"] >= 1
-        assert any(record["record_id"] == "rec_hist_openrouter_list" for record in parsed["records"])
+        assert any(
+            record["record_id"] == "rec_hist_openrouter_list"
+            for record in parsed["records"]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -670,9 +727,7 @@ class TestGetContext:
             title="A fact",
             body="Some body text for concise test.",
         )
-        result = get_context(
-            ctx, record_ids=[rec["record_id"]], detail="concise"
-        )
+        result = get_context(ctx, record_ids=[rec["record_id"]], detail="concise")
         parsed = json.loads(result)
         assert parsed["count"] == 1
         record = parsed["records"][0]
@@ -695,9 +750,7 @@ class TestGetContext:
             title="Full body fact",
             body="x" * 300,
         )
-        result = get_context(
-            ctx, record_ids=[rec["record_id"]], detail="detailed"
-        )
+        result = get_context(ctx, record_ids=[rec["record_id"]], detail="detailed")
         parsed = json.loads(result)
         assert len(parsed["records"][0]["body"]) == 300
         assert rec["record_id"] in deps.fetched_context_record_ids
@@ -806,6 +859,30 @@ class TestSaveContext:
         with pytest.raises(ModelRetry, match="read_trace chunk"):
             save_context(ctx, _fact(title="t", body="b"))
 
+    def test_guard_allows_archived_episode_after_full_long_trace(
+        self, tmp_path, project_identity, mock_embeddings
+    ):
+        trace_path = tmp_path / "trace.jsonl"
+        _make_trace(trace_path, 200)
+        db_path = tmp_path / "context.sqlite3"
+        store = ContextStore(db_path)
+        store.initialize()
+        store.register_project(project_identity)
+        _seed_session(store, project_identity.project_id)
+        deps = ContextDeps(
+            context_db_path=db_path,
+            project_identity=project_identity,
+            session_id="sess_test",
+            trace_path=trace_path,
+            trace_total_lines=200,
+            read_ranges=[(0, 200)],
+        )
+        ctx = make_run_context(deps)
+
+        result = save_context(ctx, _episode(status="archived"))
+
+        assert json.loads(result)["ok"] is True
+
     def test_decision_without_why_raises_retry(
         self, deps_with_session, mock_embeddings
     ):
@@ -854,6 +931,7 @@ class TestSaveContext:
         result = save_context(ctx, _fact(title="Fact", body="Reusable fact."))
 
         assert json.loads(result)["ok"] is True
+
 
 # ---------------------------------------------------------------------------
 # revise_context
@@ -1202,7 +1280,9 @@ class TestCountContext:
         store.initialize()
         store.register_project(deps.project_identity)
         _seed_session(store, deps.project_identity.project_id, session_id="sess_active")
-        _seed_session(store, deps.project_identity.project_id, session_id="sess_archived")
+        _seed_session(
+            store, deps.project_identity.project_id, session_id="sess_archived"
+        )
         store.create_record(
             project_id=deps.project_identity.project_id,
             session_id="sess_active",
@@ -1244,7 +1324,9 @@ class TestCountContext:
             valid_from="2025-01-01T00:00:00+00:00",
             valid_until="2026-03-01T00:00:00+00:00",
         )
-        result = count_context(ctx, filters=ContextFilters(valid_at="2026-02-15T00:00:00+00:00"))
+        result = count_context(
+            ctx, filters=ContextFilters(valid_at="2026-02-15T00:00:00+00:00")
+        )
         parsed = json.loads(result)
         assert parsed["count"] == 1
 
@@ -1274,10 +1356,13 @@ class TestNote:
         ctx = make_run_context(deps)
         result = note_trace_findings(ctx, findings=[])
         assert "No findings" in result
+        assert deps.findings_checked is True
 
     def test_accumulates_across_calls(self, deps):
         ctx = make_run_context(deps)
-        note_trace_findings(ctx, findings=[TraceFinding(theme="a", line=1, quote="q", level="fact")])
+        note_trace_findings(
+            ctx, findings=[TraceFinding(theme="a", line=1, quote="q", level="fact")]
+        )
         result = note_trace_findings(
             ctx, findings=[TraceFinding(theme="b", line=1, quote="q", level="decision")]
         )
@@ -1286,7 +1371,9 @@ class TestNote:
 
     def test_runtime_only_no_db(self, deps):
         ctx = make_run_context(deps)
-        note_trace_findings(ctx, findings=[TraceFinding(theme="a", line=1, quote="q", level="fact")])
+        note_trace_findings(
+            ctx, findings=[TraceFinding(theme="a", line=1, quote="q", level="fact")]
+        )
         assert len(deps.notes) == 1
 
 
@@ -1423,7 +1510,9 @@ class TestPruneHistoryProcessor:
     def test_prunes_matching_read_trace(self, deps):
         ctx = make_run_context(deps)
         deps.pruned_offsets = {0}
-        call = ToolCallPart(tool_name="read_trace", args={"start_line": 1, "line_count": 10})
+        call = ToolCallPart(
+            tool_name="read_trace", args={"start_line": 1, "line_count": 10}
+        )
         ret = ToolReturnPart(tool_name="read_trace", content="line data here")
         history: list = [ModelResponse(parts=[call]), ModelRequest(parts=[ret])]
         result = prune_history_processor(ctx, history)
@@ -1432,7 +1521,9 @@ class TestPruneHistoryProcessor:
     def test_does_not_prune_non_matching(self, deps):
         ctx = make_run_context(deps)
         deps.pruned_offsets = {50}
-        call = ToolCallPart(tool_name="read_trace", args={"start_line": 1, "line_count": 10})
+        call = ToolCallPart(
+            tool_name="read_trace", args={"start_line": 1, "line_count": 10}
+        )
         ret = ToolReturnPart(tool_name="read_trace", content="line data here")
         history: list = [ModelResponse(parts=[call]), ModelRequest(parts=[ret])]
         result = prune_history_processor(ctx, history)

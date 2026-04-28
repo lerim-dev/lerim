@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -72,16 +73,30 @@ class ContextFilters(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: ContextKind | None = Field(default=None, description="Context kind to match.")
-    status: ContextStatus | None = Field(default=None, description="Record lifecycle status.")
+    status: ContextStatus | None = Field(
+        default=None, description="Record lifecycle status."
+    )
     source_session_id: str | None = Field(
         default=None, description="Only records extracted from this source session."
     )
-    created_since: str | None = Field(default=None, description="Inclusive created_at lower bound.")
-    created_until: str | None = Field(default=None, description="Exclusive created_at upper bound.")
-    updated_since: str | None = Field(default=None, description="Inclusive updated_at lower bound.")
-    updated_until: str | None = Field(default=None, description="Exclusive updated_at upper bound.")
-    valid_at: str | None = Field(default=None, description="Return records valid at this time.")
-    include_archived: bool = Field(default=False, description="Include archived records.")
+    created_since: str | None = Field(
+        default=None, description="Inclusive created_at lower bound."
+    )
+    created_until: str | None = Field(
+        default=None, description="Exclusive created_at upper bound."
+    )
+    updated_since: str | None = Field(
+        default=None, description="Inclusive updated_at lower bound."
+    )
+    updated_until: str | None = Field(
+        default=None, description="Exclusive updated_at upper bound."
+    )
+    valid_at: str | None = Field(
+        default=None, description="Return records valid at this time."
+    )
+    include_archived: bool = Field(
+        default=False, description="Include archived records."
+    )
 
 
 class SearchFilters(BaseModel):
@@ -90,9 +105,15 @@ class SearchFilters(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: ContextKind | None = Field(default=None, description="Context kind to match.")
-    status: ContextStatus | None = Field(default=None, description="Record lifecycle status.")
-    valid_at: str | None = Field(default=None, description="Return records valid at this time.")
-    include_archived: bool = Field(default=False, description="Include archived records.")
+    status: ContextStatus | None = Field(
+        default=None, description="Record lifecycle status."
+    )
+    valid_at: str | None = Field(
+        default=None, description="Return records valid at this time."
+    )
+    include_archived: bool = Field(
+        default=False, description="Include archived records."
+    )
 
 
 class ContextDraft(BaseModel):
@@ -103,16 +124,36 @@ class ContextDraft(BaseModel):
     kind: ContextKind = Field(description="Context kind.")
     title: str = Field(description="Short reusable title.")
     body: str = Field(description="Canonical context text.")
-    status: ContextStatus = Field(default="active", description="Record lifecycle status.")
-    valid_from: str | None = Field(default=None, description="When this context became valid.")
-    valid_until: str | None = Field(default=None, description="When this context stopped being valid.")
-    decision: str | None = Field(default=None, description="Decision records only: chosen approach.")
-    why: str | None = Field(default=None, description="Decision records only: rationale.")
-    alternatives: str | None = Field(default=None, description="Decision records only: alternatives considered.")
-    consequences: str | None = Field(default=None, description="Decision records only: practical effects.")
-    user_intent: str | None = Field(default=None, description="Episode records only: session purpose.")
-    what_happened: str | None = Field(default=None, description="Episode records only: session recap.")
-    outcomes: str | None = Field(default=None, description="One short sentence with the result.")
+    status: ContextStatus = Field(
+        default="active", description="Record lifecycle status."
+    )
+    valid_from: str | None = Field(
+        default=None, description="When this context became valid."
+    )
+    valid_until: str | None = Field(
+        default=None, description="When this context stopped being valid."
+    )
+    decision: str | None = Field(
+        default=None, description="Decision records only: chosen approach."
+    )
+    why: str | None = Field(
+        default=None, description="Decision records only: rationale."
+    )
+    alternatives: str | None = Field(
+        default=None, description="Decision records only: alternatives considered."
+    )
+    consequences: str | None = Field(
+        default=None, description="Decision records only: practical effects."
+    )
+    user_intent: str | None = Field(
+        default=None, description="Episode records only: session purpose."
+    )
+    what_happened: str | None = Field(
+        default=None, description="Episode records only: session recap."
+    )
+    outcomes: str | None = Field(
+        default=None, description="One short sentence with the result."
+    )
 
 
 @dataclass
@@ -124,11 +165,11 @@ class ContextDeps:
     session_id: str
     project_ids: list[str] | None = None
     trace_path: Path | None = None
-    run_folder: Path | None = None
     session_started_at: str = ""
     trace_total_lines: int = 0
     read_ranges: list[tuple[int, int]] = field(default_factory=list)
     notes: list[TraceFinding] = field(default_factory=list)
+    findings_checked: bool = False
     pruned_offsets: set[int] = field(default_factory=set)
     fetched_context_record_ids: set[str] = field(default_factory=set)
     last_context_tokens: int = 0
@@ -143,7 +184,9 @@ def _store(ctx: RunContext[ContextDeps]) -> ContextStore:
     return store
 
 
-def _source_session_started_at(ctx: RunContext[ContextDeps], store: ContextStore) -> str:
+def _source_session_started_at(
+    ctx: RunContext[ContextDeps], store: ContextStore
+) -> str:
     """Return the source session start timestamp for record provenance."""
     explicit = str(ctx.deps.session_started_at or "").strip()
     if explicit:
@@ -192,44 +235,31 @@ def _classify_context_pressure(fill_ratio: float) -> str:
     return "normal"
 
 
-def _require_note_or_prune_before_trace_read(
+def _auto_prune_before_trace_read(
     ctx: RunContext[ContextDeps], offset: int
-) -> None:
-    """Gate additional trace reads based on current context pressure."""
+) -> list[int]:
+    """Prune old trace reads under context pressure before returning more trace."""
     if offset <= 0:
-        return
+        return []
     fill_ratio = float(ctx.deps.last_context_fill_ratio or 0.0)
     if fill_ratio < CONTEXT_SOFT_PRESSURE_PCT:
-        return
+        return []
     older_offsets = _older_read_offsets(ctx)
     if not older_offsets:
-        return
-    pressure = _classify_context_pressure(fill_ratio)
-    if not ctx.deps.notes:
-        raise ModelRetry(
-            f"Context pressure is already {pressure} ({fill_ratio:.0%} of the configured window). "
-            "Call note_trace_findings first with the strongest durable and implementation findings from the chunks already read. "
-            "Then continue reading."
-        )
-    missing_offsets = [
-        offset for offset in older_offsets if offset not in ctx.deps.pruned_offsets
-    ]
-    if missing_offsets:
-        lines_text = ", ".join(str(item + 1) for item in missing_offsets)
-        raise ModelRetry(
-            f"Context pressure is {pressure} ({fill_ratio:.0%} of the configured window). "
-            "Prune older read_trace results before reading more so the context stays focused. "
-            f"Call prune_trace_reads(start_lines=[{lines_text}]) now, then continue reading."
-        )
+        return []
+    before = set(ctx.deps.pruned_offsets)
+    ctx.deps.pruned_offsets.update(older_offsets)
+    return sorted(ctx.deps.pruned_offsets - before)
 
 
 def read_trace(
     ctx: RunContext[ContextDeps], start_line: int = 1, line_count: int = 100
 ) -> str:
-    """Read numbered trace lines from the source session.
+    """Read the next numbered trace chunk from the source session.
 
     Args:
-        start_line: 1-based first line to read.
+        start_line: 1-based first line to read. After scanning starts,
+            overlapping or out-of-order values advance to the first unread line.
         line_count: Maximum lines to return, capped by Lerim.
     """
     trace_path = ctx.deps.trace_path
@@ -239,6 +269,16 @@ def read_trace(
     total = len(lines)
     ctx.deps.trace_total_lines = total
     offset = max(0, int(start_line) - 1)
+    adjusted_from: int | None = None
+    next_unread = _first_uncovered_offset(ctx.deps.read_ranges, total)
+    if next_unread is None and ctx.deps.read_ranges:
+        return (
+            f"[{total} lines, trace coverage complete] "
+            "All trace lines have already been read. Save the episode and any durable records now."
+        )
+    if next_unread is not None and ctx.deps.read_ranges and offset != next_unread:
+        adjusted_from = offset
+        offset = next_unread
     if offset >= total and total > 0:
         raise ModelRetry(
             f"read_trace start_line {start_line} is past the end of the trace. "
@@ -246,7 +286,7 @@ def read_trace(
         )
     if line_count <= 0 or line_count > TRACE_MAX_LINES_PER_READ:
         line_count = TRACE_MAX_LINES_PER_READ
-    _require_note_or_prune_before_trace_read(ctx, offset)
+    auto_pruned = _auto_prune_before_trace_read(ctx, offset)
     chunk = lines[offset : offset + line_count]
     safe_chunk: list[str] = []
     running_bytes = 0
@@ -268,6 +308,11 @@ def read_trace(
     last_line = offset + len(safe_chunk)
     ctx.deps.read_ranges.append((int(offset), int(last_line)))
     header = f"[{total} lines, showing {offset + 1}-{last_line}]"
+    if adjusted_from is not None:
+        header += f" [advanced from requested line {adjusted_from + 1} to first unread line {offset + 1}]"
+    if auto_pruned:
+        pruned_lines = ", ".join(str(item + 1) for item in auto_pruned)
+        header += f" [auto-pruned older read_trace start lines: {pruned_lines}]"
     if last_line < total:
         header += (
             f" — {total - last_line} more lines, call "
@@ -298,7 +343,9 @@ def search_context(
         )
     active_filters = _search_filters(filters)
     normalized_kinds = [active_filters["kind"]] if active_filters["kind"] else None
-    normalized_statuses = [active_filters["status"]] if active_filters["status"] else None
+    normalized_statuses = (
+        [active_filters["status"]] if active_filters["status"] else None
+    )
     effective_include_archived = bool(
         active_filters["include_archived"] or active_filters["valid_at"]
     )
@@ -446,9 +493,7 @@ def get_context(
     """
     mode = str(detail or "concise").strip().lower()
     if mode not in {"concise", "detailed"}:
-        raise ModelRetry(
-            "get_context detail must be 'concise' or 'detailed'."
-        )
+        raise ModelRetry("get_context detail must be 'concise' or 'detailed'.")
     if not record_ids:
         return json.dumps({"count": 0, "records": []}, indent=2)
     store = _store(ctx)
@@ -598,7 +643,9 @@ def _trace_line_count(ctx: RunContext[ContextDeps]) -> int:
     return total_lines
 
 
-def _require_trace_ready_for_write(ctx: RunContext[ContextDeps]) -> None:
+def _require_trace_ready_for_write(
+    ctx: RunContext[ContextDeps], changes: dict[str, Any] | None = None
+) -> None:
     """Require trace coverage and note discipline before extract writes."""
     trace_path = ctx.deps.trace_path
     if trace_path is None:
@@ -619,11 +666,21 @@ def _require_trace_ready_for_write(ctx: RunContext[ContextDeps]) -> None:
             f"Continue reading with read_trace(start_line={next_offset + 1}, line_count={TRACE_MAX_LINES_PER_READ}) "
             "before you create or update records."
         )
-    if total_lines > TRACE_MAX_LINES_PER_READ and not ctx.deps.notes:
+    is_archived_episode = (
+        changes is not None
+        and changes.get("kind") == "episode"
+        and changes.get("status") == "archived"
+    )
+    if (
+        total_lines > TRACE_MAX_LINES_PER_READ
+        and not ctx.deps.notes
+        and not ctx.deps.findings_checked
+        and not is_archived_episode
+    ):
         raise ModelRetry(
             "This trace is longer than one read_trace chunk. "
-            "Call note_trace_findings first with the strongest durable and implementation findings, "
-            "then create or update records."
+            "Call note_trace_findings with the strongest durable and implementation findings, "
+            "or with an empty findings list if the full trace has no reusable signal, then create or update records."
         )
 
 
@@ -659,8 +716,8 @@ def save_context(ctx: RunContext[ContextDeps], context: ContextDraft) -> str:
     Args:
         context: Complete context payload to persist.
     """
-    _require_trace_ready_for_write(ctx)
     changes = _context_changes(context)
+    _require_trace_ready_for_write(ctx, changes)
     store = _store(ctx)
     project_id = ctx.deps.project_identity.project_id
     session_id = ctx.deps.session_id
@@ -706,8 +763,8 @@ def revise_context(
     [target_record_id] = _require_fetched_context_records(
         ctx, "revise_context", record_id
     )
-    _require_trace_ready_for_write(ctx)
     changes = _context_changes(context)
+    _require_trace_ready_for_write(ctx, changes)
     store = _store(ctx)
     existing = store.fetch_record(
         target_record_id,
@@ -809,7 +866,9 @@ def supersede_context(
                 "The replacement record does not exist in the current project scope. "
                 "Search or list context again, fetch the replacement, then retry with its record_id."
             ) from exc
-        if message.startswith("record_not_found:") or message.startswith("record_out_of_scope:"):
+        if message.startswith("record_not_found:") or message.startswith(
+            "record_out_of_scope:"
+        ):
             raise ModelRetry(
                 "The record to supersede does not exist in the current project scope. "
                 "Search or list context again, fetch the target, then retry with its record_id."
@@ -827,8 +886,9 @@ def note_trace_findings(
     Args:
         findings: Durable and implementation findings from read trace lines.
     """
+    ctx.deps.findings_checked = True
     if not findings:
-        return "No findings recorded."
+        return "No findings recorded; trace findings checkpoint saved."
     ctx.deps.notes.extend(findings)
     total = len(ctx.deps.notes)
     return f"Noted {len(findings)} findings (total {total} so far)."
@@ -855,27 +915,38 @@ def prune_trace_reads(ctx: RunContext[ContextDeps], start_lines: list[int]) -> s
     before = len(ctx.deps.pruned_offsets)
     ctx.deps.pruned_offsets.update(requested)
     added = len(ctx.deps.pruned_offsets) - before
-    return (
-        f"Pruned {added} new trace read(s); total pruned: {len(ctx.deps.pruned_offsets)}."
-    )
+    return f"Pruned {added} new trace read(s); total pruned: {len(ctx.deps.pruned_offsets)}."
 
 
 def compute_request_budget(trace_path: Path) -> int:
     """Scale extract request budget from trace size.
 
-    Real traces need more headroom than the old 20-turn floor allowed,
-    even when the trace itself is short. Keep the budget adaptive, but
-    bias toward successful completion over premature request-limit exits.
+    Budget from the actual number of trace reads plus room for notes, pruning,
+    writes, final validation, and retries. Long traces are expensive in tool
+    calls; under-budgeting them turns otherwise recoverable sessions into
+    request-limit failures.
     """
     try:
-        line_count = sum(1 for _ in trace_path.open("r", encoding="utf-8"))
+        line_count = 0
+        estimated_bytes = 0
+        with trace_path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line_count += 1
+                estimated_bytes += min(
+                    len(line.rstrip("\n").encode("utf-8")),
+                    TRACE_MAX_LINE_BYTES,
+                )
     except OSError:
-        return 40
-    if line_count <= 200:
-        return 40
-    if line_count >= 5000:
-        return 100
-    return max(40, min(100, int(40 + (line_count / 100.0))))
+        return 50
+    read_calls = max(1, math.ceil(line_count / TRACE_MAX_LINES_PER_READ))
+    byte_limited_calls = max(1, math.ceil(estimated_bytes / TRACE_MAX_CHUNK_BYTES))
+    read_calls = max(read_calls, byte_limited_calls)
+    if read_calls == 1:
+        return 50
+    prune_cycles = max(0, read_calls - 1)
+    overhead = 80
+    return max(50, read_calls + prune_cycles + overhead)
+
 
 if __name__ == "__main__":
     """Run a small smoke check for request budget logic."""

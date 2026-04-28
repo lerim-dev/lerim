@@ -37,7 +37,10 @@ def test_extract_long_trace_requires_note_before_writing(
     for tool_name in expectation["must_not_use_tools"]:
         assert tool_name not in tool_names
     assert tool_names.count("read_trace") >= expectation["read_trace_count_at_least"]
-    assert tool_names.count("note_trace_findings") >= expectation["note_trace_findings_count_at_least"]
+    assert (
+        tool_names.count("note_trace_findings")
+        >= expectation["note_trace_findings_count_at_least"]
+    )
 
     rows = outcome.rows
     episode_rows = [row for row in rows if row["kind"] == "episode"]
@@ -49,7 +52,9 @@ def test_extract_long_trace_requires_note_before_writing(
     assert len(durable_rows) == expectation["durable_count"]
     assert len(decision_rows) == expectation["decision_count"]
 
-    decision = next(record for record in outcome.records if record["kind"] == "decision")
+    decision = next(
+        record for record in outcome.records if record["kind"] == "decision"
+    )
     episode = next(record for record in outcome.records if record["kind"] == "episode")
 
     assert decision["decision"]
@@ -63,7 +68,10 @@ def test_extract_long_trace_requires_note_before_writing(
     ).lower()
     for token in expectation["decision_text_must_include_all"]:
         assert token in decision_text
-    assert any(token in decision_text for token in expectation["decision_text_must_include_any"])
+    assert any(
+        token in decision_text
+        for token in expectation["decision_text_must_include_any"]
+    )
     for token in expectation["decision_text_must_not_include"]:
         assert token not in decision_text
 
@@ -88,6 +96,7 @@ def test_extract_long_trace_requires_note_before_writing(
     assert_clean_context_schema(live_config.context_db_path)
     assert_quality_metrics(audit_context_db(live_config.context_db_path))
 
+
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
@@ -95,7 +104,7 @@ def test_extract_very_long_trace_requires_prune(
     live_config,
     live_repo_root,
 ) -> None:
-    """Very long traces should prune_trace_reads old reads after note_trace_findings preserves the signal."""
+    """Very long traces should stay compressed while preserving the extracted signal."""
     expectation = load_extract_expectation("very_long_trace_requires_prune")["expected"]
     outcome = run_extract_case(
         case_name="very_long_trace_requires_prune",
@@ -110,8 +119,14 @@ def test_extract_very_long_trace_requires_prune(
     for tool_name in expectation["must_not_use_tools"]:
         assert tool_name not in tool_names
     assert tool_names.count("read_trace") >= expectation["read_trace_count_at_least"]
-    assert tool_names.count("note_trace_findings") >= expectation["note_trace_findings_count_at_least"]
-    assert tool_names.count("prune_trace_reads") >= expectation["prune_trace_reads_count_at_least"]
+    assert (
+        tool_names.count("note_trace_findings")
+        >= expectation["note_trace_findings_count_at_least"]
+    )
+    assert (
+        tool_names.count("prune_trace_reads")
+        >= expectation["prune_trace_reads_count_at_least"]
+    )
 
     rows = outcome.rows
     episode_rows = [row for row in rows if row["kind"] == "episode"]
@@ -124,7 +139,9 @@ def test_extract_very_long_trace_requires_prune(
     assert len(durable_rows) == expectation["durable_count"]
     assert len(matching_durable_rows) == 1
 
-    durable_record = next(record for record in outcome.records if record["kind"] in durable_kind_any_of)
+    durable_record = next(
+        record for record in outcome.records if record["kind"] in durable_kind_any_of
+    )
     episode = next(record for record in outcome.records if record["kind"] == "episode")
 
     assert len(str(episode["body"])) <= 420
@@ -139,7 +156,9 @@ def test_extract_very_long_trace_requires_prune(
     ).lower()
     for token in expectation["durable_text_must_include_all"]:
         assert token in durable_text
-    assert any(token in durable_text for token in expectation["durable_text_must_include_any"])
+    assert any(
+        token in durable_text for token in expectation["durable_text_must_include_any"]
+    )
     for token in expectation["durable_text_must_not_include"]:
         assert token not in durable_text
 
@@ -152,7 +171,9 @@ def test_extract_late_disambiguation_at_end_of_trace(
     live_repo_root,
 ) -> None:
     """The final clarifying chunk should win over earlier lures in a long trace."""
-    expectation = load_extract_expectation("late_disambiguation_at_end_of_trace")["expected"]
+    expectation = load_extract_expectation("late_disambiguation_at_end_of_trace")[
+        "expected"
+    ]
     outcome = run_extract_case(
         case_name="late_disambiguation_at_end_of_trace",
         live_config=live_config,
@@ -175,7 +196,9 @@ def test_extract_late_disambiguation_at_end_of_trace(
     assert len(durable_rows) == expectation["durable_count"]
     assert len(matching_durable_rows) == 1
 
-    durable_record = next(record for record in outcome.records if record["kind"] in durable_kind_any_of)
+    durable_record = next(
+        record for record in outcome.records if record["kind"] in durable_kind_any_of
+    )
     if durable_record["kind"] == "decision":
         assert durable_record["decision"]
         assert durable_record["why"]
@@ -186,7 +209,9 @@ def test_extract_late_disambiguation_at_end_of_trace(
     ).lower()
     for token in expectation["durable_text_must_include_all"]:
         assert token in durable_text
-    assert any(token in durable_text for token in expectation["durable_text_must_include_any"])
+    assert any(
+        token in durable_text for token in expectation["durable_text_must_include_any"]
+    )
     for token in expectation["durable_text_must_not_include"]:
         assert token not in durable_text
 

@@ -383,14 +383,13 @@ def build_extract_agent(model: Model) -> Agent[ContextDeps, ExtractionResult]:
         store.register_project(ctx.deps.project_identity)
         rows = store.query(
             entity="records",
-            mode="list",
+            mode="count",
             project_ids=[ctx.deps.project_identity.project_id],
+            kind="episode",
             source_session_id=ctx.deps.session_id,
-            include_total=False,
             include_archived=True,
-            limit=20,
-        )["rows"]
-        episode_count = sum(1 for row in rows if str(row.get("kind") or "") == "episode")
+        )
+        episode_count = int(rows.get("count") or 0)
         if episode_count != 1:
             raise ModelRetry(
                 "The run is not complete yet. Create exactly one episode record for the current session before final_result."
@@ -465,7 +464,6 @@ def run_extraction(
         project_identity=project_identity,
         session_id=session_id,
         trace_path=trace_path,
-        run_folder=run_folder,
         session_started_at=str(session_started_at or "").strip(),
     )
     source_time_text = str(session_started_at or "").strip() or "unknown"

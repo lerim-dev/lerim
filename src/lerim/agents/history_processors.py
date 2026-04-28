@@ -41,6 +41,8 @@ def notes_state_injector(
     findings = ctx.deps.notes
     if not findings:
         summary = "NOTES: 0 findings"
+        if ctx.deps.findings_checked:
+            summary += " (checkpoint recorded)"
     else:
         counts = Counter(f.level for f in findings)
         durable_findings = [f for f in findings if f.level in DURABLE_FINDING_LEVELS]
@@ -63,7 +65,9 @@ def notes_state_injector(
         next_uncovered = _first_uncovered_offset(
             ctx.deps.read_ranges, int(ctx.deps.trace_total_lines)
         )
-        covered_chunks = len({(int(start), int(end)) for start, end in ctx.deps.read_ranges})
+        covered_chunks = len(
+            {(int(start), int(end)) for start, end in ctx.deps.read_ranges}
+        )
         summary += (
             f"\nTrace reads: {covered_chunks} chunk(s)"
             f"\nNext unread offset: {next_uncovered if next_uncovered is not None else 'none'}"
@@ -115,7 +119,10 @@ def prune_history_processor(
         parts = getattr(message, "parts", []) or []
         new_parts = []
         for part in parts:
-            if isinstance(part, ToolCallPart) and getattr(part, "tool_name", "") == "read_trace":
+            if (
+                isinstance(part, ToolCallPart)
+                and getattr(part, "tool_name", "") == "read_trace"
+            ):
                 args = getattr(part, "args", None)
                 offset = None
                 if isinstance(args, dict):

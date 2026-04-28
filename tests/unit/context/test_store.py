@@ -224,19 +224,19 @@ class TestConstants:
         assert MAX_RECORD_TITLE_CHARS == 120
 
     def test_max_episode_body_chars(self):
-        assert MAX_EPISODE_BODY_CHARS == 420
+        assert MAX_EPISODE_BODY_CHARS == 1200
 
     def test_max_durable_body_chars(self):
         assert MAX_DURABLE_BODY_CHARS == 850
 
     def test_max_episode_user_intent_chars(self):
-        assert MAX_EPISODE_USER_INTENT_CHARS == 180
+        assert MAX_EPISODE_USER_INTENT_CHARS == 300
 
     def test_max_episode_what_happened_chars(self):
-        assert MAX_EPISODE_WHAT_HAPPENED_CHARS == 260
+        assert MAX_EPISODE_WHAT_HAPPENED_CHARS == 1000
 
     def test_max_episode_outcomes_chars(self):
-        assert MAX_EPISODE_OUTCOMES_CHARS == 180
+        assert MAX_EPISODE_OUTCOMES_CHARS == 300
 
     def test_query_order_fields(self):
         assert QUERY_ORDER_FIELDS == ("created_at", "updated_at", "valid_from")

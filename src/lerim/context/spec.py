@@ -52,11 +52,11 @@ ALLOWED_STATUSES = tuple(status.value for status in RecordStatus)
 ALLOWED_CHANGE_KINDS = tuple(change_kind.value for change_kind in RecordChangeKind)
 ALLOWED_FINDING_LEVELS = tuple(level.value for level in FindingLevel)
 MAX_RECORD_TITLE_CHARS = 120
-MAX_EPISODE_BODY_CHARS = 420
+MAX_EPISODE_BODY_CHARS = 1200
 MAX_DURABLE_BODY_CHARS = 850
-MAX_EPISODE_USER_INTENT_CHARS = 180
-MAX_EPISODE_WHAT_HAPPENED_CHARS = 260
-MAX_EPISODE_OUTCOMES_CHARS = 180
+MAX_EPISODE_USER_INTENT_CHARS = 300
+MAX_EPISODE_WHAT_HAPPENED_CHARS = 1000
+MAX_EPISODE_OUTCOMES_CHARS = 300
 RECORD_TYPED_FIELDS = (
     "decision",
     "why",
@@ -284,7 +284,7 @@ def record_validation_message(code: str) -> str | None:
             "need to improve it."
         ),
         "episode_body_too_long": (
-            "Episode body is too long. Compress it to 2-4 short sentences."
+            "Episode body is too long. Keep a compact session recap."
         ),
         "episode_user_intent_too_long": (
             "user_intent is too long. Compress it to one short sentence."
