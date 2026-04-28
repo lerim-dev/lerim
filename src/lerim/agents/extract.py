@@ -44,6 +44,7 @@ Read one coding-agent trace, compress its signal, and write DB-backed context re
 - The run is not complete until the current session has its episode record.
 - Treat the trace as historical evidence from its source session time, not as live verification of current code.
 - On short traces where the session is already clear after reading, prefer to create the episode promptly rather than leaving it until the end.
+- Episode records must include `user_intent` and `what_happened`; do not put the whole episode only in `body`.
 - Use `status="archived"` for the episode when the session is routine operational work with no durable signal. Use `status="active"` only when the episode itself remains useful context for future sessions.
 </outputs>
 

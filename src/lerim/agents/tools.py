@@ -774,7 +774,11 @@ def save_context(
     what_happened: str | None = None,
     outcomes: str | None = None,
 ) -> str:
-    """Save one context record."""
+    """Save one context record.
+
+    For kind="episode", provide both user_intent and what_happened.
+    For kind="decision", provide both decision and why.
+    """
     changes = _context_changes(
         kind=kind,
         title=title,
