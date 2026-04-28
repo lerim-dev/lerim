@@ -36,6 +36,12 @@ from lerim.context import ContextStore, resolve_project_identity
 from tests.helpers import make_config
 
 
+def _dated_log_file(root: Path) -> Path:
+	path = root / "2026" / "03" / "01" / "lerim.jsonl"
+	path.parent.mkdir(parents=True, exist_ok=True)
+	return path
+
+
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -570,7 +576,7 @@ class TestShipLogs:
 	def test_ships_log_entries(self, tmp_path, monkeypatch):
 		"""Log entries are shipped and offset is advanced."""
 		monkeypatch.setattr("lerim.cloud.shipper.LOG_DIR", tmp_path)
-		log_file = tmp_path / "lerim.jsonl"
+		log_file = _dated_log_file(tmp_path)
 		entries = [
 			json.dumps({"level": "info", "msg": f"line {i}"})
 			for i in range(3)
@@ -594,7 +600,7 @@ class TestShipLogs:
 	def test_detects_log_rotation(self, tmp_path, monkeypatch):
 		"""Offset reset when file is smaller than stored offset."""
 		monkeypatch.setattr("lerim.cloud.shipper.LOG_DIR", tmp_path)
-		log_file = tmp_path / "lerim.jsonl"
+		log_file = _dated_log_file(tmp_path)
 		log_file.write_text('{"msg":"new"}\n', encoding="utf-8")
 
 		state = _ShipperState(
@@ -616,7 +622,7 @@ class TestShipLogs:
 	def test_stops_on_batch_failure(self, tmp_path, monkeypatch):
 		"""Log shipping stops on first batch failure."""
 		monkeypatch.setattr("lerim.cloud.shipper.LOG_DIR", tmp_path)
-		log_file = tmp_path / "lerim.jsonl"
+		log_file = _dated_log_file(tmp_path)
 		entries = [json.dumps({"msg": f"line {i}"}) for i in range(3)]
 		log_file.write_text("\n".join(entries) + "\n", encoding="utf-8")
 
@@ -633,6 +639,32 @@ class TestShipLogs:
 
 		# Partial batch sent, all fail
 		assert shipped == 0
+		assert state.log_offset_bytes == 0
+
+	def test_keeps_offset_at_failed_batch_start(self, tmp_path, monkeypatch):
+		"""Successful batches advance, but a later failed batch is retried."""
+		monkeypatch.setattr("lerim.cloud.shipper.LOG_DIR", tmp_path)
+		log_file = _dated_log_file(tmp_path)
+		entries = [json.dumps({"msg": f"line {i}"}) for i in range(501)]
+		log_file.write_text("\n".join(entries) + "\n", encoding="utf-8")
+
+		first_batch_size = len(("\n".join(entries[:500]) + "\n").encode("utf-8"))
+		state = _ShipperState(log_file="lerim.jsonl", log_offset_bytes=0)
+		calls = 0
+
+		async def mock_post(*args, **kwargs):
+			"""Succeed once, then fail."""
+			nonlocal calls
+			calls += 1
+			return calls == 1
+
+		with patch("lerim.cloud.shipper._post_batch", side_effect=mock_post):
+			shipped = asyncio.run(
+				_ship_logs("https://api.test", "tok", state)
+			)
+
+		assert shipped == 500
+		assert state.log_offset_bytes == first_batch_size
 
 
 # ---------------------------------------------------------------------------

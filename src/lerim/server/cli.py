@@ -40,6 +40,7 @@ from lerim.server.api import (
 from lerim.server.docker_runtime import (
     api_down,
     api_up,
+    current_compose_uses_local_build,
     docker_available,
     is_docker_container_running,
 )
@@ -89,19 +90,19 @@ def _api_request_failed(error: ApiClientError) -> int:
 
 
 def _wait_for_ready(port: int, timeout: int = 30) -> bool:
-	"""Poll /api/health until the server responds or *timeout* seconds elapse."""
-	url = f"http://localhost:{port}/api/health"
-	deadline = time.monotonic() + timeout
-	while time.monotonic() < deadline:
-		try:
-			req = urllib.request.Request(url, method="GET")
-			with urllib.request.urlopen(req, timeout=5) as resp:
-				if resp.status == 200:
-					return True
-		except (urllib.error.URLError, OSError):
-			pass
-		time.sleep(1)
-	return False
+    """Poll /api/health until the server responds or *timeout* seconds elapse."""
+    url = f"http://localhost:{port}/api/health"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status == 200:
+                    return True
+        except (urllib.error.URLError, OSError):
+            pass
+        time.sleep(1)
+    return False
 
 
 def _api_get(path: str) -> dict[str, Any]:
@@ -121,6 +122,19 @@ def _hoist_global_json_flag(raw: list[str]) -> list[str]:
     if "--json" not in raw:
         return raw
     return ["--json"] + [item for item in raw if item != "--json"]
+
+
+def _restart_docker_for_project_change(message: str) -> int:
+    """Restart the Docker runtime when project mounts changed."""
+    if not is_docker_container_running():
+        return 0
+    _emit(message)
+    result = api_up(build_local=current_compose_uses_local_build())
+    if result.get("error"):
+        _emit(result["error"], file=sys.stderr)
+        return 1
+    _emit("Done.")
+    return 0
 
 
 def _cmd_connect(args: argparse.Namespace) -> int:
@@ -151,7 +165,7 @@ def _cmd_connect(args: argparse.Namespace) -> int:
         _emit(f"Auto connected: {connected}")
         if connected > 0 and is_docker_container_running():
             _emit("Restarting Lerim to mount connected platform paths...")
-            api_up()
+            api_up(build_local=current_compose_uses_local_build())
             _emit("Done.")
         return 0
 
@@ -164,7 +178,7 @@ def _cmd_connect(args: argparse.Namespace) -> int:
         _emit(f"Removed: {name}" if removed else f"Platform not connected: {name}")
         if removed and is_docker_container_running():
             _emit("Restarting Lerim...")
-            api_up()
+            api_up(build_local=current_compose_uses_local_build())
             _emit("Done.")
         return 0
 
@@ -194,7 +208,7 @@ def _cmd_connect(args: argparse.Namespace) -> int:
         _emit("- Path unchanged, no initial reindex trigger.")
     elif is_docker_container_running():
         _emit("Restarting Lerim to mount connected platform path...")
-        api_up()
+        api_up(build_local=current_compose_uses_local_build())
         _emit("Done.")
     return 0
 
@@ -250,19 +264,19 @@ def _cmd_maintain(args: argparse.Namespace) -> int:
 
 
 def _cmd_dashboard(args: argparse.Namespace) -> int:
-	"""Show dashboard transition message."""
-	print()
-	print("  Lerim Dashboard is moving to the cloud.")
-	print("  The new dashboard will be available at https://lerim.dev")
-	print()
-	print("  In the meantime, use these CLI commands:")
-	print("    lerim status     - system overview")
-	print("    lerim ask        - query your stored context")
-	print("    lerim queue      - view session processing queue")
-	print("    lerim sync       - process new sessions")
-	print("    lerim maintain   - refine stored records")
-	print()
-	return 0
+    """Show dashboard transition message."""
+    print()
+    print("  Lerim Dashboard is moving to the cloud.")
+    print("  The new dashboard will be available at https://lerim.dev")
+    print()
+    print("  In the meantime, use these CLI commands:")
+    print("    lerim status     - system overview")
+    print("    lerim ask        - query your stored context")
+    print("    lerim queue      - view session processing queue")
+    print("    lerim sync       - process new sessions")
+    print("    lerim maintain   - refine stored records")
+    print()
+    return 0
 
 
 def _normalize_scope(raw: str | None) -> str:
@@ -289,7 +303,9 @@ def _render_ask_trace(debug: dict[str, Any]) -> list[str]:
         for part in message.get("parts") or []:
             part_kind = str(part.get("part_kind") or "")
             if part_kind == "system-prompt":
-                lines.append(f"  [system-prompt] ({int(part.get('char_count', 0))} chars)")
+                lines.append(
+                    f"  [system-prompt] ({int(part.get('char_count', 0))} chars)"
+                )
                 continue
             if part_kind == "user-prompt":
                 lines.append(f"  [user-prompt] {str(part.get('content') or '')}")
@@ -377,314 +393,324 @@ def _cmd_query(args: argparse.Namespace) -> int:
 
 
 def _relative_time(iso_str: str) -> str:
-	"""Convert an ISO timestamp to a human-readable relative string."""
-	try:
-		from datetime import datetime, timezone
-		dt = datetime.fromisoformat(iso_str)
-		if dt.tzinfo is None:
-			dt = dt.replace(tzinfo=timezone.utc)
-		delta = datetime.now(timezone.utc) - dt
-		secs = int(delta.total_seconds())
-		if secs < 0:
-			return "just now"
-		if secs < 60:
-			return f"{secs}s ago"
-		if secs < 3600:
-			return f"{secs // 60}m ago"
-		if secs < 86400:
-			return f"{secs // 3600}h ago"
-		return f"{secs // 86400}d ago"
-	except (ValueError, TypeError):
-		return "?"
+    """Convert an ISO timestamp to a human-readable relative string."""
+    try:
+        from datetime import datetime, timezone
+
+        dt = datetime.fromisoformat(iso_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - dt
+        secs = int(delta.total_seconds())
+        if secs < 0:
+            return "just now"
+        if secs < 60:
+            return f"{secs}s ago"
+        if secs < 3600:
+            return f"{secs // 60}m ago"
+        if secs < 86400:
+            return f"{secs // 3600}h ago"
+        return f"{secs // 86400}d ago"
+    except (ValueError, TypeError):
+        return "?"
 
 
 def _format_queue_counts(counts: dict[str, int]) -> str:
-	"""Format queue status counts into a summary string."""
-	order = ["pending", "running", "done", "failed", "dead_letter"]
-	parts = []
-	for status in order:
-		n = counts.get(status, 0)
-		if n > 0:
-			parts.append(f"{n} {status}")
-	return ", ".join(parts) if parts else "empty"
+    """Format queue status counts into a summary string."""
+    order = ["pending", "running", "done", "failed", "dead_letter"]
+    parts = []
+    for status in order:
+        n = counts.get(status, 0)
+        if n > 0:
+            parts.append(f"{n} {status}")
+    return ", ".join(parts) if parts else "empty"
 
 
 def _resolve_project_repo_path(name: str) -> str | None:
-	"""Resolve an exact project name/path to repo_path."""
-	config = get_config()
-	if name in config.projects:
-		return str(Path(config.projects[name]).expanduser().resolve())
-	token = str(name).strip()
-	try:
-		raw_path = Path(token).expanduser().resolve()
-	except Exception:
-		raw_path = None
-	if raw_path is not None:
-		for ppath in config.projects.values():
-			resolved = Path(ppath).expanduser().resolve()
-			if resolved == raw_path:
-				return str(resolved)
-	return None
+    """Resolve an exact project name/path to repo_path."""
+    config = get_config()
+    if name in config.projects:
+        return str(Path(config.projects[name]).expanduser().resolve())
+    token = str(name).strip()
+    try:
+        raw_path = Path(token).expanduser().resolve()
+    except Exception:
+        raw_path = None
+    if raw_path is not None:
+        for ppath in config.projects.values():
+            resolved = Path(ppath).expanduser().resolve()
+            if resolved == raw_path:
+                return str(resolved)
+    return None
 
 
 def _cmd_queue(args: argparse.Namespace) -> int:
-	"""Display the session extraction queue."""
-	from lerim.sessions.catalog import list_queue_jobs, count_session_jobs_by_status
+    """Display the session extraction queue."""
+    from lerim.sessions.catalog import list_queue_jobs, count_session_jobs_by_status
 
-	project_filter: str | None = None
-	project_exact = False
-	project = getattr(args, "project", None)
-	if project:
-		repo_path = _resolve_project_repo_path(str(project))
-		if not repo_path:
-			_emit(f"Project not found: {project}", file=sys.stderr)
-			return 1
-		project_filter = repo_path
-		project_exact = True
+    project_filter: str | None = None
+    project_exact = False
+    project = getattr(args, "project", None)
+    if project:
+        repo_path = _resolve_project_repo_path(str(project))
+        if not repo_path:
+            _emit(f"Project not found: {project}", file=sys.stderr)
+            return 1
+        project_filter = repo_path
+        project_exact = True
 
-	jobs = list_queue_jobs(
-		status_filter=getattr(args, "status", None),
-		project_filter=project_filter,
-		project_exact=project_exact,
-		failed_only=getattr(args, "failed", False),
-	)
-	counts = count_session_jobs_by_status()
+    jobs = list_queue_jobs(
+        status_filter=getattr(args, "status", None),
+        project_filter=project_filter,
+        project_exact=project_exact,
+        failed_only=getattr(args, "failed", False),
+    )
+    counts = count_session_jobs_by_status()
 
-	if args.json:
-		_emit(json.dumps({"jobs": jobs, "total": len(jobs), "queue": counts}, indent=2, default=str))
-		return 0
+    if args.json:
+        _emit(
+            json.dumps(
+                {"jobs": jobs, "total": len(jobs), "queue": counts},
+                indent=2,
+                default=str,
+            )
+        )
+        return 0
 
-	if not jobs:
-		_emit("Session Queue: no jobs")
-		_emit(_format_queue_counts(counts))
-		return 0
+    if not jobs:
+        _emit("Session Queue: no jobs")
+        _emit(_format_queue_counts(counts))
+        return 0
 
-	from rich.console import Console
-	from rich.table import Table
+    from rich.console import Console
+    from rich.table import Table
 
-	table = Table(title=f"Session Queue ({len(jobs)} jobs)")
-	table.add_column("STATUS", style="bold")
-	table.add_column("RUN ID")
-	table.add_column("PROJECT")
-	table.add_column("AGENT")
-	table.add_column("AGE")
-	table.add_column("ERROR")
+    table = Table(title=f"Session Queue ({len(jobs)} jobs)")
+    table.add_column("STATUS", style="bold")
+    table.add_column("RUN ID")
+    table.add_column("PROJECT")
+    table.add_column("AGENT")
+    table.add_column("AGE")
+    table.add_column("ERROR")
 
-	status_styles = {
-		"pending": "dim white", "running": "cyan",
-		"failed": "yellow", "dead_letter": "red bold",
-		"done": "green",
-	}
+    status_styles = {
+        "pending": "dim white",
+        "running": "cyan",
+        "failed": "yellow",
+        "dead_letter": "red bold",
+        "done": "green",
+    }
 
-	for job in jobs:
-		st = str(job.get("status") or "")
-		style = status_styles.get(st, "")
-		rid = str(job.get("run_id") or "")[:8]
-		rp = str(job.get("repo_path") or "")
-		proj = Path(rp).name if rp else ""
-		agent = str(job.get("agent_type") or "")
-		age = _relative_time(str(job.get("updated_at") or ""))
-		err = str(job.get("error") or "")[:50]
-		table.add_row(f"[{style}]{st}[/{style}]", rid, proj, agent, age, err)
+    for job in jobs:
+        st = str(job.get("status") or "")
+        style = status_styles.get(st, "")
+        rid = str(job.get("run_id") or "")[:8]
+        rp = str(job.get("repo_path") or "")
+        proj = Path(rp).name if rp else ""
+        agent = str(job.get("agent_type") or "")
+        age = _relative_time(str(job.get("updated_at") or ""))
+        err = str(job.get("error") or "")[:50]
+        table.add_row(f"[{style}]{st}[/{style}]", rid, proj, agent, age, err)
 
-	Console().print(table)
-	_emit(_format_queue_counts(counts))
-	if counts.get("dead_letter", 0) > 0:
-		_emit("Retry: lerim retry <run_id>  |  Retry all: lerim retry --all")
-	return 0
+    Console().print(table)
+    _emit(_format_queue_counts(counts))
+    if counts.get("dead_letter", 0) > 0:
+        _emit("Retry: lerim retry <run_id>  |  Retry all: lerim retry --all")
+    return 0
 
 
 def _cmd_unscoped(args: argparse.Namespace) -> int:
-	"""Show indexed sessions that are currently unscoped (no project match)."""
-	query_path = f"/api/unscoped?limit={max(1, int(args.limit))}"
-	try:
-		data = _api_get(query_path)
-	except ApiClientError as error:
-		return _api_request_failed(error)
-	items = data.get("items") or []
-	if args.json:
-		_emit(json.dumps(data, indent=2, ensure_ascii=True))
-		return 0
-	count_by_agent = data.get("count_by_agent") or {}
-	if not items:
-		_emit("No unscoped sessions.")
-		if count_by_agent:
-			_emit(f"by_agent: {json.dumps(count_by_agent, ensure_ascii=True)}")
-		return 0
-	_emit(f"Unscoped sessions ({len(items)} shown):")
-	for item in items:
-		run_id = str(item.get("run_id") or "")[:8]
-		agent = str(item.get("agent_type") or "unknown")
-		repo_path = str(item.get("repo_path") or "(missing cwd)")
-		_emit(f"- {run_id}  {agent}  {repo_path}")
-	if count_by_agent:
-		_emit(f"by_agent: {json.dumps(count_by_agent, ensure_ascii=True)}")
-	return 0
+    """Show indexed sessions that are currently unscoped (no project match)."""
+    query_path = f"/api/unscoped?limit={max(1, int(args.limit))}"
+    try:
+        data = _api_get(query_path)
+    except ApiClientError as error:
+        return _api_request_failed(error)
+    items = data.get("items") or []
+    if args.json:
+        _emit(json.dumps(data, indent=2, ensure_ascii=True))
+        return 0
+    count_by_agent = data.get("count_by_agent") or {}
+    if not items:
+        _emit("No unscoped sessions.")
+        if count_by_agent:
+            _emit(f"by_agent: {json.dumps(count_by_agent, ensure_ascii=True)}")
+        return 0
+    _emit(f"Unscoped sessions ({len(items)} shown):")
+    for item in items:
+        run_id = str(item.get("run_id") or "")[:8]
+        agent = str(item.get("agent_type") or "unknown")
+        repo_path = str(item.get("repo_path") or "(missing cwd)")
+        _emit(f"- {run_id}  {agent}  {repo_path}")
+    if count_by_agent:
+        _emit(f"by_agent: {json.dumps(count_by_agent, ensure_ascii=True)}")
+    return 0
 
 
 def _cmd_status_live(args: argparse.Namespace) -> int:
-	"""Live status dashboard for project stream health and queue state."""
-	from datetime import datetime, timezone
-	from rich.live import Live
-	from lerim.server.status_tui import render_status_output
+    """Live status dashboard for project stream health and queue state."""
+    from datetime import datetime, timezone
+    from rich.live import Live
+    from lerim.server.status_tui import render_status_output
 
-	interval = max(0.5, float(getattr(args, "interval", 3.0)))
-	scope = _normalize_scope(getattr(args, "scope", None))
-	project = getattr(args, "project", None)
-	query = f"/api/status?scope={scope}"
-	if project:
-		query += f"&project={urllib.parse.quote(str(project))}"
+    interval = max(0.5, float(getattr(args, "interval", 3.0)))
+    scope = _normalize_scope(getattr(args, "scope", None))
+    project = getattr(args, "project", None)
+    query = f"/api/status?scope={scope}"
+    if project:
+        query += f"&project={urllib.parse.quote(str(project))}"
 
-	def _fetch() -> dict[str, Any]:
-		return _api_get(query)
+    def _fetch() -> dict[str, Any]:
+        return _api_get(query)
 
-	if args.json:
-		try:
-			payload = _fetch()
-		except ApiClientError as error:
-			return _api_request_failed(error)
-		_emit(json.dumps(payload, indent=2, ensure_ascii=True))
-		return 0
+    if args.json:
+        try:
+            payload = _fetch()
+        except ApiClientError as error:
+            return _api_request_failed(error)
+        _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        return 0
 
-	try:
-		with Live(refresh_per_second=4, screen=False) as live:
-			while True:
-				try:
-					payload = _fetch()
-				except ApiClientError as error:
-					live.stop()
-					return _api_request_failed(error)
-				refreshed_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
-				live.update(render_status_output(payload, refreshed_at=refreshed_at))
-				time.sleep(interval)
-	except KeyboardInterrupt:
-		_emit("")
-		return 0
+    try:
+        with Live(refresh_per_second=4, screen=False) as live:
+            while True:
+                try:
+                    payload = _fetch()
+                except ApiClientError as error:
+                    live.stop()
+                    return _api_request_failed(error)
+                refreshed_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+                live.update(render_status_output(payload, refreshed_at=refreshed_at))
+                time.sleep(interval)
+    except KeyboardInterrupt:
+        _emit("")
+        return 0
+
 
 def _dead_letter_action(
-	args: argparse.Namespace,
-	*,
-	verb: str,
-	single_fn_name: str,
-	project_fn_name: str,
-	all_fn_name: str,
-	done_suffix: str = "",
+    args: argparse.Namespace,
+    *,
+    verb: str,
+    single_fn_name: str,
+    project_fn_name: str,
+    all_fn_name: str,
+    done_suffix: str = "",
 ) -> int:
-	"""Shared handler for retry/skip dead_letter operations."""
-	from lerim.sessions.catalog import (
-		resolve_run_id_prefix,
-		count_session_jobs_by_status,
-	)
-	import lerim.sessions.catalog as _catalog
+    """Shared handler for retry/skip dead_letter operations."""
+    from lerim.sessions.catalog import (
+        resolve_run_id_prefix,
+        count_session_jobs_by_status,
+    )
+    import lerim.sessions.catalog as _catalog
 
-	single_fn = getattr(_catalog, single_fn_name)
-	project_fn = getattr(_catalog, project_fn_name)
-	all_fn = getattr(_catalog, all_fn_name)
+    single_fn = getattr(_catalog, single_fn_name)
+    project_fn = getattr(_catalog, project_fn_name)
+    all_fn = getattr(_catalog, all_fn_name)
 
-	run_id = getattr(args, "run_id", None)
-	project = getattr(args, "project", None)
-	do_all = getattr(args, "all", False)
+    run_id = getattr(args, "run_id", None)
+    project = getattr(args, "project", None)
+    do_all = getattr(args, "all", False)
 
-	if do_all:
-		count = int(all_fn())
-		if count == 0:
-			_emit(f"No dead_letter jobs to {verb.lower()}.")
-			return 0
-		_emit(f"{verb} {count} dead_letter job(s).")
-		_emit(_format_queue_counts(count_session_jobs_by_status()))
-		return 0
+    if do_all:
+        count = int(all_fn())
+        if count == 0:
+            _emit(f"No dead_letter jobs to {verb.lower()}.")
+            return 0
+        _emit(f"{verb} {count} dead_letter job(s).")
+        _emit(_format_queue_counts(count_session_jobs_by_status()))
+        return 0
 
-	if project:
-		repo_path = _resolve_project_repo_path(project)
-		if not repo_path:
-			_emit(f"Project not found: {project}", file=sys.stderr)
-			return 1
-		count = project_fn(repo_path)
-		_emit(f"{verb} {count} dead_letter job(s) for project {project}.")
-		_emit(_format_queue_counts(count_session_jobs_by_status()))
-		return 0
+    if project:
+        repo_path = _resolve_project_repo_path(project)
+        if not repo_path:
+            _emit(f"Project not found: {project}", file=sys.stderr)
+            return 1
+        count = project_fn(repo_path)
+        _emit(f"{verb} {count} dead_letter job(s) for project {project}.")
+        _emit(_format_queue_counts(count_session_jobs_by_status()))
+        return 0
 
-	if not run_id:
-		_emit("Provide a run_id, --project, or --all.", file=sys.stderr)
-		return 2
-	if len(run_id) < 6:
-		_emit("Run ID prefix must be at least 6 characters.", file=sys.stderr)
-		return 2
+    if not run_id:
+        _emit("Provide a run_id, --project, or --all.", file=sys.stderr)
+        return 2
+    if len(run_id) < 6:
+        _emit("Run ID prefix must be at least 6 characters.", file=sys.stderr)
+        return 2
 
-	full_id = resolve_run_id_prefix(run_id)
-	if not full_id:
-		_emit(f"Run ID not found or ambiguous: {run_id}", file=sys.stderr)
-		return 1
+    full_id = resolve_run_id_prefix(run_id)
+    if not full_id:
+        _emit(f"Run ID not found or ambiguous: {run_id}", file=sys.stderr)
+        return 1
 
-	if single_fn(full_id):
-		_emit(f"{verb}: {run_id}{done_suffix}")
-		_emit(_format_queue_counts(count_session_jobs_by_status()))
-	else:
-		_emit(f"Job {run_id} is not in dead_letter status.", file=sys.stderr)
-		return 1
-	return 0
+    if single_fn(full_id):
+        _emit(f"{verb}: {run_id}{done_suffix}")
+        _emit(_format_queue_counts(count_session_jobs_by_status()))
+    else:
+        _emit(f"Job {run_id} is not in dead_letter status.", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _cmd_retry(args: argparse.Namespace) -> int:
-	"""Retry dead_letter jobs."""
-	return _dead_letter_action(
-		args,
-		verb="Retried",
-		single_fn_name="retry_session_job",
-		project_fn_name="retry_project_jobs",
-		all_fn_name="retry_all_dead_letter_jobs",
-	)
+    """Retry dead_letter jobs."""
+    return _dead_letter_action(
+        args,
+        verb="Retried",
+        single_fn_name="retry_session_job",
+        project_fn_name="retry_project_jobs",
+        all_fn_name="retry_all_dead_letter_jobs",
+    )
 
 
 def _cmd_skip(args: argparse.Namespace) -> int:
-	"""Skip dead_letter jobs."""
-	return _dead_letter_action(
-		args,
-		verb="Skipped",
-		single_fn_name="skip_session_job",
-		project_fn_name="skip_project_jobs",
-		all_fn_name="skip_all_dead_letter_jobs",
-		done_suffix=" -> done",
-	)
+    """Skip dead_letter jobs."""
+    return _dead_letter_action(
+        args,
+        verb="Skipped",
+        single_fn_name="skip_session_job",
+        project_fn_name="skip_project_jobs",
+        all_fn_name="skip_all_dead_letter_jobs",
+        done_suffix=" -> done",
+    )
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
-	"""Forward status request to the running Lerim server."""
-	if getattr(args, "live", False):
-		live_args = argparse.Namespace(
-			command="status",
-			json=getattr(args, "json", False),
-			interval=float(getattr(args, "interval", 3.0)),
-			scope=getattr(args, "scope", "all"),
-			project=getattr(args, "project", None),
-		)
-		return _cmd_status_live(live_args)
+    """Forward status request to the running Lerim server."""
+    if getattr(args, "live", False):
+        live_args = argparse.Namespace(
+            command="status",
+            json=getattr(args, "json", False),
+            interval=float(getattr(args, "interval", 3.0)),
+            scope=getattr(args, "scope", "all"),
+            project=getattr(args, "project", None),
+        )
+        return _cmd_status_live(live_args)
 
-	scope = _normalize_scope(getattr(args, "scope", None))
-	query = f"/api/status?scope={scope}"
-	project = getattr(args, "project", None)
-	if project:
-		query += f"&project={urllib.parse.quote(str(project))}"
-	try:
-		data = _api_get(query)
-	except ApiClientError as error:
-		return _api_request_failed(error)
-	if data.get("error"):
-		if args.json:
-			_emit(json.dumps(data, indent=2, ensure_ascii=True))
-		else:
-			_emit(str(data.get("error")), file=sys.stderr)
-		return 1
-	if args.json:
-		_emit(json.dumps(data, indent=2, ensure_ascii=True))
-	else:
-		from datetime import datetime, timezone
-		from rich.console import Console
-		from lerim.server.status_tui import render_status_output
+    scope = _normalize_scope(getattr(args, "scope", None))
+    query = f"/api/status?scope={scope}"
+    project = getattr(args, "project", None)
+    if project:
+        query += f"&project={urllib.parse.quote(str(project))}"
+    try:
+        data = _api_get(query)
+    except ApiClientError as error:
+        return _api_request_failed(error)
+    if data.get("error"):
+        if args.json:
+            _emit(json.dumps(data, indent=2, ensure_ascii=True))
+        else:
+            _emit(str(data.get("error")), file=sys.stderr)
+        return 1
+    if args.json:
+        _emit(json.dumps(data, indent=2, ensure_ascii=True))
+    else:
+        from datetime import datetime, timezone
+        from rich.console import Console
+        from lerim.server.status_tui import render_status_output
 
-		refreshed_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
-		Console().print(render_status_output(data, refreshed_at=refreshed_at))
-	return 0
+        refreshed_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+        Console().print(render_status_output(data, refreshed_at=refreshed_at))
+    return 0
 
 
 def _setup_api_keys() -> None:
@@ -702,7 +728,9 @@ def _setup_api_keys() -> None:
 
     _emit("\n── LLM Provider Setup ──────────────────────────────")
     _emit("")
-    _emit("  Lerim needs an LLM provider to extract context records from your sessions.")
+    _emit(
+        "  Lerim needs an LLM provider to extract context records from your sessions."
+    )
     _emit("  Select your provider(s) and enter API keys. You can change these")
     _emit(f"  later in {env_path} and {get_user_config_path()}.")
     _emit("")
@@ -714,7 +742,9 @@ def _setup_api_keys() -> None:
         _emit(f"  [{has_key}] {i}. {provider.display_name:<14} {provider.description}")
     _emit("")
 
-    answer = input("  Enter provider numbers (comma-separated, e.g. 1,3) or press Enter to skip: ").strip()
+    answer = input(
+        "  Enter provider numbers (comma-separated, e.g. 1,3) or press Enter to skip: "
+    ).strip()
     if not answer:
         if existing:
             _emit(f"  Keeping existing keys in {env_path}")
@@ -850,12 +880,9 @@ def _cmd_project(args: argparse.Namespace) -> int:
             _emit(result["error"], file=sys.stderr)
             return 1
         _emit(f'Added project "{result["name"]}" ({result["path"]})')
-        # Restart container if running
-        if is_docker_container_running():
-            _emit("Restarting Lerim to mount new project...")
-            api_up()
-            _emit("Done.")
-        return 0
+        return _restart_docker_for_project_change(
+            "Restarting Lerim to mount new project..."
+        )
 
     if action == "remove":
         name = getattr(args, "name", None)
@@ -867,11 +894,7 @@ def _cmd_project(args: argparse.Namespace) -> int:
             _emit(result["error"], file=sys.stderr)
             return 1
         _emit(f'Removed project "{name}"')
-        if is_docker_container_running():
-            _emit("Restarting Lerim...")
-            api_up()
-            _emit("Done.")
-        return 0
+        return _restart_docker_for_project_change("Restarting Lerim...")
 
     _emit("Usage: lerim project {add,list,remove}", file=sys.stderr)
     return 2
@@ -881,7 +904,10 @@ def _cmd_memory(args: argparse.Namespace) -> int:
     """Dispatch memory subcommands."""
     action = getattr(args, "memory_action", None)
     if action != "reset":
-        _emit("Usage: lerim memory reset (--project <name-or-path> | --all)", file=sys.stderr)
+        _emit(
+            "Usage: lerim memory reset (--project <name-or-path> | --all)",
+            file=sys.stderr,
+        )
         return 2
 
     project = getattr(args, "project", None)
@@ -960,26 +986,31 @@ def _print_memory_reset_result(payload: dict[str, Any]) -> None:
 
 
 def _cmd_up(args: argparse.Namespace) -> int:
-	"""Start the Docker container."""
-	config = get_config()
-	_emit(
-		f"Starting Lerim with {len(config.projects)} projects and {len(config.agents)} agents..."
-	)
-	result = api_up(build_local=getattr(args, "build", False))
-	if result.get("error"):
-		_emit(result["error"], file=sys.stderr)
-		return 1
+    """Start the Docker container."""
+    config = get_config()
+    _emit(
+        f"Starting Lerim with {len(config.projects)} projects and {len(config.agents)} agents..."
+    )
+    build_local = bool(getattr(args, "build", False)) or current_compose_uses_local_build()
+    result = api_up(build_local=build_local)
+    if result.get("error"):
+        _emit(result["error"], file=sys.stderr)
+        return 1
 
-	if not _wait_for_ready(config.server_port):
-		_emit(
-			"Container started but the server is not responding. "
-			"Check logs with: lerim logs",
-			file=sys.stderr,
-		)
-		return 1
+    if not _wait_for_ready(config.server_port):
+        _emit(
+            "Container started but the server is not responding. "
+            "Check logs with: lerim logs",
+            file=sys.stderr,
+        )
+        return 1
 
-	_emit(f"Lerim is running at http://localhost:{config.server_port}")
-	return 0
+    source = str(result.get("runtime_source") or "unknown")
+    image = str(result.get("runtime_image") or "")
+    source_detail = f" ({image})" if image else ""
+    _emit(f"Lerim is running at http://localhost:{config.server_port}")
+    _emit(f"Runtime source: {source}{source_detail}")
+    return 0
 
 
 def _cmd_down(args: argparse.Namespace) -> int:
@@ -1004,7 +1035,9 @@ def _parse_since(since: str) -> float:
 
     m = re.fullmatch(r"(\d+)\s*([smhd])", since.strip().lower())
     if not m:
-        raise ValueError(f"Invalid --since format: {since!r}  (expected e.g. 1h, 30m, 2d)")
+        raise ValueError(
+            f"Invalid --since format: {since!r}  (expected e.g. 1h, 30m, 2d)"
+        )
     value, unit = int(m.group(1)), m.group(2)
     multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
     return value * multipliers[unit]
@@ -1023,12 +1056,12 @@ def _fmt_log_line(entry: dict[str, Any], *, color: bool) -> str:
 
     # ANSI colour codes for log levels
     _LEVEL_COLORS: dict[str, str] = {
-        "TRACE": "\033[37m",     # white/grey
-        "DEBUG": "\033[36m",     # cyan
-        "INFO": "\033[32m",      # green
-        "SUCCESS": "\033[1;32m", # bold green
-        "WARNING": "\033[33m",   # yellow
-        "ERROR": "\033[31m",     # red
+        "TRACE": "\033[37m",  # white/grey
+        "DEBUG": "\033[36m",  # cyan
+        "INFO": "\033[32m",  # green
+        "SUCCESS": "\033[1;32m",  # bold green
+        "WARNING": "\033[33m",  # yellow
+        "ERROR": "\033[31m",  # red
         "CRITICAL": "\033[1;31m",  # bold red
     }
     _RESET = "\033[0m"
@@ -1037,12 +1070,11 @@ def _fmt_log_line(entry: dict[str, Any], *, color: bool) -> str:
 
 
 def _cmd_logs(args: argparse.Namespace) -> int:
-    """Read and display local JSONL log entries from ``~/.lerim/logs/lerim.jsonl``."""
-    from lerim.config.logging import LOG_DIR
+    """Read and display local JSONL log entries."""
+    from lerim.config.logging import iter_log_files, log_file_path
 
-    jsonl_path = LOG_DIR / "lerim.jsonl"
-
-    if not jsonl_path.exists():
+    jsonl_paths = iter_log_files("lerim.jsonl")
+    if not jsonl_paths and not getattr(args, "follow", False):
         _emit("No log file found. Logs will appear after Lerim runs.", file=sys.stderr)
         return 1
 
@@ -1057,7 +1089,10 @@ def _cmd_logs(args: argparse.Namespace) -> int:
     if since_str:
         import datetime as _dt
 
-        cutoff_ts = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(seconds=_parse_since(since_str))).timestamp()
+        cutoff_ts = (
+            _dt.datetime.now(_dt.timezone.utc)
+            - _dt.timedelta(seconds=_parse_since(since_str))
+        ).timestamp()
 
     def _matches(entry: dict[str, Any]) -> bool:
         """Return True if the entry passes level and time filters."""
@@ -1084,11 +1119,20 @@ def _cmd_logs(args: argparse.Namespace) -> int:
             _emit(_fmt_log_line(entry, color=is_tty))
 
     if follow:
-        # Live tail: seek to end, then poll for new lines
+        # Live tail: seek to the current day file and reopen if the day changes.
+        current_path = log_file_path("lerim.jsonl")
         try:
-            with open(jsonl_path, "r", encoding="utf-8") as fh:
-                fh.seek(0, 2)  # seek to end
+            fh = None
+            try:
                 while True:
+                    next_path = log_file_path("lerim.jsonl")
+                    if fh is None or next_path != current_path:
+                        if fh is not None:
+                            fh.close()
+                        current_path = next_path
+                        current_path.parent.mkdir(parents=True, exist_ok=True)
+                        fh = open(current_path, "a+", encoding="utf-8")
+                        fh.seek(0, 2)
                     line = fh.readline()
                     if not line:
                         time.sleep(0.25)
@@ -1102,6 +1146,9 @@ def _cmd_logs(args: argparse.Namespace) -> int:
                         continue
                     if _matches(entry):
                         _print_entry(entry)
+            finally:
+                if fh is not None:
+                    fh.close()
         except KeyboardInterrupt:
             pass
         return 0
@@ -1110,17 +1157,18 @@ def _cmd_logs(args: argparse.Namespace) -> int:
     limit = 50
     matching: list[dict[str, Any]] = []
     try:
-        with open(jsonl_path, "r", encoding="utf-8") as fh:
-            for raw_line in fh:
-                raw_line = raw_line.strip()
-                if not raw_line:
-                    continue
-                try:
-                    entry = json.loads(raw_line)
-                except json.JSONDecodeError:
-                    continue
-                if _matches(entry):
-                    matching.append(entry)
+        for jsonl_path in jsonl_paths:
+            with open(jsonl_path, "r", encoding="utf-8") as fh:
+                for raw_line in fh:
+                    raw_line = raw_line.strip()
+                    if not raw_line:
+                        continue
+                    try:
+                        entry = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        continue
+                    if _matches(entry):
+                        matching.append(entry)
     except OSError as exc:
         _emit(f"Error reading log file: {exc}", file=sys.stderr)
         return 1
@@ -1238,6 +1286,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                 try:
                     from lerim.cloud.shipper import ship_once
                     import asyncio
+
                     results = asyncio.run(ship_once(config))
                     if results:
                         logger.info("cloud sync: {}", results)
@@ -1335,35 +1384,39 @@ def _cmd_auth_dispatch(args: argparse.Namespace) -> int:
 
 
 def _add_force_flag(parser: argparse.ArgumentParser) -> None:
-	"""Add --force flag to *parser*."""
-	parser.add_argument(
-		"--force", action="store_true",
-		help="Re-extract already processed sessions.",
-	)
+    """Add --force flag to *parser*."""
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-extract already processed sessions.",
+    )
 
 
 def _add_dry_run_flag(parser: argparse.ArgumentParser) -> None:
-	"""Add --dry-run flag to *parser*."""
-	parser.add_argument(
-		"--dry-run", action="store_true",
-		help="Preview mode: no writes.",
-	)
+    """Add --dry-run flag to *parser*."""
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview mode: no writes.",
+    )
 
 
 def _add_dead_letter_args(parser: argparse.ArgumentParser, *, verb: str) -> None:
-	"""Add run_id, --project, and --all arguments for dead-letter commands."""
-	parser.add_argument(
-		"run_id", nargs="?",
-		help=f"Run ID (or prefix, min 6 chars) of the job to {verb}.",
-	)
-	parser.add_argument(
-		"--project",
-		help=f"{verb.capitalize()} all dead_letter jobs for a project (by name).",
-	)
-	parser.add_argument(
-		"--all", action="store_true",
-		help=f"{verb.capitalize()} all dead_letter jobs across all projects.",
-	)
+    """Add run_id, --project, and --all arguments for dead-letter commands."""
+    parser.add_argument(
+        "run_id",
+        nargs="?",
+        help=f"Run ID (or prefix, min 6 chars) of the job to {verb}.",
+    )
+    parser.add_argument(
+        "--project",
+        help=f"{verb.capitalize()} all dead_letter jobs for a project (by name).",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help=f"{verb.capitalize()} all dead_letter jobs across all projects.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1514,9 +1567,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="Read scope: all projects (default) or one project.",
     )
-    ask.add_argument(
-        "--project", help="Project name/path when --scope=project."
-    )
+    ask.add_argument("--project", help="Project name/path when --scope=project.")
     ask.add_argument(
         "--verbose",
         action="store_true",
@@ -1594,8 +1645,13 @@ def build_parser() -> argparse.ArgumentParser:
             "  lerim queue --failed         # dead_letter + failed only"
         ),
     )
-    queue.add_argument("--failed", action="store_true", help="Show only failed + dead_letter jobs.")
-    queue.add_argument("--status", help="Filter by specific status (pending, running, failed, dead_letter, done).")
+    queue.add_argument(
+        "--failed", action="store_true", help="Show only failed + dead_letter jobs."
+    )
+    queue.add_argument(
+        "--status",
+        help="Filter by specific status (pending, running, failed, dead_letter, done).",
+    )
     queue.add_argument("--project", help="Filter by exact project name/path.")
     queue.set_defaults(func=_cmd_queue)
 
@@ -1703,7 +1759,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     reset_scope = memory_reset.add_mutually_exclusive_group(required=True)
-    reset_scope.add_argument("--project", help="Registered project name or path to reset.")
+    reset_scope.add_argument(
+        "--project", help="Registered project name or path to reset."
+    )
     reset_scope.add_argument(
         "--all",
         action="store_true",
@@ -1748,7 +1806,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=_F,
         help="View local Lerim log entries",
         description=(
-            "Display log entries from ~/.lerim/logs/lerim.jsonl (last 50).\n\n"
+            "Display log entries from ~/.lerim/logs/YYYY/MM/DD/lerim.jsonl (last 50).\n\n"
             "Examples:\n"
             "  lerim logs --level error  # filter by level\n"
             "  lerim logs -f             # live tail"
@@ -1785,7 +1843,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Start HTTP API + daemon loop (Docker entrypoint)",
         description="HTTP API + daemon loop in one process (Docker entrypoint).",
     )
-    serve.add_argument("--host", help="Bind address (default: from config [server].host).")
+    serve.add_argument(
+        "--host", help="Bind address (default: from config [server].host)."
+    )
     serve.add_argument("--port", type=int, help="Bind port (default: 8765).")
     serve.set_defaults(func=_cmd_serve)
 

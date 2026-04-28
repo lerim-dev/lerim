@@ -37,6 +37,8 @@ def test_sync_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> None:
         "lerim.server.runtime.LerimRuntime.sync",
         lambda *_args, **_kwargs: {
             "counts": {"add": 1, "update": 0, "no_op": 0},
+            "mlflow_client_request_id": "sync-test-runtime",
+            "run_folder": str(tmp_path / "workspace" / "sync-test-runtime"),
         },
     )
 
@@ -56,9 +58,59 @@ def test_sync_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> None:
     latest = catalog.latest_service_run("sync")
     assert code == daemon.EXIT_OK
     assert summary.extracted_sessions == 1
+    assert summary.run_ids == ["run-sync-1"]
     assert latest is not None
+    assert latest["details"]["events"][0]["mlflow_client_request_id"] == "sync-test-runtime"
+    assert latest["details"]["events"][0]["run_folder"].endswith("sync-test-runtime")
     assert "vectors_updated" not in latest["details"]
     assert "vectors_error" not in latest["details"]
+
+
+def test_sync_zero_success_extraction_is_failed(monkeypatch, tmp_path) -> None:
+    """A sync that only fails extraction should not report completed."""
+    _setup(tmp_path, monkeypatch)
+    from lerim.sessions.catalog import IndexedSession
+
+    session_path = tmp_path / "sessions" / "run-fails-1.jsonl"
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text('{"role":"assistant","content":"ok"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        "lerim.server.daemon.index_new_sessions",
+        lambda **kw: [
+            IndexedSession(
+                run_id="run-fails-1",
+                agent_type="codex",
+                session_path=str(session_path),
+                start_time="2026-02-20T10:00:00Z",
+                repo_path=str(tmp_path),
+                changed=False,
+            )
+        ],
+    )
+
+    def _fail_sync(*_args, **_kwargs):
+        raise RuntimeError("save_context failed")
+
+    monkeypatch.setattr("lerim.server.runtime.LerimRuntime.sync", _fail_sync)
+
+    code, summary = daemon.run_sync_once(
+        run_id=None,
+        agent_filter=None,
+        no_extract=False,
+        force=False,
+        max_sessions=1,
+        dry_run=False,
+        ignore_lock=True,
+        trigger="test",
+        window_start=None,
+        window_end=None,
+    )
+
+    latest = catalog.latest_service_run("sync")
+    assert code == daemon.EXIT_FATAL
+    assert summary.failed_sessions == 1
+    assert latest is not None
+    assert latest["status"] == "failed"
 
 
 def test_sync_force_enqueues_changed_sessions(monkeypatch, tmp_path) -> None:

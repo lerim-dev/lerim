@@ -3,5 +3,9 @@ expected:
   workspace_subdir: "sync"
   artifact_names:
     - "agent_log"
+    - "agent_trace"
+    - "error"
+    - "events"
+    - "manifest"
     - "subagents_log"
     - "session_log"

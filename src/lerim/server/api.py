@@ -7,6 +7,7 @@ management so both the argparse CLI and the HTTP API call the same code.
 from __future__ import annotations
 
 import hashlib
+import os
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -17,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 if TYPE_CHECKING:
-	from collections.abc import Generator
+    from collections.abc import Generator
 
 from lerim import __version__
 from lerim.adapters.registry import (
@@ -28,16 +29,25 @@ from lerim.adapters.registry import (
 )
 from lerim.context import ContextStore, resolve_project_identity
 from lerim.server.daemon import (
+    LockBusyError,
+    ServiceLock,
+    WRITER_LOCK_NAME,
+    lock_path,
     resolve_window_bounds,
     run_maintain_once,
     run_sync_once,
 )
-from lerim.server.docker_runtime import docker_available
+from lerim.server.docker_runtime import (
+    RUNTIME_IMAGE_ENV,
+    RUNTIME_SOURCE_ENV,
+    docker_available,
+)
 from lerim.config.settings import (
     Config,
     get_config,
     get_user_config_path,
     load_toml_file,
+    remove_legacy_memory_dir,
     save_config_patch,
     _write_config_full,
 )
@@ -67,37 +77,41 @@ from lerim.sessions.catalog import (
 
 
 def parse_duration_to_seconds(raw: str) -> int:
-	"""Parse ``<number><unit>`` durations like ``30s`` or ``7d`` to seconds."""
-	value = (raw or "").strip().lower()
-	if len(value) < 2:
-		raise ValueError("duration must be <number><unit>, for example: 30s, 2m, 1h, 7d")
-	unit = value[-1]
-	amount_text = value[:-1]
-	if not amount_text.isdigit():
-		raise ValueError("duration must be <number><unit>, for example: 30s, 2m, 1h, 7d")
-	amount = int(amount_text)
-	if amount <= 0:
-		raise ValueError("duration must be greater than 0")
-	multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-	if unit not in multipliers:
-		raise ValueError("duration unit must be one of: s, m, h, d")
-	return amount * multipliers[unit]
+    """Parse ``<number><unit>`` durations like ``30s`` or ``7d`` to seconds."""
+    value = (raw or "").strip().lower()
+    if len(value) < 2:
+        raise ValueError(
+            "duration must be <number><unit>, for example: 30s, 2m, 1h, 7d"
+        )
+    unit = value[-1]
+    amount_text = value[:-1]
+    if not amount_text.isdigit():
+        raise ValueError(
+            "duration must be <number><unit>, for example: 30s, 2m, 1h, 7d"
+        )
+    amount = int(amount_text)
+    if amount <= 0:
+        raise ValueError("duration must be greater than 0")
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    if unit not in multipliers:
+        raise ValueError("duration unit must be one of: s, m, h, d")
+    return amount * multipliers[unit]
 
 
 def parse_csv(raw: str | None) -> list[str]:
-	"""Split a comma-delimited string into trimmed non-empty values."""
-	if not raw:
-		return []
-	return [part.strip() for part in raw.split(",") if part.strip()]
+    """Split a comma-delimited string into trimmed non-empty values."""
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
 
 
 def parse_agent_filter(raw: str | None) -> list[str] | None:
-	"""Normalize agent filter input and drop the ``all`` sentinel."""
-	values = parse_csv(raw)
-	cleaned = [value for value in values if value and value != "all"]
-	if not cleaned:
-		return None
-	return sorted(set(cleaned))
+    """Normalize agent filter input and drop the ``all`` sentinel."""
+    values = parse_csv(raw)
+    cleaned = [value for value in values if value and value != "all"]
+    if not cleaned:
+        return None
+    return sorted(set(cleaned))
 
 
 def looks_like_auth_error(response: str) -> bool:
@@ -116,104 +130,104 @@ def looks_like_auth_error(response: str) -> bool:
 
 
 def _ollama_models(config: Config) -> list[tuple[str, str]]:
-	"""Return deduplicated (base_url, model) pairs for all ollama roles."""
-	seen: set[tuple[str, str]] = set()
-	pairs: list[tuple[str, str]] = []
+    """Return deduplicated (base_url, model) pairs for all ollama roles."""
+    seen: set[tuple[str, str]] = set()
+    pairs: list[tuple[str, str]] = []
 
-	default_base = config.provider_api_bases.get("ollama", "http://127.0.0.1:11434")
+    default_base = config.provider_api_bases.get("ollama", "http://127.0.0.1:11434")
 
-	for role in (config.agent_role,):
-		if role.provider == "ollama":
-			base = role.api_base or default_base
-			key = (base, role.model)
-			if key not in seen:
-				seen.add(key)
-				pairs.append(key)
+    for role in (config.agent_role,):
+        if role.provider == "ollama":
+            base = role.api_base or default_base
+            key = (base, role.model)
+            if key not in seen:
+                seen.add(key)
+                pairs.append(key)
 
-	return pairs
+    return pairs
 
 
 def _is_ollama_reachable(base_url: str, timeout: float = 5.0) -> bool:
-	"""Check if Ollama is reachable at the given base URL."""
-	try:
-		resp = httpx.get(f"{base_url}/api/tags", timeout=timeout)
-		return resp.status_code == 200
-	except (httpx.ConnectError, httpx.TimeoutException, OSError):
-		return False
+    """Check if Ollama is reachable at the given base URL."""
+    try:
+        resp = httpx.get(f"{base_url}/api/tags", timeout=timeout)
+        return resp.status_code == 200
+    except (httpx.ConnectError, httpx.TimeoutException, OSError):
+        return False
 
 
 def _load_model(base_url: str, model: str, timeout: float = 120.0) -> None:
-	"""Warm-load an Ollama model by sending a minimal generation request."""
-	httpx.post(
-		f"{base_url}/api/generate",
-		json={"model": model, "prompt": "hi", "options": {"num_predict": 1}},
-		timeout=timeout,
-	)
+    """Warm-load an Ollama model by sending a minimal generation request."""
+    httpx.post(
+        f"{base_url}/api/generate",
+        json={"model": model, "prompt": "hi", "options": {"num_predict": 1}},
+        timeout=timeout,
+    )
 
 
 def _unload_model(base_url: str, model: str, timeout: float = 30.0) -> None:
-	"""Unload an Ollama model by setting keep_alive to 0."""
-	httpx.post(
-		f"{base_url}/api/generate",
-		json={"model": model, "keep_alive": 0},
-		timeout=timeout,
-	)
+    """Unload an Ollama model by setting keep_alive to 0."""
+    httpx.post(
+        f"{base_url}/api/generate",
+        json={"model": model, "keep_alive": 0},
+        timeout=timeout,
+    )
 
 
 @contextmanager
 def ollama_lifecycle(config: Config) -> Generator[None, None, None]:
-	"""Context manager that loads Ollama models on enter and unloads on exit.
+    """Context manager that loads Ollama models on enter and unloads on exit.
 
-	No-op when no roles use provider="ollama" or when auto_unload is False.
-	Logs warnings on failure but never raises — the daemon must not crash
-	because of lifecycle issues.
-	"""
-	if config.agent_role.provider != "ollama":
-		yield
-		return
+    No-op when no roles use provider="ollama" or when auto_unload is False.
+    Logs warnings on failure but never raises — the daemon must not crash
+    because of lifecycle issues.
+    """
+    if config.agent_role.provider != "ollama":
+        yield
+        return
 
-	from lerim.config.logging import logger
+    from lerim.config.logging import logger
 
-	models = _ollama_models(config)
+    models = _ollama_models(config)
 
-	if not models:
-		yield
-		return
+    if not models:
+        yield
+        return
 
-	# Group models by base_url for a single reachability check per server.
-	bases = {base for base, _ in models}
+    # Group models by base_url for a single reachability check per server.
+    bases = {base for base, _ in models}
 
-	reachable_bases: set[str] = set()
-	for base in bases:
-		if _is_ollama_reachable(base):
-			reachable_bases.add(base)
-		else:
-			logger.warning("ollama not reachable at {}, skipping lifecycle", base)
+    reachable_bases: set[str] = set()
+    for base in bases:
+        if _is_ollama_reachable(base):
+            reachable_bases.add(base)
+        else:
+            logger.warning("ollama not reachable at {}, skipping lifecycle", base)
 
-	# Warm-load models on reachable servers.
-	for base, model in models:
-		if base not in reachable_bases:
-			continue
-		try:
-			logger.info("loading ollama model {}/{}", base, model)
-			_load_model(base, model)
-		except Exception as exc:
-			logger.warning("failed to warm-load {}/{}: {}", base, model, exc)
+    # Warm-load models on reachable servers.
+    for base, model in models:
+        if base not in reachable_bases:
+            continue
+        try:
+            logger.info("loading ollama model {}/{}", base, model)
+            _load_model(base, model)
+        except Exception as exc:
+            logger.warning("failed to warm-load {}/{}: {}", base, model, exc)
 
-	try:
-		yield
-	finally:
-		if not config.auto_unload:
-			return
+    try:
+        yield
+    finally:
+        if not config.auto_unload:
+            return
 
-		for base, model in models:
-			if base not in reachable_bases:
-				continue
-			try:
-				logger.info("unloading ollama model {}/{}", base, model)
-				_unload_model(base, model)
-			except Exception as exc:
-				logger.warning("failed to unload {}/{}: {}", base, model, exc)
+        for base, model in models:
+            if base not in reachable_bases:
+                continue
+            try:
+                logger.info("unloading ollama model {}/{}", base, model)
+                _unload_model(base, model)
+            except Exception as exc:
+                logger.warning("failed to unload {}/{}: {}", base, model, exc)
 
 
 def api_health() -> dict[str, Any]:
@@ -265,7 +279,9 @@ def _resolve_selected_projects(
         return [all_projects[0]]
     if not all_projects:
         return []
-    raise ValueError("scope=project requires a project name when multiple projects are registered.")
+    raise ValueError(
+        "scope=project requires a project name when multiple projects are registered."
+    )
 
 
 def _count_project_records(config: Config, project_path: Path) -> int:
@@ -487,11 +503,19 @@ def api_query(
             offset=offset,
             include_total=include_total,
         )
-    except Exception as exc:
+    except ValueError as exc:
         return {
             "error": True,
             "message": str(exc),
             "projects_used": [name for name, _ in selected_projects],
+            "status_code": 400,
+        }
+    except sqlite3.Error:
+        return {
+            "error": True,
+            "message": "Context query storage is unavailable.",
+            "projects_used": [name for name, _ in selected_projects],
+            "status_code": 503,
         }
     return {
         **payload,
@@ -517,71 +541,99 @@ def api_memory_reset(
     config = get_config()
     store = _context_store(config)
     kept = ["config", "env", "platforms", "projects"]
+    lock: ServiceLock | None = None
+    if not dry_run:
+        lock = ServiceLock(lock_path(WRITER_LOCK_NAME), stale_seconds=60)
+        try:
+            lock.acquire("memory-reset", "lerim memory reset")
+        except LockBusyError as exc:
+            return {
+                "error": True,
+                "message": (
+                    f"Cannot reset memory while sync or maintain is writing. {exc}"
+                ),
+            }
 
-    if all_projects:
-        context_counts = store.count_all_memory() if dry_run else store.reset_all_memory()
-        session_counts = (
-            count_all_session_state() if dry_run else reset_all_session_state()
+    try:
+        if all_projects:
+            context_counts = (
+                store.count_all_memory() if dry_run else store.reset_all_memory()
+            )
+            session_counts = (
+                count_all_session_state() if dry_run else reset_all_session_state()
+            )
+            cloud_state_path = config.global_data_dir / "cloud_shipper_state.json"
+            cloud_state_count = 1 if cloud_state_path.exists() else 0
+            if not dry_run and cloud_state_path.exists():
+                cloud_state_path.unlink()
+            return {
+                "error": False,
+                "scope": "all",
+                "project": None,
+                "dry_run": dry_run,
+                "deleted": {
+                    **context_counts,
+                    **session_counts,
+                    "cloud_shipper_state": cloud_state_count,
+                },
+                "kept": kept,
+                "notes": [],
+            }
+
+        try:
+            selected = _resolve_selected_projects(
+                config=config,
+                scope="project",
+                project=project,
+            )
+        except ValueError as exc:
+            return {"error": True, "message": str(exc)}
+        if not selected:
+            return {
+                "error": True,
+                "message": "No registered project matched reset scope.",
+            }
+
+        project_name, project_path = selected[0]
+        identity = resolve_project_identity(project_path)
+        context_counts = (
+            store.count_project_memory(identity.project_id)
+            if dry_run
+            else store.reset_project_memory(identity.project_id)
         )
-        cloud_state_path = config.global_data_dir / "cloud_shipper_state.json"
-        cloud_state_count = 1 if cloud_state_path.exists() else 0
-        if not dry_run and cloud_state_path.exists():
-            cloud_state_path.unlink()
+        session_counts = (
+            count_indexed_sessions_for_project(str(project_path))
+            if dry_run
+            else reset_indexed_sessions_for_project(str(project_path))
+        )
         return {
             "error": False,
-            "scope": "all",
-            "project": None,
+            "scope": "project",
+            "project": project_name,
+            "project_path": str(project_path),
+            "project_id": identity.project_id,
             "dry_run": dry_run,
             "deleted": {
                 **context_counts,
                 **session_counts,
-                "cloud_shipper_state": cloud_state_count,
+                "cloud_shipper_state": 0,
             },
             "kept": kept,
-            "notes": [],
+            "notes": [
+                "service_runs unchanged for project reset because service runs are global",
+                "cloud_shipper_state unchanged for project reset because watermarks are global",
+            ],
         }
+    finally:
+        if not dry_run:
+            try:
+                remove_legacy_memory_dir(config.global_data_dir)
+            except Exception as exc:
+                from lerim.config.logging import logger
 
-    try:
-        selected = _resolve_selected_projects(
-            config=config,
-            scope="project",
-            project=project,
-        )
-    except ValueError as exc:
-        return {"error": True, "message": str(exc)}
-    if not selected:
-        return {"error": True, "message": "No registered project matched reset scope."}
-
-    project_name, project_path = selected[0]
-    identity = resolve_project_identity(project_path)
-    context_counts = (
-        store.count_project_memory(identity.project_id)
-        if dry_run
-        else store.reset_project_memory(identity.project_id)
-    )
-    session_counts = (
-        count_indexed_sessions_for_project(str(project_path))
-        if dry_run
-        else reset_indexed_sessions_for_project(str(project_path))
-    )
-    return {
-        "error": False,
-        "scope": "project",
-        "project": project_name,
-        "project_path": str(project_path),
-        "project_id": identity.project_id,
-        "dry_run": dry_run,
-        "deleted": {
-            **context_counts,
-            **session_counts,
-            "cloud_shipper_state": 0,
-        },
-        "kept": kept,
-        "notes": [
-            "service_runs unchanged for project reset because service runs are global",
-            "cloud_shipper_state unchanged for project reset because watermarks are global",
-        ],
-    }
+                logger.warning("legacy memory cleanup failed: {}", exc)
+        if lock is not None:
+            lock.release()
 
 
 def api_sync(
@@ -618,11 +670,14 @@ def api_sync(
             window_end=window_end,
         )
     queue_health = queue_health_snapshot()
-    payload: dict[str, Any] = {"code": code, **asdict(summary), "queue_health": queue_health}
+    payload: dict[str, Any] = {
+        "code": code,
+        **asdict(summary),
+        "queue_health": queue_health,
+    }
     if queue_health.get("degraded"):
-        payload["warning"] = (
-            "Queue degraded. "
-            + str(queue_health.get("advice") or "Run `lerim queue --failed`.")
+        payload["warning"] = "Queue degraded. " + str(
+            queue_health.get("advice") or "Run `lerim queue --failed`."
         )
     return payload
 
@@ -635,9 +690,8 @@ def api_maintain(dry_run: bool = False) -> dict[str, Any]:
     queue_health = queue_health_snapshot()
     result: dict[str, Any] = {"code": code, **payload, "queue_health": queue_health}
     if queue_health.get("degraded"):
-        result["warning"] = (
-            "Queue degraded. "
-            + str(queue_health.get("advice") or "Run `lerim queue --failed`.")
+        result["warning"] = "Queue degraded. " + str(
+            queue_health.get("advice") or "Run `lerim queue --failed`."
         )
     return result
 
@@ -828,16 +882,28 @@ def _normalize_latest_run(run: dict[str, Any] | None) -> dict[str, Any] | None:
         details_payload["maintain_counts"] = normalized.get("maintain_counts") or {}
         details_payload["records_created"] = int(normalized.get("records_created") or 0)
         details_payload["records_updated"] = int(normalized.get("records_updated") or 0)
-        details_payload["records_archived"] = int(normalized.get("records_archived") or 0)
+        details_payload["records_archived"] = int(
+            normalized.get("records_archived") or 0
+        )
     else:
-        details_payload["sessions_analyzed"] = int(normalized.get("sessions_analyzed") or 0)
-        details_payload["sessions_extracted"] = int(normalized.get("sessions_extracted") or 0)
+        details_payload["sessions_analyzed"] = int(
+            normalized.get("sessions_analyzed") or 0
+        )
+        details_payload["sessions_extracted"] = int(
+            normalized.get("sessions_extracted") or 0
+        )
         details_payload["sessions_failed"] = int(normalized.get("sessions_failed") or 0)
-        details_payload["sessions_skipped"] = int(normalized.get("sessions_skipped") or 0)
+        details_payload["sessions_skipped"] = int(
+            normalized.get("sessions_skipped") or 0
+        )
         details_payload["records_created"] = int(normalized.get("records_created") or 0)
         details_payload["records_updated"] = int(normalized.get("records_updated") or 0)
-        details_payload["records_archived"] = int(normalized.get("records_archived") or 0)
-        details_payload["skipped_unscoped"] = int(normalized.get("skipped_unscoped") or 0)
+        details_payload["records_archived"] = int(
+            normalized.get("records_archived") or 0
+        )
+        details_payload["skipped_unscoped"] = int(
+            normalized.get("skipped_unscoped") or 0
+        )
     return {
         "id": run.get("id"),
         "job_type": run.get("job_type"),
@@ -869,7 +935,9 @@ def _running_activity_rows(
         repo_path = str(job.get("repo_path") or "").strip()
         if allowed_repo_paths and repo_path not in allowed_repo_paths:
             continue
-        project_name = repo_to_name.get(repo_path) or (Path(repo_path).name if repo_path else "global")
+        project_name = repo_to_name.get(repo_path) or (
+            Path(repo_path).name if repo_path else "global"
+        )
         row = grouped.setdefault(
             project_name,
             {
@@ -920,6 +988,19 @@ def _public_platforms(platforms: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return output
 
 
+def _runtime_identity() -> dict[str, Any]:
+    """Return runtime build identity surfaced by Docker or direct execution."""
+    source = os.environ.get(RUNTIME_SOURCE_ENV) or "direct"
+    identity: dict[str, Any] = {
+        "version": __version__,
+        "source": source,
+    }
+    image = os.environ.get(RUNTIME_IMAGE_ENV)
+    if image:
+        identity["image"] = image
+    return identity
+
+
 def api_status(
     *,
     scope: str = "all",
@@ -928,7 +1009,6 @@ def api_status(
     """Return runtime status summary."""
     config = get_config()
     normalized_scope = "project" if str(scope).strip().lower() == "project" else "all"
-    selection_error: str | None = None
     try:
         selected_projects = _resolve_selected_projects(
             config=config,
@@ -936,8 +1016,17 @@ def api_status(
             project=project,
         )
     except ValueError as exc:
-        selection_error = str(exc)
-        selected_projects = []
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "runtime": _runtime_identity(),
+            "error": str(exc),
+            "projects": [],
+            "scope": {
+                "strict_project_only": True,
+                "mode": normalized_scope,
+                "skipped_unscoped": 0,
+            },
+        }
 
     projects_payload: list[dict[str, Any]] = []
     total_records = 0
@@ -987,7 +1076,9 @@ def api_status(
         _running_activity_rows(selected_projects=selected_projects)
         + _recent_activity(
             limit=12,
-            allowed_projects=selected_project_names if normalized_scope == "project" else None,
+            allowed_projects=selected_project_names
+            if normalized_scope == "project"
+            else None,
         )
     )[:12]
 
@@ -995,7 +1086,10 @@ def api_status(
 
     payload: dict[str, Any] = {
         "timestamp": now.isoformat(),
-        "connected_agents": [str(item.get("name") or "") for item in platforms if item.get("name")],
+        "runtime": _runtime_identity(),
+        "connected_agents": [
+            str(item.get("name") or "") for item in platforms if item.get("name")
+        ],
         "platforms": platforms,
         "record_count": total_records,
         "sessions_indexed_count": count_fts_indexed(),
@@ -1028,8 +1122,6 @@ def api_status(
         "latest_maintain": _normalize_latest_run(latest_maintain_raw),
         "recent_activity": recent_activity,
     }
-    if selection_error:
-        payload["error"] = selection_error
     return payload
 
 

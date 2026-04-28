@@ -16,6 +16,8 @@ from lerim import __version__
 from lerim.server import docker_runtime
 from lerim.server.docker_runtime import (
     GHCR_IMAGE,
+    LOCAL_IMAGE,
+    RUNTIME_SOURCE_ENV,
     _generate_compose_yml,
     api_up,
 )
@@ -37,12 +39,15 @@ def test_default_compose_uses_ghcr_image() -> None:
 
 
 def test_build_local_uses_build_directive(monkeypatch: pytest.MonkeyPatch) -> None:
-    """build_local=True emits a build directive instead of an image directive."""
+    """build_local=True emits a local image tag and build directive."""
     fake_root = Path("/fake/lerim-root")
-    monkeypatch.setattr("lerim.server.docker_runtime._find_package_root", lambda: fake_root)
+    monkeypatch.setattr(
+        "lerim.server.docker_runtime._find_package_root", lambda: fake_root
+    )
     content = _generate_compose_yml(build_local=True)
+    assert f"image: {LOCAL_IMAGE}" in content
     assert f"build: {fake_root}" in content
-    assert "image:" not in content
+    assert f"{RUNTIME_SOURCE_ENV}=local-build" in content
 
 
 def test_build_local_no_dockerfile_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -81,6 +86,46 @@ def test_api_up_build_local_no_dockerfile(monkeypatch: pytest.MonkeyPatch) -> No
     result = api_up(build_local=True)
     assert "error" in result
     assert "Dockerfile" in result["error"]
+
+
+def test_api_up_build_local_forces_fresh_recreate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local builds should rebuild and recreate the service from the local image."""
+    fake_root = tmp_path / "source"
+    fake_root.mkdir()
+    compose_path = tmp_path / "docker-compose.yml"
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+
+    monkeypatch.setattr("lerim.server.docker_runtime.docker_available", lambda: True)
+    monkeypatch.setattr(
+        "lerim.server.docker_runtime._find_package_root", lambda: fake_root
+    )
+    monkeypatch.setattr("lerim.server.docker_runtime.COMPOSE_PATH", compose_path)
+    monkeypatch.setattr(
+        "lerim.server.docker_runtime.subprocess.run",
+        lambda cmd, **kwargs: calls.append(list(cmd)) or Result(),
+    )
+
+    result = api_up(build_local=True)
+
+    assert result["runtime_source"] == "local-build"
+    assert result["runtime_image"] == LOCAL_IMAGE
+    assert calls == [
+        [
+            "docker",
+            "compose",
+            "-f",
+            str(compose_path),
+            "up",
+            "-d",
+            "--build",
+            "--force-recreate",
+        ]
+    ]
 
 
 # -- Container hardening tests --
@@ -131,13 +176,15 @@ def test_compose_has_tmpfs() -> None:
 
 
 def test_compose_routes_library_caches_to_global_lerim_dir() -> None:
-	"""Container cache writes should stay under the mounted global data dir."""
-	content = _generate_compose_yml(build_local=False)
-	cfg = docker_runtime.reload_config()
-	cache_dir = cfg.global_data_dir / "cache"
-	assert f"XDG_CACHE_HOME={cache_dir}" in content
-	assert f"HF_HOME={cache_dir / 'huggingface'}" in content
-	assert f"HF_HUB_CACHE={cache_dir / 'huggingface' / 'hub'}" in content
+    """Container cache writes should stay under the mounted global data dir."""
+    content = _generate_compose_yml(build_local=False)
+    cfg = docker_runtime.reload_config()
+    cache_dir = cfg.global_data_dir / "cache"
+    models_dir = cfg.global_data_dir / "models"
+    assert f"XDG_CACHE_HOME={cache_dir}" in content
+    assert f"FASTEMBED_CACHE_PATH={models_dir / 'embeddings'}" in content
+    assert f"HF_HOME={models_dir / 'huggingface'}" in content
+    assert f"HF_HUB_CACHE={models_dir / 'huggingface' / 'hub'}" in content
 
 
 def test_compose_enables_mlflow_when_configured(tmp_path, monkeypatch) -> None:
@@ -152,9 +199,12 @@ def test_compose_enables_mlflow_when_configured(tmp_path, monkeypatch) -> None:
     assert "LERIM_MLFLOW=true" in content
 
 
-def test_compose_mounts_global_state_agents_and_project_roots(tmp_path, monkeypatch) -> None:
+def test_compose_mounts_global_state_agents_and_project_roots(
+    tmp_path, monkeypatch
+) -> None:
     """Compose should mount global state, agent dirs, and registered project roots."""
     from dataclasses import replace
+
     cfg = make_config(tmp_path)
     project_root = tmp_path / "myproject"
     project_root.mkdir()
@@ -167,9 +217,7 @@ def test_compose_mounts_global_state_agents_and_project_roots(tmp_path, monkeypa
     assert str(project_root / ".lerim") not in content
 
 
-def test_compose_mounts_explicit_config_outside_data_dir(
-    tmp_path, monkeypatch
-) -> None:
+def test_compose_mounts_explicit_config_outside_data_dir(tmp_path, monkeypatch) -> None:
     """Compose should preserve custom LERIM_CONFIG installs inside Docker."""
     from dataclasses import replace
 
@@ -179,7 +227,9 @@ def test_compose_mounts_explicit_config_outside_data_dir(
     config_path.write_text("[data]\n", encoding="utf-8")
     cfg = replace(make_config(data_dir), global_data_dir=data_dir)
     monkeypatch.setattr("lerim.server.docker_runtime.reload_config", lambda: cfg)
-    monkeypatch.setattr("lerim.server.docker_runtime.get_user_config_path", lambda: config_path)
+    monkeypatch.setattr(
+        "lerim.server.docker_runtime.get_user_config_path", lambda: config_path
+    )
     monkeypatch.setenv("LERIM_CONFIG", str(config_path))
 
     content = _generate_compose_yml(build_local=False)
@@ -198,7 +248,9 @@ def test_compose_mounts_env_file_outside_data_dir(tmp_path, monkeypatch) -> None
     env_path.write_text("OPENROUTER_API_KEY=secret\n", encoding="utf-8")
     cfg = replace(make_config(data_dir), global_data_dir=data_dir)
     monkeypatch.setattr("lerim.server.docker_runtime.reload_config", lambda: cfg)
-    monkeypatch.setattr("lerim.server.docker_runtime.get_user_env_path", lambda: env_path)
+    monkeypatch.setattr(
+        "lerim.server.docker_runtime.get_user_env_path", lambda: env_path
+    )
 
     content = _generate_compose_yml(build_local=False)
     resolved = str(env_path.resolve())
@@ -227,9 +279,12 @@ def test_compose_does_not_pin_container_name() -> None:
     assert "container_name:" not in content
 
 
-def test_compose_mounts_connected_platform_dirs_read_only(tmp_path, monkeypatch) -> None:
+def test_compose_mounts_connected_platform_dirs_read_only(
+    tmp_path, monkeypatch
+) -> None:
     """Connected platform session directories should be mounted read-only."""
     from dataclasses import replace
+
     cfg = make_config(tmp_path)
     agent_path = str(tmp_path / "sessions")
     Path(agent_path).mkdir(parents=True)

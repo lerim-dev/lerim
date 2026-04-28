@@ -848,7 +848,8 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 include_total=bool(body.get("include_total")),
             )
             if result.get("error"):
-                self._error(HTTPStatus.BAD_REQUEST, str(result.get("message") or "query failed"))
+                status = int(result.get("status_code") or HTTPStatus.BAD_REQUEST)
+                self._error(HTTPStatus(status), str(result.get("message") or "query failed"))
                 return
             self._json(result)
             return

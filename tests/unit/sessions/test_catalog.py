@@ -354,7 +354,9 @@ class TestFtsIndexing:
         doc = fetch_session_doc("sum-2")
         assert doc["summary_text"] == ""
 
-    def test_index_new_sessions_skips_known_same_hash(self, sessions_db, monkeypatch, tmp_path):
+    def test_index_new_sessions_skips_known_same_hash(
+        self, sessions_db, monkeypatch, tmp_path
+    ):
         from lerim.sessions.catalog import index_new_sessions
 
         index_session_for_fts(
@@ -936,9 +938,7 @@ class TestJobQueueDeadLetter:
     def test_skip_project_jobs_empty_path(self, sessions_db):
         assert skip_project_jobs("") == 0
 
-    def test_retry_all_dead_letter_jobs_not_limited_to_default_page(
-        self, sessions_db
-    ):
+    def test_retry_all_dead_letter_jobs_not_limited_to_default_page(self, sessions_db):
         """Retry-all transitions every dead-letter row, including rows past 50."""
         for idx in range(55):
             run_id = f"dl-retry-all-{idx:02d}"
@@ -954,9 +954,7 @@ class TestJobQueueDeadLetter:
 
         assert row["total"] == 55
 
-    def test_skip_all_dead_letter_jobs_not_limited_to_default_page(
-        self, sessions_db
-    ):
+    def test_skip_all_dead_letter_jobs_not_limited_to_default_page(self, sessions_db):
         """Skip-all transitions every dead-letter row, including rows past 50."""
         for idx in range(55):
             run_id = f"dl-skip-all-{idx:02d}"
@@ -986,9 +984,7 @@ class TestJobQueueDeadLetter:
         claimed_ids = {j["run_id"] for j in jobs}
         assert "dl-blocked" not in claimed_ids
 
-    def test_dead_letter_blocks_project_even_when_not_claim_candidate(
-        self, sessions_db
-    ):
+    def test_targeted_claim_bypasses_unrelated_dead_letter(self, sessions_db):
         _seed_and_enqueue(
             "dl-target",
             repo_path="/tmp/bl-target-proj",
@@ -1003,7 +999,7 @@ class TestJobQueueDeadLetter:
 
         jobs = claim_session_jobs(limit=10, run_ids=["dl-target"])
 
-        assert jobs == []
+        assert [job["run_id"] for job in jobs] == ["dl-target"]
 
     def test_retry_unblocks_project(self, sessions_db):
         _seed_and_enqueue(
@@ -1057,8 +1053,12 @@ class TestQueueHealth:
         old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
         with _connect() as conn:
             conn.execute(
-                "UPDATE session_jobs SET claimed_at = ?, updated_at = ? WHERE run_id = ?",
-                (old, old, "qh-stale"),
+                """
+                UPDATE session_jobs
+                SET claimed_at = ?, heartbeat_at = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (old, old, old, "qh-stale"),
             )
             conn.commit()
         health = queue_health_snapshot(lease_seconds=60)
@@ -1066,6 +1066,28 @@ class TestQueueHealth:
         assert health["stale_running_count"] >= 1
         assert isinstance(health["oldest_running_age_seconds"], int)
         assert "lerim sync" in health["advice"]
+
+    def test_fresh_heartbeat_keeps_queue_healthy(self, sessions_db):
+        _seed_and_enqueue("qh-heartbeat")
+        claim_session_jobs(limit=1, run_ids=["qh-heartbeat"])
+        old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        fresh = datetime.now(timezone.utc).isoformat()
+        with _connect() as conn:
+            conn.execute(
+                """
+                UPDATE session_jobs
+                SET claimed_at = ?, heartbeat_at = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (old, fresh, fresh, "qh-heartbeat"),
+            )
+            conn.commit()
+
+        health = queue_health_snapshot(lease_seconds=60)
+
+        assert health["degraded"] is False
+        assert health["stale_running_count"] == 0
+        assert isinstance(health["oldest_running_age_seconds"], int)
 
 
 class TestPrefixResolution:
@@ -1305,8 +1327,12 @@ class TestJobQueueAdvanced:
         old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
         with _connect() as conn:
             conn.execute(
-                "UPDATE session_jobs SET claimed_at = ?, updated_at = ? WHERE run_id = ?",
-                (old, old, "stale-1"),
+                """
+                UPDATE session_jobs
+                SET claimed_at = ?, heartbeat_at = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (old, old, old, "stale-1"),
             )
             conn.commit()
         recovered = reap_stale_running_jobs(
@@ -1321,6 +1347,33 @@ class TestJobQueueAdvanced:
             ).fetchone()
         assert row["status"] == "failed"
         assert "stale running lease expired" in str(row["error"] or "")
+
+    def test_reap_running_job_uses_heartbeat_when_present(self, sessions_db):
+        """A fresh heartbeat keeps an old claimed job from being reaped."""
+        _seed_and_enqueue(
+            "alive-1", repo_path="/tmp/proj-alive", start_time="2026-03-01T10:00:00Z"
+        )
+        claimed = claim_session_jobs(limit=1, run_ids=["alive-1"])
+        assert len(claimed) == 1
+        old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        fresh = datetime.now(timezone.utc).isoformat()
+        with _connect() as conn:
+            conn.execute(
+                """
+                UPDATE session_jobs
+                SET claimed_at = ?, heartbeat_at = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (old, fresh, fresh, "alive-1"),
+            )
+            conn.commit()
+        assert reap_stale_running_jobs(lease_seconds=60) == 0
+        with _connect() as conn:
+            row = conn.execute(
+                "SELECT status FROM session_jobs WHERE run_id = ?",
+                ("alive-1",),
+            ).fetchone()
+        assert row["status"] == "running"
 
     def test_reap_stale_running_job_to_dead_letter_when_attempts_exhausted(
         self, sessions_db
@@ -1340,8 +1393,12 @@ class TestJobQueueAdvanced:
         old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
         with _connect() as conn:
             conn.execute(
-                "UPDATE session_jobs SET claimed_at = ?, updated_at = ? WHERE run_id = ?",
-                (old, old, "stale-dl"),
+                """
+                UPDATE session_jobs
+                SET claimed_at = ?, heartbeat_at = ?, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (old, old, old, "stale-dl"),
             )
             conn.commit()
         recovered = reap_stale_running_jobs(lease_seconds=60)

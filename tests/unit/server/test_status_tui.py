@@ -245,3 +245,10 @@ class TestRenderStatusOutput:
         assert "every 20m; next in 1m 30s (12:30:00Z)" in output
         assert "Maintain interval" in output
         assert "every 1h; running now" in output
+
+    def test_runtime_identity_is_rendered(self):
+        payload = {"runtime": {"source": "local-build", "image": "lerim-lerim:local"}}
+        result = render_status_output(payload, refreshed_at="now")
+        output = self._render(result)
+        assert "Runtime" in output
+        assert "local-build (lerim-lerim:local)" in output

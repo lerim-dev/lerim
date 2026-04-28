@@ -424,14 +424,21 @@ async def _pull_records(
 
 
 async def _ship_logs(endpoint: str, token: str, state: _ShipperState) -> int:
-    """Ship new log entries from ``lerim.jsonl`` since last offset.
+    """Ship new entries from the newest dated ``lerim.jsonl`` since last offset.
 
-    Handles log rotation: if the file is smaller than the stored offset the
-    offset is reset to zero.
+    The bookmark is per relative log path. When a new day starts, shipping
+    switches to that day's file and resets the offset.
     """
-    log_path = LOG_DIR / state.log_file
-    if not log_path.exists():
+    log_paths = sorted(
+        LOG_DIR.glob("[0-9][0-9][0-9][0-9]/[0-9][0-9]/[0-9][0-9]/lerim.jsonl")
+    )
+    if not log_paths:
         return 0
+    log_path = log_paths[-1]
+    relative_log_file = str(log_path.relative_to(LOG_DIR))
+    if state.log_file != relative_log_file:
+        state.log_file = relative_log_file
+        state.log_offset_bytes = 0
 
     file_size = log_path.stat().st_size
     offset = state.log_offset_bytes
@@ -450,7 +457,9 @@ async def _ship_logs(endpoint: str, token: str, state: _ShipperState) -> int:
         with open(log_path, "r", encoding="utf-8") as fh:
             fh.seek(offset)
             batch: list[dict[str, Any]] = []
+            batch_offset = offset
             while True:
+                line_offset = fh.tell()
                 line = fh.readline()
                 if not line:
                     break
@@ -461,6 +470,8 @@ async def _ship_logs(endpoint: str, token: str, state: _ShipperState) -> int:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if not batch:
+                    batch_offset = line_offset
                 batch.append(entry)
 
                 if len(batch) >= _BATCH_LOGS:
@@ -472,10 +483,10 @@ async def _ship_logs(endpoint: str, token: str, state: _ShipperState) -> int:
                     )
                     if ok:
                         shipped += len(batch)
+                        new_offset = fh.tell()
                     else:
                         # Stop shipping on first failure; resume next cycle.
-                        new_offset = fh.tell()
-                        state.log_offset_bytes = new_offset
+                        state.log_offset_bytes = batch_offset
                         return shipped
                     batch = []
 
@@ -489,6 +500,10 @@ async def _ship_logs(endpoint: str, token: str, state: _ShipperState) -> int:
                 )
                 if ok:
                     shipped += len(batch)
+                    new_offset = fh.tell()
+                else:
+                    state.log_offset_bytes = batch_offset
+                    return shipped
 
             new_offset = fh.tell()
     except OSError as exc:

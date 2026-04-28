@@ -20,6 +20,9 @@ from lerim.config.settings import (
 
 COMPOSE_PATH = get_global_data_dir_path() / "docker-compose.yml"
 GHCR_IMAGE = "ghcr.io/lerim-dev/lerim-cli"
+LOCAL_IMAGE = "lerim-lerim:local"
+RUNTIME_SOURCE_ENV = "LERIM_RUNTIME_SOURCE"
+RUNTIME_IMAGE_ENV = "LERIM_RUNTIME_IMAGE"
 
 
 _API_KEY_ENV_NAMES = (
@@ -104,7 +107,9 @@ def _generate_compose_yml(build_local: bool = False) -> str:
         _add_volume(resolved, readonly=True)
 
     # Connected platform session dirs (read-only — Lerim reads traces only).
-    for _name, platform_path in get_connected_platform_paths(config.platforms_path).items():
+    for _name, platform_path in get_connected_platform_paths(
+        config.platforms_path
+    ).items():
         _add_volume(platform_path, readonly=True)
 
     # Registered project roots must be visible at the same absolute paths for
@@ -121,10 +126,12 @@ def _generate_compose_yml(build_local: bool = False) -> str:
     # NEVER write secret values into the compose file.
     env_lines = [
         f"      - HOME={home}",
-        "      - FASTEMBED_CACHE_PATH=/opt/lerim/models",
+        f"      - FASTEMBED_CACHE_PATH={lerim_dir}/models/embeddings",
         f"      - XDG_CACHE_HOME={lerim_dir}/cache",
-        f"      - HF_HOME={lerim_dir}/cache/huggingface",
-        f"      - HF_HUB_CACHE={lerim_dir}/cache/huggingface/hub",
+        f"      - HF_HOME={lerim_dir}/models/huggingface",
+        f"      - HF_HUB_CACHE={lerim_dir}/models/huggingface/hub",
+        f"      - {RUNTIME_SOURCE_ENV}={'local-build' if build_local else 'ghcr'}",
+        f"      - {RUNTIME_IMAGE_ENV}={LOCAL_IMAGE if build_local else f'{GHCR_IMAGE}:{__version__}'}",
     ]
     explicit_config = os.environ.get("LERIM_CONFIG")
     if explicit_config:
@@ -137,8 +144,6 @@ def _generate_compose_yml(build_local: bool = False) -> str:
     # keeps generated compose output honest about observability being enabled.
     if config.mlflow_enabled:
         env_lines.append("      - LERIM_MLFLOW=true")
-    env_block = "\n".join(env_lines)
-
     if build_local:
         pkg_root = _find_package_root()
         if pkg_root is None:
@@ -146,9 +151,10 @@ def _generate_compose_yml(build_local: bool = False) -> str:
                 "Cannot find Dockerfile in the Lerim source tree. "
                 "Use 'lerim up' without --build to pull the GHCR image."
             )
-        image_or_build = f"    build: {pkg_root}"
+        image_or_build = f"    image: {LOCAL_IMAGE}\n    build: {pkg_root}"
     else:
         image_or_build = f"    image: {GHCR_IMAGE}:{__version__}"
+    env_block = "\n".join(env_lines)
 
     # Resolve seccomp profile path (shipped with the package)
     seccomp_path = Path(__file__).parent / "lerim-seccomp.json"
@@ -217,7 +223,7 @@ def api_up(build_local: bool = False) -> dict[str, Any]:
 
     cmd = ["docker", "compose", "-f", str(COMPOSE_PATH), "up", "-d"]
     if build_local:
-        cmd.append("--build")
+        cmd.extend(["--build", "--force-recreate"])
 
     try:
         result = subprocess.run(cmd, timeout=300)
@@ -226,7 +232,12 @@ def api_up(build_local: bool = False) -> dict[str, Any]:
     if result.returncode != 0:
         return {"error": "docker compose up failed"}
 
-    return {"status": "started", "compose_path": str(COMPOSE_PATH)}
+    return {
+        "status": "started",
+        "compose_path": str(COMPOSE_PATH),
+        "runtime_source": "local-build" if build_local else "ghcr",
+        "runtime_image": LOCAL_IMAGE if build_local else f"{GHCR_IMAGE}:{__version__}",
+    }
 
 
 def api_down() -> dict[str, Any]:
@@ -272,6 +283,15 @@ def is_docker_container_running() -> bool:
     if result.returncode != 0:
         return False
     return "lerim" in {line.strip() for line in result.stdout.splitlines()}
+
+
+def current_compose_uses_local_build() -> bool:
+    """Return True when the active compose file has a local build directive."""
+    try:
+        content = COMPOSE_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return "\n    build:" in content
 
 
 def is_server_healthy() -> bool:
