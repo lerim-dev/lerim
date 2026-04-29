@@ -15,6 +15,7 @@ from lerim.agents.tools import (
     search_context,
     supersede_context,
 )
+from lerim.agents.mlflow_observability import trace_mlflow_tool
 
 READ_TRACE_TOOL_NAME = "read_trace"
 SEARCH_CONTEXT_TOOL_NAME = "search_context"
@@ -29,27 +30,27 @@ SUPERSEDE_CONTEXT_TOOL_NAME = "supersede_context"
 COUNT_CONTEXT_TOOL_NAME = "count_context"
 
 EXTRACT_TOOLS = (
-    read_trace,
-    search_context,
-    get_context,
-    save_context,
-    revise_context,
-    note_trace_findings,
-    prune_trace_reads,
+    trace_mlflow_tool(read_trace),
+    trace_mlflow_tool(search_context),
+    trace_mlflow_tool(get_context),
+    trace_mlflow_tool(save_context),
+    trace_mlflow_tool(revise_context),
+    trace_mlflow_tool(note_trace_findings),
+    trace_mlflow_tool(prune_trace_reads),
 )
 MAINTAIN_TOOLS = (
-    list_context,
-    search_context,
-    get_context,
-    revise_context,
-    archive_context,
-    supersede_context,
+    trace_mlflow_tool(list_context),
+    trace_mlflow_tool(search_context),
+    trace_mlflow_tool(get_context),
+    trace_mlflow_tool(revise_context),
+    trace_mlflow_tool(archive_context),
+    trace_mlflow_tool(supersede_context),
 )
 ASK_TOOLS = (
-    count_context,
-    list_context,
-    search_context,
-    get_context,
+    trace_mlflow_tool(count_context),
+    trace_mlflow_tool(list_context),
+    trace_mlflow_tool(search_context),
+    trace_mlflow_tool(get_context),
 )
 
 EXTRACT_TOOL_NAMES = frozenset(

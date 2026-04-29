@@ -15,6 +15,7 @@ from lerim.agents.history_processors import (
     prune_history_processor,
 )
 from lerim.agents.model_settings import LOW_VARIANCE_AGENT_MODEL_SETTINGS
+from lerim.agents.mlflow_observability import handle_mlflow_event_stream, mlflow_span
 from lerim.agents.toolsets import EXTRACT_TOOLS
 from lerim.agents.tools import (
     ContextDeps,
@@ -468,25 +469,38 @@ def run_extraction(
         session_started_at=str(session_started_at or "").strip(),
     )
     source_time_text = str(session_started_at or "").strip() or "unknown"
-    result = agent.run_sync(
-        (
-            "Read the trace, write exactly one episode record, and write only the strongest "
-            "durable records with non-empty title and body. Store reusable rules and decisions, "
-            "not a polished recap of the meeting. "
-            "Durable records must be positive canonical context: when trace text combines a "
-            "durable point with cleanup/noise/ignore guidance, exclude that guidance entirely "
-            "from the durable record. "
-            f"Source session started_at: {source_time_text}. Treat the trace as evidence from "
-            "that time, not as a fresh verification of the current repository. "
-            f"This trace has {trace_line_count} lines. Read all chunks before writing. "
-            "If the trace needs more than one read to cover it, record findings before any write. "
-            "If relevant existing durable records are shown below, treat them as a shortlist only; "
-            "fetch the full record before any revision."
-            + (f"\n\n{existing_record_manifest}" if existing_record_manifest else "")
-        ),
-        deps=deps,
-        usage_limits=UsageLimits(request_limit=compute_request_budget(trace_path) + 4),
+    prompt = (
+        "Read the trace, write exactly one episode record, and write only the strongest "
+        "durable records with non-empty title and body. Store reusable rules and decisions, "
+        "not a polished recap of the meeting. "
+        "Durable records must be positive canonical context: when trace text combines a "
+        "durable point with cleanup/noise/ignore guidance, exclude that guidance entirely "
+        "from the durable record. "
+        f"Source session started_at: {source_time_text}. Treat the trace as evidence from "
+        "that time, not as a fresh verification of the current repository. "
+        f"This trace has {trace_line_count} lines. Read all chunks before writing. "
+        "If the trace needs more than one read to cover it, record findings before any write. "
+        "If relevant existing durable records are shown below, treat them as a shortlist only; "
+        "fetch the full record before any revision."
+        + (f"\n\n{existing_record_manifest}" if existing_record_manifest else "")
     )
+    request_limit = compute_request_budget(trace_path) + 4
+    with mlflow_span(
+        "lerim.agent.extract",
+        span_type="AGENT",
+        attributes={"lerim.agent_name": "extract"},
+        inputs={
+            "trace_path": str(trace_path),
+            "trace_line_count": trace_line_count,
+            "request_limit": request_limit,
+        },
+    ):
+        result = agent.run_sync(
+            prompt,
+            deps=deps,
+            usage_limits=UsageLimits(request_limit=request_limit),
+            event_stream_handler=handle_mlflow_event_stream,
+        )
     if return_messages:
         return result.output, list(result.all_messages())
     return result.output

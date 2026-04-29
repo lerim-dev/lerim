@@ -18,6 +18,7 @@ from lerim.agents.ask import run_ask
 from lerim.agents.contracts import MaintainResultContract, SyncResultContract
 from lerim.agents.extract import ExtractionResult, run_extraction
 from lerim.agents.maintain import run_maintain
+from lerim.agents.mlflow_observability import finish_mlflow_run, lerim_mlflow_run
 from lerim.config.providers import build_pydantic_model
 from lerim.config.settings import Config, get_config
 from lerim.context import resolve_project_identity
@@ -561,7 +562,7 @@ class LerimRuntime:
             )
 
         try:
-            with _mlflow_run_span(
+            with lerim_mlflow_run(
                 enabled=self.config.mlflow_enabled,
                 operation="sync",
                 run_id=run_id,
@@ -569,58 +570,73 @@ class LerimRuntime:
                 project_id=project_identity.project_id,
                 project_name=project_identity.project_slug,
                 run_folder=run_folder,
-            ):
+                request_preview=f"sync:{resolved_session_id}",
+            ) as mlflow_run:
                 result, messages = self._run_with_fallback(
                     flow="sync",
                     callable_fn=_call,
                     model_builders=[_primary_builder],
                 )
 
-            response_text = (result.completion_summary or "").strip() or "(no response)"
-            _write_text_with_newline(artifact_paths["agent_log"], response_text)
+                response_text = (result.completion_summary or "").strip() or "(no response)"
+                _write_text_with_newline(artifact_paths["agent_log"], response_text)
 
-            try:
-                _write_agent_trace(artifact_paths["agent_trace"], messages)
-            except Exception as exc:
-                logger.warning(f"[sync] Failed to write agent trace: {exc}")
-                artifact_paths["agent_trace"].write_text("[]", encoding="utf-8")
+                try:
+                    _write_agent_trace(artifact_paths["agent_trace"], messages)
+                except Exception as exc:
+                    logger.warning(f"[sync] Failed to write agent trace: {exc}")
+                    artifact_paths["agent_trace"].write_text("[]", encoding="utf-8")
 
-            counts = _record_change_counts(self.config, resolved_session_id)
-            finished_at = datetime.now(timezone.utc).isoformat()
-            records_updated = int(counts.get("update") or 0) + int(
-                counts.get("supersede") or 0
-            )
-            manifest["status"] = "succeeded"
-            manifest["completed_at"] = finished_at
-            manifest["records_created"] = int(counts.get("create") or 0)
-            manifest["records_updated"] = records_updated
-            manifest["records_archived"] = int(counts.get("archive") or 0)
-            _write_json_artifact(artifact_paths["manifest"], manifest)
-            _append_jsonl_artifact(
-                artifact_paths["events"],
-                {
-                    "ts": finished_at,
-                    "event": "succeeded",
-                    "run_id": run_id,
+                counts = _record_change_counts(self.config, resolved_session_id)
+                finished_at = datetime.now(timezone.utc).isoformat()
+                records_updated = int(counts.get("update") or 0) + int(
+                    counts.get("supersede") or 0
+                )
+                manifest["status"] = "succeeded"
+                manifest["completed_at"] = finished_at
+                manifest["records_created"] = int(counts.get("create") or 0)
+                manifest["records_updated"] = records_updated
+                manifest["records_archived"] = int(counts.get("archive") or 0)
+                _write_json_artifact(artifact_paths["manifest"], manifest)
+                _append_jsonl_artifact(
+                    artifact_paths["events"],
+                    {
+                        "ts": finished_at,
+                        "event": "succeeded",
+                        "run_id": run_id,
+                        "records_created": manifest["records_created"],
+                        "records_updated": manifest["records_updated"],
+                        "records_archived": manifest["records_archived"],
+                    },
+                )
+                finish_mlflow_run(
+                    mlflow_run,
+                    final_status="succeeded",
+                    response_preview=response_text,
+                    outputs={
+                        "completion_summary": response_text,
+                        "records_created": manifest["records_created"],
+                        "records_updated": manifest["records_updated"],
+                        "records_archived": manifest["records_archived"],
+                    },
+                    records_created=manifest["records_created"],
+                    records_updated=manifest["records_updated"],
+                    records_archived=manifest["records_archived"],
+                )
+
+                payload = {
+                    "trace_path": str(trace_file),
+                    "context_db_path": str(self.config.context_db_path),
+                    "project_id": project_identity.project_id,
+                    "workspace_root": str(resolved_workspace_root),
+                    "run_folder": str(run_folder),
+                    "artifacts": {key: str(path) for key, path in artifact_paths.items()},
                     "records_created": manifest["records_created"],
-                    "records_updated": manifest["records_updated"],
+                    "records_updated": records_updated,
                     "records_archived": manifest["records_archived"],
-                },
-            )
-
-            payload = {
-                "trace_path": str(trace_file),
-                "context_db_path": str(self.config.context_db_path),
-                "project_id": project_identity.project_id,
-                "workspace_root": str(resolved_workspace_root),
-                "run_folder": str(run_folder),
-                "artifacts": {key: str(path) for key, path in artifact_paths.items()},
-                "records_created": manifest["records_created"],
-                "records_updated": records_updated,
-                "records_archived": manifest["records_archived"],
-                "cost_usd": 0.0,
-            }
-            return SyncResultContract.model_validate(payload).model_dump(mode="json")
+                    "cost_usd": 0.0,
+                }
+                return SyncResultContract.model_validate(payload).model_dump(mode="json")
         except Exception as exc:
             _mark_run_failed(
                 artifact_paths=artifact_paths,
@@ -712,7 +728,7 @@ class LerimRuntime:
             )
 
         try:
-            with _mlflow_run_span(
+            with lerim_mlflow_run(
                 enabled=self.config.mlflow_enabled,
                 operation="maintain",
                 run_id=run_id,
@@ -720,59 +736,74 @@ class LerimRuntime:
                 project_id=project_identity.project_id,
                 project_name=project_identity.project_slug,
                 run_folder=run_folder,
-            ):
+                request_preview=f"maintain:{session_id}",
+            ) as mlflow_run:
                 result, messages = self._run_with_fallback(
                     flow="maintain",
                     callable_fn=_call,
                     model_builders=[_primary_builder],
                 )
 
-            response_text = (result.completion_summary or "").strip() or "(no response)"
-            _write_text_with_newline(artifact_paths["agent_log"], response_text)
+                response_text = (result.completion_summary or "").strip() or "(no response)"
+                _write_text_with_newline(artifact_paths["agent_log"], response_text)
 
-            try:
-                _write_agent_trace(artifact_paths["agent_trace"], messages)
-            except Exception as exc:
-                logger.warning(f"[maintain] Failed to write agent trace: {exc}")
-                artifact_paths["agent_trace"].write_text("[]", encoding="utf-8")
+                try:
+                    _write_agent_trace(artifact_paths["agent_trace"], messages)
+                except Exception as exc:
+                    logger.warning(f"[maintain] Failed to write agent trace: {exc}")
+                    artifact_paths["agent_trace"].write_text("[]", encoding="utf-8")
 
-            counts = _record_change_counts(self.config, session_id)
-            finished_at = datetime.now(timezone.utc).isoformat()
-            records_updated = int(counts.get("update") or 0) + int(
-                counts.get("supersede") or 0
-            )
-            manifest["status"] = "succeeded"
-            manifest["completed_at"] = finished_at
-            manifest["records_created"] = int(counts.get("create") or 0)
-            manifest["records_updated"] = records_updated
-            manifest["records_archived"] = int(counts.get("archive") or 0)
-            _write_json_artifact(artifact_paths["manifest"], manifest)
-            _append_jsonl_artifact(
-                artifact_paths["events"],
-                {
-                    "ts": finished_at,
-                    "event": "succeeded",
-                    "run_id": run_id,
+                counts = _record_change_counts(self.config, session_id)
+                finished_at = datetime.now(timezone.utc).isoformat()
+                records_updated = int(counts.get("update") or 0) + int(
+                    counts.get("supersede") or 0
+                )
+                manifest["status"] = "succeeded"
+                manifest["completed_at"] = finished_at
+                manifest["records_created"] = int(counts.get("create") or 0)
+                manifest["records_updated"] = records_updated
+                manifest["records_archived"] = int(counts.get("archive") or 0)
+                _write_json_artifact(artifact_paths["manifest"], manifest)
+                _append_jsonl_artifact(
+                    artifact_paths["events"],
+                    {
+                        "ts": finished_at,
+                        "event": "succeeded",
+                        "run_id": run_id,
+                        "records_created": manifest["records_created"],
+                        "records_updated": manifest["records_updated"],
+                        "records_archived": manifest["records_archived"],
+                    },
+                )
+                finish_mlflow_run(
+                    mlflow_run,
+                    final_status="succeeded",
+                    response_preview=response_text,
+                    outputs={
+                        "completion_summary": response_text,
+                        "records_created": manifest["records_created"],
+                        "records_updated": manifest["records_updated"],
+                        "records_archived": manifest["records_archived"],
+                    },
+                    records_created=manifest["records_created"],
+                    records_updated=manifest["records_updated"],
+                    records_archived=manifest["records_archived"],
+                )
+
+                payload = {
+                    "context_db_path": str(self.config.context_db_path),
+                    "project_id": project_identity.project_id,
+                    "workspace_root": str(resolved_workspace_root),
+                    "run_folder": str(run_folder),
+                    "artifacts": {key: str(path) for key, path in artifact_paths.items()},
                     "records_created": manifest["records_created"],
-                    "records_updated": manifest["records_updated"],
+                    "records_updated": records_updated,
                     "records_archived": manifest["records_archived"],
-                },
-            )
-
-            payload = {
-                "context_db_path": str(self.config.context_db_path),
-                "project_id": project_identity.project_id,
-                "workspace_root": str(resolved_workspace_root),
-                "run_folder": str(run_folder),
-                "artifacts": {key: str(path) for key, path in artifact_paths.items()},
-                "records_created": manifest["records_created"],
-                "records_updated": records_updated,
-                "records_archived": manifest["records_archived"],
-                "cost_usd": 0.0,
-            }
-            return MaintainResultContract.model_validate(payload).model_dump(
-                mode="json"
-            )
+                    "cost_usd": 0.0,
+                }
+                return MaintainResultContract.model_validate(payload).model_dump(
+                    mode="json"
+                )
         except Exception as exc:
             _mark_run_failed(
                 artifact_paths=artifact_paths,
@@ -802,6 +833,8 @@ class LerimRuntime:
         )
         project_identity = resolve_project_identity(resolved_repo_root)
         resolved_project_ids = project_ids or [project_identity.project_id]
+        now = datetime.now(timezone.utc)
+        run_id = f"ask-{now.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
 
         def _primary_builder() -> Any:
             return build_pydantic_model("agent", config=self.config)
@@ -818,15 +851,31 @@ class LerimRuntime:
                 return_messages=include_debug,
             )
 
-        result = self._run_with_fallback(
-            flow="ask",
-            callable_fn=_call,
-            model_builders=[_primary_builder],
-        )
-        debug: dict[str, Any] | None = None
-        if include_debug:
-            result_obj, messages = result
-            result = result_obj
-            debug = _build_ask_debug(messages)
-        response_text = (result.answer or "").strip() or "(no response)"
-        return response_text, resolved_session_id, 0.0, debug
+        with lerim_mlflow_run(
+            enabled=self.config.mlflow_enabled,
+            operation="ask",
+            run_id=run_id,
+            session_id=resolved_session_id,
+            project_id=project_identity.project_id,
+            project_name=project_identity.project_slug,
+            project_ids=resolved_project_ids,
+            request_preview=prompt.strip()[:240] or f"ask:{resolved_session_id}",
+        ) as mlflow_run:
+            result = self._run_with_fallback(
+                flow="ask",
+                callable_fn=_call,
+                model_builders=[_primary_builder],
+            )
+            debug: dict[str, Any] | None = None
+            if include_debug:
+                result_obj, messages = result
+                result = result_obj
+                debug = _build_ask_debug(messages)
+            response_text = (result.answer or "").strip() or "(no response)"
+            finish_mlflow_run(
+                mlflow_run,
+                final_status="succeeded",
+                response_preview=response_text,
+                outputs={"answer": response_text},
+            )
+            return response_text, resolved_session_id, 0.0, debug

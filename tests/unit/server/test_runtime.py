@@ -485,3 +485,78 @@ class TestAskFlow:
         assert debug["tool_results"][0]["tool_name"] == "count_context"
         assert debug["messages"][0]["parts"][0]["part_kind"] == "system-prompt"
         assert debug["messages"][1]["parts"][0]["part_kind"] == "tool-call"
+
+    def test_ask_creates_mlflow_root_trace_without_changing_contract(
+        self, tmp_path, monkeypatch
+    ):
+        rt = _build_runtime(tmp_path, monkeypatch)
+        rt.config = replace(rt.config, mlflow_enabled=True)
+
+        class FakeSpan:
+            def __init__(self, name, span_type, attributes):
+                self.name = name
+                self.span_type = span_type
+                self.attributes = dict(attributes)
+                self.outputs = None
+                self.status = None
+
+            def set_inputs(self, inputs):
+                self.inputs = inputs
+
+            def set_outputs(self, outputs):
+                self.outputs = outputs
+
+            def set_attributes(self, attrs):
+                self.attributes.update(attrs)
+
+            def set_status(self, status):
+                self.status = status
+
+        class FakeSpanContext:
+            def __init__(self, fake_mlflow, name, span_type, attributes):
+                self.fake_mlflow = fake_mlflow
+                self.span = FakeSpan(name, span_type, attributes)
+
+            def __enter__(self):
+                self.fake_mlflow.spans.append(self.span)
+                return self.span
+
+            def __exit__(self, exc_type, exc, tb):
+                self.span.exit_type = exc_type
+                return False
+
+        class FakeMlflow:
+            def __init__(self):
+                self.spans = []
+                self.trace_updates = []
+
+            def start_span(self, name="span", span_type="UNKNOWN", attributes=None):
+                return FakeSpanContext(self, name, span_type, attributes or {})
+
+            def update_current_trace(self, **kwargs):
+                self.trace_updates.append(kwargs)
+
+        fake_mlflow = FakeMlflow()
+        monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
+        monkeypatch.setattr(
+            "lerim.server.runtime.build_pydantic_model",
+            lambda *args, **kwargs: "fake-model",
+        )
+        monkeypatch.setattr(
+            "lerim.server.runtime.run_ask",
+            lambda **kwargs: AskResult(answer="observed answer"),
+        )
+
+        answer, session_id, cost, debug = rt.ask("hello", repo_root=tmp_path)
+
+        assert answer == "observed answer"
+        assert session_id.startswith("lerim-")
+        assert cost == 0.0
+        assert debug is None
+        root_span = fake_mlflow.spans[0]
+        assert root_span.name == "lerim.ask"
+        assert root_span.attributes["lerim.operation"] == "ask"
+        assert root_span.attributes["lerim.final_status"] == "succeeded"
+        assert root_span.status == "OK"
+        assert root_span.outputs == {"answer": "observed answer"}
+        assert fake_mlflow.trace_updates[0]["client_request_id"].startswith("ask-")

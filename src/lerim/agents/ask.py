@@ -11,6 +11,7 @@ from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
 
 from lerim.agents.model_settings import LOW_VARIANCE_AGENT_MODEL_SETTINGS
+from lerim.agents.mlflow_observability import handle_mlflow_event_stream, mlflow_span
 from lerim.agents.toolsets import ASK_TOOLS
 from lerim.agents.tools import ContextDeps
 from lerim.context.project_identity import ProjectIdentity
@@ -155,11 +156,23 @@ def run_ask(
     )
     if hints_text:
         prompt = f"{prompt}\n\nHints:\n{hints_text}"
-    result = agent.run_sync(
-        prompt,
-        deps=deps,
-        usage_limits=UsageLimits(request_limit=max(1, int(request_limit))),
-    )
+    resolved_request_limit = max(1, int(request_limit))
+    with mlflow_span(
+        "lerim.agent.ask",
+        span_type="AGENT",
+        attributes={"lerim.agent_name": "ask"},
+        inputs={
+            "question": question.strip(),
+            "project_ids": project_ids,
+            "request_limit": resolved_request_limit,
+        },
+    ):
+        result = agent.run_sync(
+            prompt,
+            deps=deps,
+            usage_limits=UsageLimits(request_limit=resolved_request_limit),
+            event_stream_handler=handle_mlflow_event_stream,
+        )
     if return_messages:
         return result.output, list(result.all_messages())
     return result.output

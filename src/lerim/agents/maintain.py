@@ -10,6 +10,7 @@ from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
 
 from lerim.agents.model_settings import LOW_VARIANCE_AGENT_MODEL_SETTINGS
+from lerim.agents.mlflow_observability import handle_mlflow_event_stream, mlflow_span
 from lerim.agents.toolsets import MAINTAIN_TOOLS
 from lerim.agents.tools import ContextDeps
 from lerim.context.project_identity import ProjectIdentity
@@ -203,18 +204,27 @@ def run_maintain(
         project_identity=project_identity,
         session_id=session_id,
     )
-    result = agent.run_sync(
-        (
-            "Review the active records and improve the store by repairing weak records, "
-            "keeping valuable recent records active, archiving only clear junk or obsolete rows, "
-            "superseding duplicates when justified, leaving healthy fresh records alone, "
-            "preserving meaningful episodes even when a durable neighbor exists, and rewriting "
-            "report-style records into present-tense reusable rules, facts, decisions, "
-            "constraints, preferences, or references."
-        ),
-        deps=deps,
-        usage_limits=UsageLimits(request_limit=max(1, int(request_limit))),
+    prompt = (
+        "Review the active records and improve the store by repairing weak records, "
+        "keeping valuable recent records active, archiving only clear junk or obsolete rows, "
+        "superseding duplicates when justified, leaving healthy fresh records alone, "
+        "preserving meaningful episodes even when a durable neighbor exists, and rewriting "
+        "report-style records into present-tense reusable rules, facts, decisions, "
+        "constraints, preferences, or references."
     )
+    resolved_request_limit = max(1, int(request_limit))
+    with mlflow_span(
+        "lerim.agent.maintain",
+        span_type="AGENT",
+        attributes={"lerim.agent_name": "maintain"},
+        inputs={"request_limit": resolved_request_limit},
+    ):
+        result = agent.run_sync(
+            prompt,
+            deps=deps,
+            usage_limits=UsageLimits(request_limit=resolved_request_limit),
+            event_stream_handler=handle_mlflow_event_stream,
+        )
     if return_messages:
         return result.output, list(result.all_messages())
     return result.output
