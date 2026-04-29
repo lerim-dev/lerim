@@ -2645,7 +2645,7 @@ wheels = [
 
 [[package]]
 name = "lerim"
-version = "0.1.72"
+version = "0.1.80"
 source = { editable = "." }
 dependencies = [
     { name = "eval-type-backport", marker = "python_full_version < '3.13'" },

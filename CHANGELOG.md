@@ -7,8 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.80] - 2026-04-29
+
+### Added
+- Local-first context runtime built around the canonical SQLite context store, project-scoped records, version history, FTS, and local embedding-backed retrieval.
+- Semantic agent toolsets for sync, maintain, and ask flows, including context listing, search, fetching, writing, revising, archiving, superseding, counting, trace-note, and pruning tools.
+- End-to-end MLflow observability for sync, maintain, and ask runs using Lerim-owned root/tool/event spans that continue through controlled PydanticAI retries.
+- Expanded runtime artifacts, queue/status metadata, Docker runtime helpers, and CLI/API coverage for context operations.
+- Larger unit, smoke, integration, and end-to-end test suites for context extraction, maintenance, retrieval, queueing, cloud sync, scope handling, and CLI behavior.
+
+### Changed
+- Reworked memory terminology and docs around durable context records instead of legacy per-project markdown memory files.
+- Updated provider, tracing, configuration, logging, and run-artifact behavior for the DB-backed context architecture.
+- Refreshed README and documentation for setup, commands, storage layout, context model, tracing, and operational workflows.
+
 ### Fixed
 - Release-readiness cleanup for provider fallback parsing, strict TOML string/path validation, SPDX license metadata, and docs accuracy around sync ordering, tracing, semantic search config, and query sessions.
+- MLflow traces now preserve a successful Lerim root run even when a tool attempt raises a controlled retry before later recovery.
 
 ## [0.1.72] - 2026-04-13
 
