@@ -22,7 +22,6 @@ from lerim.agents.maintain import (
     MaintainResult,
 )
 AUTHORITATIVE_TOOL_DOCS = (
-    "AGENTS.md",
     "README.md",
     "src/lerim/README.md",
     "tests/README.md",
