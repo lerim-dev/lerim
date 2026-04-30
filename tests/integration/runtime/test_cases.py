@@ -10,6 +10,12 @@ from types import SimpleNamespace
 from lerim.agents.ask import AskResult
 from lerim.agents.extract import ExtractionResult
 from lerim.context import ContextStore
+from lerim.working_memory import (
+    MemoryLine,
+    MemorySection,
+    WorkingMemoryDraft,
+    working_memory_paths,
+)
 from tests.integration.runtime.helpers import (
     build_ordered_ask_messages,
     build_runtime_case_context,
@@ -423,3 +429,231 @@ def test_runtime_sync_then_maintain_then_ask_with_real_artifacts(
     assert [item["tool_name"] for item in debug["tool_calls"]] == expectation[
         "ask_tool_call_order"
     ]
+
+
+def test_working_memory_refresh_writes_dated_and_current_artifacts(
+    monkeypatch, live_config, live_repo_root
+):
+    """Working Memory generation should write dated artifacts plus stable current copies."""
+    expectation = load_runtime_expectation(
+        "working_memory_refresh_writes_dated_and_current_artifacts"
+    )["expected"]
+    ctx = build_runtime_case_context(
+        monkeypatch=monkeypatch,
+        live_config=live_config,
+        live_repo_root=live_repo_root,
+    )
+    seed_session_id = "runtime-working-memory-seed"
+    seed_runtime_session(
+        ctx.store,
+        project_id=ctx.project_id,
+        session_id=seed_session_id,
+        repo_root=live_repo_root,
+        source_trace_ref="working-memory-seed",
+    )
+    decision = ctx.store.create_record(
+        project_id=ctx.project_id,
+        session_id=seed_session_id,
+        kind="decision",
+        title="Use generated Working Memory at startup",
+        body="Use generated Working Memory at startup so agents get fast context.",
+        decision="Use generated Working Memory at startup.",
+        why="Startup must stay fast and avoid live synthesis.",
+        change_reason="working_memory_seed_decision",
+    )
+    constraint = ctx.store.create_record(
+        project_id=ctx.project_id,
+        session_id=seed_session_id,
+        kind="constraint",
+        title="Markdown is not canonical memory",
+        body="Markdown Working Memory is a derived view; SQLite remains canonical.",
+        change_reason="working_memory_seed_constraint",
+    )
+    monkeypatch.setattr(
+        "lerim.server.runtime.build_pydantic_model",
+        lambda *args, **kwargs: "fake-model",
+    )
+    monkeypatch.setattr(
+        "lerim.server.runtime.run_working_memory_synthesis",
+        lambda **kwargs: (
+            WorkingMemoryDraft(
+                summary=(
+                    MemoryLine(
+                        "Use generated Working Memory at startup.",
+                        (str(decision["record_id"]),),
+                    ),
+                ),
+                sections=(
+                    MemorySection(
+                        "Startup Context",
+                        (
+                            MemoryLine(
+                                "Keep Markdown derived from SQLite.",
+                                (str(constraint["record_id"]),),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            build_ordered_ask_messages()[:1],
+        ),
+    )
+
+    result = ctx.runtime.working_memory(
+        repo_root=live_repo_root,
+        project_name="runtime-project",
+        force=True,
+    )
+
+    run_folder = Path(str(result["run_folder"]))
+    paths = working_memory_paths(live_config, ctx.project_id)
+    _assert_run_folder_layout(
+        run_folder,
+        live_config.global_data_dir / "workspace",
+        str(expectation["workspace_subdir"]),
+    )
+    assert result["status"] == "generated"
+    assert result["records_considered"] == int(expectation["records_considered"])
+    assert result["records_included"] == int(expectation["records_included"])
+    assert paths.current_file.is_file()
+    assert paths.current_manifest.is_file()
+    assert (run_folder / "WORKING_MEMORY.md").is_file()
+    assert (run_folder / "agent.log").read_text(encoding="utf-8").strip()
+    manifest = json.loads((run_folder / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["operation"] == "working-memory"
+    assert manifest["status"] == "succeeded"
+    assert manifest["current_file"] == str(paths.current_file)
+    assert sorted(manifest["included_record_ids"]) == sorted(result["included_record_ids"])
+    current_markdown = paths.current_file.read_text(encoding="utf-8")
+    for record_id in result["included_record_ids"]:
+        assert record_id in current_markdown
+    assert "derived view, not the source of truth" in current_markdown
+
+
+def test_working_memory_refresh_skips_when_records_unchanged(
+    monkeypatch, live_config, live_repo_root
+):
+    """A second unchanged refresh should skip before creating a run folder or model call."""
+    expectation = load_runtime_expectation(
+        "working_memory_refresh_skips_when_records_unchanged"
+    )["expected"]
+    ctx = build_runtime_case_context(
+        monkeypatch=monkeypatch,
+        live_config=live_config,
+        live_repo_root=live_repo_root,
+    )
+    seed_session_id = "runtime-working-memory-skip-seed"
+    seed_runtime_session(
+        ctx.store,
+        project_id=ctx.project_id,
+        session_id=seed_session_id,
+        repo_root=live_repo_root,
+        source_trace_ref="working-memory-skip-seed",
+    )
+    decision = ctx.store.create_record(
+        project_id=ctx.project_id,
+        session_id=seed_session_id,
+        kind="decision",
+        title="Skip unchanged Working Memory refresh",
+        body="Skip Working Memory refresh when no records changed.",
+        decision="Skip unchanged Working Memory refresh.",
+        why="Avoid unnecessary model cost.",
+        change_reason="working_memory_skip_seed",
+    )
+    calls = {"synthesis": 0}
+    monkeypatch.setattr(
+        "lerim.server.runtime.build_pydantic_model",
+        lambda *args, **kwargs: "fake-model",
+    )
+
+    def _fake_synthesis(**kwargs):
+        calls["synthesis"] += 1
+        if calls["synthesis"] > 1:
+            raise AssertionError("unchanged refresh should not synthesize")
+        return (
+            WorkingMemoryDraft(
+                summary=(
+                    MemoryLine(
+                        "Skip unchanged Working Memory refresh.",
+                        (str(decision["record_id"]),),
+                    ),
+                ),
+                sections=(),
+            ),
+            build_ordered_ask_messages()[:1],
+        )
+
+    monkeypatch.setattr(
+        "lerim.server.runtime.run_working_memory_synthesis",
+        _fake_synthesis,
+    )
+    first = ctx.runtime.working_memory(
+        repo_root=live_repo_root,
+        project_name="runtime-project",
+        force=True,
+    )
+    operation_dir = Path(str(first["run_folder"])).parent
+    before = sorted(path.name for path in operation_dir.iterdir())
+
+    second = ctx.runtime.working_memory(
+        repo_root=live_repo_root,
+        project_name="runtime-project",
+        force=False,
+    )
+    after = sorted(path.name for path in operation_dir.iterdir())
+
+    assert calls["synthesis"] == 1
+    assert second["status"] == "skipped"
+    assert second["run_folder"] is None
+    assert second["skip_reason"] == expectation["skip_reason"]
+    assert second["records_changed_since_previous"] == 0
+    assert before == after
+
+
+def test_working_memory_refresh_writes_empty_state_without_model_call(
+    monkeypatch, live_config, live_repo_root
+):
+    """Projects with no active records should get an empty-state artifact without synthesis."""
+    expectation = load_runtime_expectation(
+        "working_memory_refresh_writes_empty_state_without_model_call"
+    )["expected"]
+    ctx = build_runtime_case_context(
+        monkeypatch=monkeypatch,
+        live_config=live_config,
+        live_repo_root=live_repo_root,
+    )
+    monkeypatch.setattr(
+        "lerim.server.runtime.build_pydantic_model",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("empty-state refresh should not build a model")
+        ),
+    )
+    monkeypatch.setattr(
+        "lerim.server.runtime.run_working_memory_synthesis",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("empty-state refresh should not synthesize")
+        ),
+    )
+
+    result = ctx.runtime.working_memory(
+        repo_root=live_repo_root,
+        project_name="runtime-project",
+        force=True,
+    )
+
+    run_folder = Path(str(result["run_folder"]))
+    paths = working_memory_paths(live_config, ctx.project_id)
+    _assert_run_folder_layout(
+        run_folder,
+        live_config.global_data_dir / "workspace",
+        str(expectation["workspace_subdir"]),
+    )
+    assert result["status"] == "generated"
+    assert result["records_considered"] == 0
+    assert result["records_included"] == 0
+    text = paths.current_file.read_text(encoding="utf-8")
+    for token in expectation["empty_state_must_include"]:
+        assert token in text
+    manifest = json.loads(paths.current_manifest.read_text(encoding="utf-8"))
+    assert manifest["records_considered"] == 0
+    assert manifest["included_record_ids"] == []
