@@ -612,6 +612,7 @@ def run_working_memory_for_project(
             repo_root=project_path,
             project_name=project_name,
             force=force,
+            trigger=trigger,
         )
         status = "skipped" if result.get("status") == "skipped" else "completed"
         _record_service_event(

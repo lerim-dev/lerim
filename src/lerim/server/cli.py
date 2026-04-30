@@ -315,7 +315,28 @@ def _cmd_working_memory(args: argparse.Namespace) -> int:
 
     if action == "show":
         if paths.current_file.is_file():
-            _emit(paths.current_file.read_text(encoding="utf-8").rstrip("\n"))
+            store = ContextStore(config.context_db_path)
+            status = status_to_dict(
+                working_memory_status(config=config, store=store, project=project)
+            )
+            preface = [
+                "Working Memory Live Status:",
+                f"- availability: {status['availability']}",
+                f"- generated_at: {status['generated_at']}",
+                f"- age: {status['age']}",
+                (
+                    "- db_records_changed_since_generation: "
+                    f"{status['records_changed_since_generation']}"
+                ),
+                f"- suggested_action: {working_memory_show_action(status)}",
+                "",
+                "---",
+                "",
+            ]
+            _emit(
+                "\n".join(preface)
+                + paths.current_file.read_text(encoding="utf-8").rstrip("\n")
+            )
             return 0
         message = (
             f"No Working Memory generated yet for project `{project.name}`.\n"
@@ -376,6 +397,15 @@ def _cmd_working_memory(args: argparse.Namespace) -> int:
 
     _emit(f"Unknown working-memory action: {action}", file=sys.stderr)
     return 2
+
+
+def working_memory_show_action(status: dict[str, Any]) -> str:
+    """Return a contextual action for the already-running show command."""
+    if status.get("availability") == "stale":
+        return "Refresh if newest persisted DB context matters."
+    if status.get("availability") == "available":
+        return "Continue with this startup context; inspect sources or query deeper if needed."
+    return str(status.get("suggested_action") or "Run `lerim working-memory status`.")
 
 
 def _cmd_dashboard(args: argparse.Namespace) -> int:

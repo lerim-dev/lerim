@@ -841,6 +841,7 @@ class LerimRuntime:
         *,
         project_name: str | None = None,
         force: bool = False,
+        trigger: str = "manual",
     ) -> dict[str, Any]:
         """Generate or skip one project's derived Working Memory artifact."""
         resolved_repo_root = (
@@ -877,6 +878,7 @@ class LerimRuntime:
                 "status": "skipped",
                 "project": display_name,
                 "project_id": project_identity.project_id,
+                "trigger": trigger,
                 "generated_at": previous_generated_at or None,
                 "context_db_path": str(self.config.context_db_path),
                 "workspace_root": str(resolved_workspace_root),
@@ -960,9 +962,15 @@ class LerimRuntime:
             markdown = render_working_memory_markdown(
                 project=project,
                 generated_at=generated_at,
+                previous_generated_at=previous_generated_at or None,
+                generation_trigger=trigger,
+                records_considered=len(candidates),
                 records_included=len(record_ids),
-                changed_since_generation=0,
+                db_records_changed_since_previous=changed_since_previous,
                 draft=draft,
+                candidate_records=candidates,
+                current_file=current_paths.current_file,
+                run_folder=run_folder,
             )
             _write_text_with_newline(artifact_paths["working_memory"], markdown)
             response_text = (
@@ -984,6 +992,7 @@ class LerimRuntime:
                 records_included=len(record_ids),
                 included_record_ids_value=record_ids,
                 changed_records_since_previous=changed_since_previous,
+                trigger=trigger,
                 current_file=current_paths.current_file,
                 run_folder=run_folder,
             )
@@ -1015,6 +1024,7 @@ class LerimRuntime:
                 "status": "generated",
                 "project": display_name,
                 "project_id": project_identity.project_id,
+                "trigger": trigger,
                 "generated_at": generated_at,
                 "context_db_path": str(self.config.context_db_path),
                 "workspace_root": str(resolved_workspace_root),

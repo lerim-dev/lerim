@@ -46,7 +46,8 @@ lerim status --json
 
 Working Memory is the startup path. It is generated ahead of time by the daemon
 or by `lerim working-memory refresh`, so `show`, `status`, and `path` should be
-fast local reads.
+fast local reads. `show` prepends live DB freshness before printing the static
+markdown snapshot.
 
 ```mermaid
 flowchart TD
@@ -64,10 +65,14 @@ flowchart TD
 ## Working rules
 
 - Working Memory is a generated markdown view of SQLite records, not durable state.
-- Read the freshness block. If it reports changed records and newest context matters, suggest `lerim working-memory refresh`.
-- Use `lerim working-memory status` to see dynamic age, record-change count, current path, latest run, and suggested action.
+- Read the live freshness block. If it reports changed DB records and newest context matters, suggest `lerim working-memory refresh`.
+- Use `lerim working-memory status` to see dynamic age, DB record-change count, current path, latest run, and suggested action.
 - Use `lerim working-memory path` when another tool needs the stable Markdown path.
 - Do not hardcode project IDs. Run commands from inside the repo or pass `--project <name-or-path>`.
+- Treat test/build results inside Working Memory as historical persisted evidence; rerun relevant checks after edits.
+- Expect a fixed section order: Summary, Start Here, Current Handoff, Decisions, Constraints & Preferences, Project Facts, Open Risks / Review Queue, Follow-up Queries, Sources.
+- Treat Start Here as deterministic Lerim guidance, not model synthesis.
+- Trust Current Handoff only when it cites recent episode evidence; otherwise use the current chat, git state, and tests for live implementation status.
 - Prefer `query` over `ask` when the question is exact.
 - Prefer `ask` over manual browsing when the question needs synthesis across records.
 - Treat Lerim as the context layer, not as a place to manually edit durable state during normal coding work.

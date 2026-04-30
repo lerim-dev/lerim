@@ -44,6 +44,7 @@ class WorkingMemoryResultContract(BaseModel):
 	status: str
 	project: str
 	project_id: str
+	trigger: str = "manual"
 	generated_at: str | None = None
 	context_db_path: str
 	workspace_root: str

@@ -224,7 +224,7 @@ Generated markdown startup context for coding agents. The markdown lives under
 view of `~/.lerim/context.sqlite3`, not a second memory store.
 
 ```bash
-lerim working-memory show              # print current generated markdown
+lerim working-memory show              # print live DB freshness + markdown
 lerim working-memory status            # show freshness metadata
 lerim working-memory path              # print stable current file path
 lerim working-memory refresh           # regenerate if records changed
@@ -233,8 +233,8 @@ lerim working-memory refresh --force   # regenerate even if unchanged
 
 | Subcommand | Description |
 |------------|-------------|
-| `show` | Print the current `WORKING_MEMORY.md` without model calls |
-| `status` | Print availability, generated time, age, records included, changed-record count, current path, latest run, and suggested action |
+| `show` | Print live DB freshness plus the current `WORKING_MEMORY.md` without model calls |
+| `status` | Print availability, generated time, age, records included, DB changed-record count, current path, latest run, and suggested action |
 | `path` | Print the stable expected current artifact path |
 | `refresh` | Generate dated artifacts and update the stable current copy |
 
@@ -244,9 +244,27 @@ lerim working-memory refresh --force   # regenerate even if unchanged
 | `--force` | On `refresh`, regenerate even when no context records changed |
 | `--json` | Emit structured JSON for `status`, `path`, and `refresh` |
 
+Rendered artifact shape:
+
+| Section | Source |
+|---------|--------|
+| `Summary` | Compact cited startup cache |
+| `Start Here` | Deterministic Lerim guidance for repo scope, freshness, git state, and verification |
+| `Current Handoff` | Recent episode evidence only; otherwise an explicit no-handoff note |
+| `Decisions` | Durable decision records |
+| `Constraints & Preferences` | Durable constraint and preference records |
+| `Project Facts` | Durable facts and references that prevent mistakes |
+| `Open Risks / Review Queue` | Records that explicitly identify unresolved work, risks, or review concerns |
+| `Follow-up Queries` | Records that explicitly justify deeper lookup questions |
+| `Sources` | Cited record IDs used by the body |
+
 Notes:
 - Coding agents should call `lerim working-memory show` instead of hardcoding a `project_id`.
-- Use `lerim working-memory status` for dynamic freshness: current age, record-change count, current path, latest run folder, and suggested action.
+- Use `lerim working-memory status` for dynamic freshness: current age, DB record-change count, current path, latest run folder, and suggested action.
+- Treat test/build results inside Working Memory as historical persisted evidence; rerun relevant checks after edits.
+- `show` prepends live DB freshness; the markdown that follows is still the last generated snapshot.
+- `Start Here` is deterministic. Do not read it as model-written evidence.
+- `Current Handoff` is valid only when backed by recent episode records.
 - Daily daemon refresh and maintain-triggered refresh skip unchanged projects.
 - Sync does not directly trigger Working Memory in v1.
 
@@ -255,14 +273,14 @@ Flow:
 ```mermaid
 flowchart TD
     A["manual refresh, daily daemon, or maintain trigger"] --> B["resolve registered project"]
-    B --> C["count changed record_versions since generated_at"]
+    B --> C["count changed DB record_versions since generated_at"]
     C --> D{"current artifact exists and changed count is 0?"}
     D -- "yes" --> E["skip without model call"]
     D -- "no or --force" --> F["load active candidate records"]
     F --> G{"candidate records exist?"}
     G -- "no" --> H["render empty-state markdown"]
     G -- "yes" --> I["run Working Memory synthesis agent"]
-    I --> J["validate cited record IDs"]
+    I --> J["validate cited record IDs and fixed sections"]
     H --> K["write dated run artifacts"]
     J --> K
     K --> L["copy latest files to workspace/current/<project_id>"]

@@ -19,6 +19,7 @@ WORKING_MEMORY_OPERATION = "working-memory"
 MAX_CANDIDATE_RECORDS = 80
 TARGET_LINE_COUNT = 50
 MAX_LINE_COUNT = 80
+REFERENCE_LINE_LIMIT = 12
 KIND_PRIORITY = {
     "decision": 0,
     "preference": 1,
@@ -26,6 +27,14 @@ KIND_PRIORITY = {
     "fact": 3,
     "reference": 4,
     "episode": 5,
+}
+KIND_BUDGETS = {
+    "decision": 20,
+    "preference": 10,
+    "constraint": 14,
+    "fact": 14,
+    "reference": 8,
+    "episode": 8,
 }
 
 
@@ -67,7 +76,14 @@ class WorkingMemoryDraft:
     """Structured synthesized Working Memory content before markdown rendering."""
 
     summary: tuple[MemoryLine, ...]
-    sections: tuple[MemorySection, ...]
+    start_here: tuple[MemoryLine, ...] = ()
+    current_handoff: tuple[MemoryLine, ...] = ()
+    decisions: tuple[MemoryLine, ...] = ()
+    constraints_preferences: tuple[MemoryLine, ...] = ()
+    project_facts: tuple[MemoryLine, ...] = ()
+    open_risks: tuple[MemoryLine, ...] = ()
+    follow_up_queries: tuple[MemoryLine, ...] = ()
+    sections: tuple[MemorySection, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -255,7 +271,26 @@ def load_candidate_records(
     project_id: str,
     limit: int = MAX_CANDIDATE_RECORDS,
 ) -> list[dict[str, Any]]:
-    """Load bounded active records ordered by durable-kind priority."""
+    """Load bounded active records with durable-kind and recency balance."""
+    protected_ids: list[str] = []
+    protected_by_id: dict[str, dict[str, Any]] = {}
+    for kind, budget in KIND_BUDGETS.items():
+        payload = store.query(
+            entity="records",
+            mode="list",
+            project_ids=[project_id],
+            kind=kind,
+            status="active",
+            order_by="updated_at",
+            limit=max(1, int(budget)),
+            include_total=False,
+        )
+        for row in payload.get("rows") or []:
+            record_id = str(row.get("record_id") or "")
+            if record_id and record_id not in protected_by_id:
+                protected_ids.append(record_id)
+                protected_by_id[record_id] = row
+
     payload = store.query(
         entity="records",
         mode="list",
@@ -265,26 +300,44 @@ def load_candidate_records(
         limit=max(1, int(limit)),
         include_total=False,
     )
-    rows = list(payload.get("rows") or [])
+    row_by_id = dict(protected_by_id)
+    for row in payload.get("rows") or []:
+        record_id = str(row.get("record_id") or "")
+        if record_id:
+            row_by_id.setdefault(record_id, row)
+
+    protected = [protected_by_id[record_id] for record_id in protected_ids]
+    fill = [
+        row
+        for record_id, row in row_by_id.items()
+        if record_id not in protected_by_id
+    ]
+    sort_candidates(protected)
+    sort_candidates(fill)
+    rows = protected[: max(1, int(limit))] + fill
+    return rows[: max(1, int(limit))]
+
+
+def sort_candidates(rows: list[dict[str, Any]]) -> None:
+    """Sort candidate rows by kind priority, then newest update first."""
     rows.sort(
-        key=lambda row: (str(row.get("updated_at") or ""), str(row.get("record_id") or "")),
+        key=lambda row: (
+            str(row.get("updated_at") or ""),
+            str(row.get("record_id") or ""),
+        ),
         reverse=True,
     )
     rows.sort(key=lambda row: KIND_PRIORITY.get(str(row.get("kind") or ""), 50))
-    return rows[: max(1, int(limit))]
 
 
 def empty_working_memory_draft() -> WorkingMemoryDraft:
     """Return an empty draft for projects with no active context records."""
-    return WorkingMemoryDraft(summary=(), sections=())
+    return WorkingMemoryDraft(summary=())
 
 
 def validate_draft(draft: WorkingMemoryDraft, *, allowed_record_ids: set[str]) -> None:
     """Validate that every substantive line has a known record citation."""
-    lines = [*draft.summary]
-    for section in draft.sections:
-        lines.extend(section.lines)
-    for line in lines:
+    for line in iter_draft_lines(draft):
         if not line.text.strip():
             continue
         if not line.record_ids:
@@ -294,39 +347,100 @@ def validate_draft(draft: WorkingMemoryDraft, *, allowed_record_ids: set[str]) -
             raise ValueError(f"working_memory_line_unknown_record_id:{unknown[0]}")
 
 
-def included_record_ids(draft: WorkingMemoryDraft) -> tuple[str, ...]:
-    """Return sorted unique record IDs cited by the draft."""
-    seen: set[str] = set()
-    for line in draft.summary:
-        seen.update(line.record_ids)
+def iter_draft_lines(draft: WorkingMemoryDraft) -> tuple[MemoryLine, ...]:
+    """Return all synthesized memory lines in rendered section order."""
+    lines: list[MemoryLine] = []
+    lines.extend(draft.summary)
+    lines.extend(draft.start_here)
+    lines.extend(draft.current_handoff)
+    lines.extend(draft.decisions)
+    lines.extend(draft.constraints_preferences)
+    lines.extend(draft.project_facts)
+    lines.extend(draft.open_risks)
+    lines.extend(draft.follow_up_queries)
     for section in draft.sections:
-        for line in section.lines:
-            seen.update(line.record_ids)
-    return tuple(sorted(seen))
+        lines.extend(section.lines)
+    return tuple(lines)
+
+
+def included_record_ids(draft: WorkingMemoryDraft) -> tuple[str, ...]:
+    """Return unique record IDs in first-citation order."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for line in iter_draft_lines(draft):
+        for record_id in line.record_ids:
+            if record_id not in seen:
+                seen.add(record_id)
+                ordered.append(record_id)
+    return tuple(ordered)
 
 
 def render_working_memory_markdown(
     *,
     project: WorkingMemoryProject,
     generated_at: str,
+    previous_generated_at: str | None,
+    generation_trigger: str,
+    records_considered: int,
     records_included: int,
-    changed_since_generation: int,
+    db_records_changed_since_previous: int,
     draft: WorkingMemoryDraft,
+    candidate_records: list[dict[str, Any]] | None = None,
+    current_file: Path | None = None,
+    run_folder: Path | None = None,
 ) -> str:
     """Render Working Memory markdown with freshness metadata and citations."""
     lines = [
         "# Working Memory",
         "",
         "> Generated from Lerim SQLite context. This markdown is a derived view, not the source of truth.",
+        "> It reflects persisted Lerim records only. Check git status, tests, and the current chat for live workspace state.",
         "",
         f"- Project: `{project.name}` (`{project.identity.project_id}`)",
-        f"- Generated: `{generated_at}` ({human_age(age_seconds_since(generated_at))})",
-        f"- Records included: {records_included}",
-        f"- Records changed since generation: {changed_since_generation}",
+        f"- Generated: `{generated_at}`",
+        f"- Previous generation: `{previous_generated_at or 'none'}`",
+        f"- Generation trigger: `{generation_trigger}`",
+        f"- Records considered: {records_considered}",
+        f"- Records cited: {records_included}",
+        f"- DB records changed before this generation: {db_records_changed_since_previous}",
+        "- Live DB freshness: `lerim working-memory status`",
         "- Refresh: `lerim working-memory refresh`",
+        "- Inspect sources: use the Sources section below, or run "
+        f"`lerim query records list --scope project --project {project.identity.repo_path} --json`.",
         "",
     ]
-    if not draft.summary and not draft.sections:
+    if current_file is not None:
+        lines.append(f"- Current file: `{current_file}`")
+    if run_folder is not None:
+        lines.append(f"- Run folder: `{run_folder}`")
+    if current_file is not None or run_folder is not None:
+        lines.append("")
+    has_episode_evidence = any(
+        str(record.get("kind") or "") == "episode"
+        for record in candidate_records or []
+    )
+    seen_lines: set[str] = set()
+    lines.extend(
+        [
+            "## Start Here",
+            "",
+            f"- Memory scope: `{project.identity.repo_path}` (`{project.name}`).",
+            f"- To read this exact memory from another cwd, pass `--project {project.identity.repo_path}`.",
+            "- Code/package work may live in a child directory; use more specific Project Facts paths for code and tests.",
+            "- Run `git status` before editing; Working Memory is DB context, not workspace state.",
+            "- Treat any test/build results below as historical persisted evidence; rerun relevant checks after edits.",
+        ]
+    )
+    for item in draft.start_here[:6]:
+        rendered = render_memory_line(item, seen_lines=seen_lines)
+        if rendered:
+            lines.append(rendered)
+    if not has_episode_evidence:
+        lines.append(
+            "- No implementation handoff is available from persisted episode records; use the current chat, tests, and git state for live work."
+        )
+    lines.append("")
+    if not iter_draft_lines(draft):
         lines.extend(
             [
                 "## Summary",
@@ -334,18 +448,194 @@ def render_working_memory_markdown(
                 "No active project context records exist yet. Run `lerim sync` and `lerim maintain` to build context.",
             ]
         )
-        return "\n".join(lines[:MAX_LINE_COUNT]).rstrip() + "\n"
+        return "\n".join(truncate_markdown_lines(lines)).rstrip() + "\n"
 
-    lines.extend(["## Summary", ""])
-    for item in draft.summary[:8]:
-        lines.append(f"- {item.text.strip()} {format_citations(item.record_ids)}")
+    append_memory_section(
+        lines,
+        title="Summary",
+        items=draft.summary[:8],
+        seen_lines=seen_lines,
+    )
+    cited_ids = included_record_ids(draft)
+    if cited_ids and not any(
+        str(record.get("kind") or "") == "episode"
+        for record in candidate_records or []
+        if str(record.get("record_id") or "") in cited_ids
+    ):
+        lines.extend(
+            [
+                "",
+                "> No recent episode records were cited. Treat this as durable context, not a complete handoff of current work.",
+            ]
+        )
+    append_memory_section(
+        lines,
+        title="Current Handoff",
+        items=draft.current_handoff[:10],
+        seen_lines=seen_lines,
+    )
+    append_memory_section(
+        lines,
+        title="Decisions",
+        items=draft.decisions[:12],
+        seen_lines=seen_lines,
+    )
+    append_memory_section(
+        lines,
+        title="Constraints & Preferences",
+        items=draft.constraints_preferences[:12],
+        seen_lines=seen_lines,
+    )
+    append_memory_section(
+        lines,
+        title="Project Facts",
+        items=draft.project_facts[:12],
+        seen_lines=seen_lines,
+    )
+    append_memory_section(
+        lines,
+        title="Open Risks / Review Queue",
+        items=draft.open_risks[:10],
+        seen_lines=seen_lines,
+    )
+    append_memory_section(
+        lines,
+        title="Follow-up Queries",
+        items=draft.follow_up_queries[:8],
+        seen_lines=seen_lines,
+    )
     for section in draft.sections:
         if not section.lines:
             continue
-        lines.extend(["", f"## {section.title.strip()}", ""])
-        for item in section.lines[:14]:
-            lines.append(f"- {item.text.strip()} {format_citations(item.record_ids)}")
-    return "\n".join(lines[:MAX_LINE_COUNT]).rstrip() + "\n"
+        append_memory_section(
+            lines,
+            title=section.title.strip(),
+            items=section.lines[:14],
+            seen_lines=seen_lines,
+        )
+    source_lines = format_source_reference_lines(
+        candidate_records or [],
+        cited_record_ids=included_record_ids(draft),
+    )
+    if source_lines:
+        lines = append_sources_with_budget(lines, source_lines)
+    else:
+        lines = truncate_markdown_lines(lines)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def clean_memory_text(text: str, record_ids: tuple[str, ...]) -> str:
+    """Remove accidental inline record IDs from model-written memory text."""
+    cleaned = str(text or "").strip()
+    for record_id in record_ids:
+        cleaned = cleaned.replace(str(record_id), "")
+    for token in ("[]", "()", "(,)", "[,]"):
+        cleaned = cleaned.replace(token, "")
+    return " ".join(cleaned.split()).strip(" -:;,")
+
+
+def render_memory_line(
+    item: MemoryLine,
+    *,
+    seen_lines: set[str],
+) -> str | None:
+    """Render one deduped memory bullet."""
+    cleaned = clean_memory_text(item.text, item.record_ids)
+    if not cleaned:
+        return None
+    normalized = cleaned.casefold()
+    if normalized in seen_lines:
+        return None
+    seen_lines.add(normalized)
+    return f"- {cleaned} {format_citations(item.record_ids)}"
+
+
+def append_memory_section(
+    lines: list[str],
+    *,
+    title: str,
+    items: tuple[MemoryLine, ...],
+    seen_lines: set[str],
+) -> None:
+    """Append a fixed Working Memory section when it has rendered lines."""
+    section_lines: list[str] = []
+    for item in items:
+        rendered = render_memory_line(item, seen_lines=seen_lines)
+        if rendered:
+            section_lines.append(rendered)
+    if section_lines:
+        lines.extend(["", f"## {title}", "", *section_lines])
+
+
+def format_source_reference_lines(
+    records: list[dict[str, Any]],
+    *,
+    cited_record_ids: tuple[str, ...],
+) -> list[str]:
+    """Render compact source lines for cited records."""
+    by_id = {str(record.get("record_id") or ""): record for record in records}
+    lines: list[str] = []
+    for record_id in cited_record_ids[:REFERENCE_LINE_LIMIT]:
+        record = by_id.get(record_id)
+        if not record:
+            continue
+        title = str(record.get("title") or "Untitled").strip()
+        kind = str(record.get("kind") or "record").strip()
+        updated_at = str(record.get("updated_at") or "").strip()
+        source_session = str(record.get("source_session_id") or "").strip()
+        source_text = f"; source_session: `{source_session}`" if source_session else ""
+        lines.append(
+            f"- `{record_id}` ({kind}, updated `{updated_at}`): {title}{source_text}"
+        )
+    if len(cited_record_ids) > REFERENCE_LINE_LIMIT:
+        remaining = len(cited_record_ids) - REFERENCE_LINE_LIMIT
+        lines.append(
+            f"- {remaining} more cited source(s); run `lerim working-memory status` "
+            "and `lerim query records list --json` for full DB details."
+        )
+    return lines
+
+
+def truncate_markdown_lines(lines: list[str]) -> list[str]:
+    """Return markdown lines with an explicit truncation marker when clipped."""
+    if len(lines) <= MAX_LINE_COUNT:
+        return lines
+    visible = lines[: max(0, MAX_LINE_COUNT - 3)]
+    visible.extend(
+        [
+            "",
+            "> Truncated for startup size. Use `lerim query` or `lerim ask` for deeper context.",
+        ]
+    )
+    return visible
+
+
+def append_sources_with_budget(lines: list[str], source_lines: list[str]) -> list[str]:
+    """Append sources while preserving them under the max line budget."""
+    sources_block = ["", "## Sources", "", *source_lines]
+    if len(lines) + len(sources_block) <= MAX_LINE_COUNT:
+        return [*lines, *sources_block]
+    reserved = len(sources_block) + 3
+    body_budget = max(0, MAX_LINE_COUNT - reserved)
+    body = lines[:body_budget]
+    strip_dangling_section_header(body)
+    body.extend(
+        [
+            "",
+            "> Body truncated for startup size. Sources are preserved below.",
+        ]
+    )
+    return [*body, *sources_block]
+
+
+def strip_dangling_section_header(lines: list[str]) -> None:
+    """Remove a trailing empty section header after body truncation."""
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if lines and lines[-1].startswith("## "):
+        lines.pop()
+    while lines and not lines[-1].strip():
+        lines.pop()
 
 
 def format_citations(record_ids: tuple[str, ...]) -> str:
@@ -364,6 +654,7 @@ def build_manifest(
     records_included: int,
     included_record_ids_value: tuple[str, ...],
     changed_records_since_previous: int,
+    trigger: str,
     current_file: Path,
     run_folder: Path,
 ) -> dict[str, Any]:
@@ -373,6 +664,7 @@ def build_manifest(
         "operation": WORKING_MEMORY_OPERATION,
         "status": status,
         "generated_at": generated_at,
+        "trigger": trigger,
         "project_id": project.identity.project_id,
         "project": project.name,
         "repo_path": str(project.identity.repo_path),
@@ -406,15 +698,15 @@ def working_memory_status(
     if not file_exists:
         availability = "missing"
         action = "Run `lerim working-memory refresh`."
-    elif changed > 0:
-        availability = "stale"
-        action = "Read the file, then run `lerim working-memory refresh` if newest context matters."
     elif not manifest_exists:
         availability = "error"
         action = "Run `lerim working-memory refresh --force`."
+    elif changed > 0:
+        availability = "stale"
+        action = "Refresh if newest persisted DB context matters."
     else:
         availability = "available"
-        action = "Read with `lerim working-memory show`."
+        action = "Continue with this startup context; inspect sources or query deeper if needed."
     return WorkingMemoryStatus(
         availability=availability,
         project=project.name,
