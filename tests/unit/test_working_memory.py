@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -19,6 +19,7 @@ from lerim.working_memory import (
     load_candidate_records,
     render_working_memory_markdown,
     resolve_working_memory_project,
+    working_memory_status,
     working_memory_paths,
 )
 from tests.helpers import make_config, run_cli, run_cli_json, write_test_config
@@ -77,6 +78,13 @@ def _create_record(
         if kind == "episode"
         else None,
     )
+
+
+def _markdown_heading_index(markdown: str, heading: str) -> int:
+    """Return the index of a markdown heading, failing clearly when absent."""
+    marker = f"\n{heading}\n"
+    assert marker in markdown
+    return markdown.index(marker)
 
 
 def test_resolve_working_memory_project_uses_most_specific_registered_path(tmp_path):
@@ -167,6 +175,96 @@ def test_candidate_loading_prefers_newer_records_within_kind(tmp_path, mock_embe
     assert fact_ids[:2] == [new_fact["record_id"], old_fact["record_id"]]
 
 
+def test_working_memory_draft_has_fixed_sections_with_sections_fallback():
+    """Draft contract exposes fixed sections plus legacy section fallback."""
+    assert [field.name for field in fields(WorkingMemoryDraft)] == [
+        "summary",
+        "start_here",
+        "current_handoff",
+        "decisions",
+        "constraints_preferences",
+        "project_facts",
+        "open_risks",
+        "follow_up_queries",
+        "sections",
+    ]
+
+
+def test_rendered_markdown_uses_fixed_section_order_and_sections_fallback(tmp_path):
+    """Renderer emits fixed sections in order before legacy fallback sections."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    project = resolve_working_memory_project(
+        config=replace(make_config(tmp_path / ".lerim"), projects={"repo": str(repo)}),
+        cwd=repo,
+    )
+    draft = WorkingMemoryDraft(
+        summary=(MemoryLine("Summary line", ("rec_summary",)),),
+        start_here=(MemoryLine("Use the package directory", ("rec_start",)),),
+        current_handoff=(MemoryLine("Resume the handoff", ("rec_handoff",)),),
+        decisions=(MemoryLine("Keep SQLite canonical", ("rec_decision",)),),
+        constraints_preferences=(
+            MemoryLine("Respect the no-fallback rule", ("rec_constraint",)),
+        ),
+        project_facts=(MemoryLine("CLI code lives under src", ("rec_fact",)),),
+        open_risks=(MemoryLine("Review queue still has risk", ("rec_risk",)),),
+        follow_up_queries=(MemoryLine("Query the newest records", ("rec_query",)),),
+        sections=(
+            MemorySection(
+                "Legacy Fallback",
+                (MemoryLine("Render older agent sections last", ("rec_legacy",)),),
+            ),
+        ),
+    )
+    candidate_records = [
+        {
+            "record_id": record_id,
+            "kind": kind,
+            "title": title,
+            "updated_at": "2026-04-30T00:00:00+00:00",
+        }
+        for record_id, kind, title in (
+            ("rec_summary", "decision", "Summary line"),
+            ("rec_start", "reference", "Use the package directory"),
+            ("rec_handoff", "episode", "Resume the handoff"),
+            ("rec_decision", "decision", "Keep SQLite canonical"),
+            ("rec_constraint", "constraint", "Respect the no-fallback rule"),
+            ("rec_fact", "fact", "CLI code lives under src"),
+            ("rec_risk", "episode", "Review queue still has risk"),
+            ("rec_query", "reference", "Query the newest records"),
+            ("rec_legacy", "episode", "Render older agent sections last"),
+        )
+    ]
+
+    markdown = render_working_memory_markdown(
+        project=project,
+        generated_at="2026-04-30T00:00:00+00:00",
+        previous_generated_at=None,
+        generation_trigger="manual",
+        records_considered=len(candidate_records),
+        records_included=len(candidate_records),
+        db_records_changed_since_previous=0,
+        draft=draft,
+        candidate_records=candidate_records,
+    )
+
+    headings = [
+        "## Start Here",
+        "## Summary",
+        "## Current Handoff",
+        "## Decisions",
+        "## Constraints & Preferences",
+        "## Project Facts",
+        "## Open Risks / Review Queue",
+        "## Follow-up Queries",
+        "## Legacy Fallback",
+        "## Sources",
+    ]
+    positions = [_markdown_heading_index(markdown, heading) for heading in headings]
+    assert positions == sorted(positions)
+    assert "Render older agent sections last [rec_legacy]" in markdown
+
+
 def test_rendered_markdown_contains_freshness_and_citations(tmp_path):
     """Renderer includes freshness fields and record citations."""
     repo = tmp_path / "repo"
@@ -188,14 +286,135 @@ def test_rendered_markdown_contains_freshness_and_citations(tmp_path):
     markdown = render_working_memory_markdown(
         project=project,
         generated_at="2026-04-30T00:00:00+00:00",
+        previous_generated_at="2026-04-29T00:00:00+00:00",
+        generation_trigger="manual",
+        records_considered=4,
         records_included=2,
-        changed_since_generation=3,
+        db_records_changed_since_previous=3,
         draft=draft,
+        candidate_records=[
+            {
+                "record_id": "rec_123",
+                "kind": "decision",
+                "title": "Use generated Working Memory",
+                "updated_at": "2026-04-30T00:00:00+00:00",
+                "source_session_id": "sess_1",
+            },
+            {
+                "record_id": "rec_456",
+                "kind": "constraint",
+                "title": "Keep SQLite canonical",
+                "updated_at": "2026-04-30T00:00:00+00:00",
+                "source_session_id": "sess_2",
+            },
+        ],
     )
 
-    assert "Records changed since generation: 3" in markdown
+    assert "Records considered: 4" in markdown
+    assert "Previous generation: `2026-04-29T00:00:00+00:00`" in markdown
+    assert "Generation trigger: `manual`" in markdown
+    assert "Records cited: 2" in markdown
+    assert "DB records changed before this generation: 3" in markdown
     assert "Use generated Working Memory [rec_123]" in markdown
     assert "Keep SQLite canonical [rec_456]" in markdown
+    assert "`rec_123` (decision" in markdown
+    assert "source_session: `sess_1`" in markdown
+
+
+def test_rendered_markdown_preserves_sources_when_body_is_long(tmp_path):
+    """Renderer keeps source references even when the body must be truncated."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    project = resolve_working_memory_project(
+        config=replace(make_config(tmp_path / ".lerim"), projects={"repo": str(repo)}),
+        cwd=repo,
+    )
+    record_ids = tuple(f"rec_{idx:03d}" for idx in range(20))
+    draft = WorkingMemoryDraft(
+        summary=(MemoryLine("Summary item", (record_ids[0],)),),
+        sections=tuple(
+            MemorySection(
+                f"Long Section {section_idx}",
+                tuple(
+                    MemoryLine(
+                        f"Long detail {section_idx}-{idx}",
+                        (record_ids[idx % len(record_ids)],),
+                    )
+                    for idx in range(14)
+                ),
+            )
+            for section_idx in range(8)
+        ),
+    )
+    candidates = [
+        {
+            "record_id": record_id,
+            "kind": "decision",
+            "title": f"Decision {idx}",
+            "updated_at": "2026-04-30T00:00:00+00:00",
+        }
+        for idx, record_id in enumerate(record_ids)
+    ]
+
+    markdown = render_working_memory_markdown(
+        project=project,
+        generated_at="2026-04-30T00:00:00+00:00",
+        previous_generated_at=None,
+        generation_trigger="manual",
+        records_considered=len(candidates),
+        records_included=len(record_ids),
+        db_records_changed_since_previous=0,
+        draft=draft,
+        candidate_records=candidates,
+    )
+
+    assert "## Sources" in markdown
+    assert "`rec_000`" in markdown
+    assert "Body truncated for startup size" in markdown
+    assert "## Project Facts\n\n\n> Body truncated" not in markdown
+
+
+def test_rendered_markdown_dedupes_and_skips_empty_cleaned_lines(tmp_path):
+    """Renderer removes accidental inline IDs and skips duplicate/empty bullets."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    project = resolve_working_memory_project(
+        config=replace(make_config(tmp_path / ".lerim"), projects={"repo": str(repo)}),
+        cwd=repo,
+    )
+    draft = WorkingMemoryDraft(
+        summary=(
+            MemoryLine("Use SQLite rec_abc", ("rec_abc",)),
+            MemoryLine("Use SQLite", ("rec_abc",)),
+            MemoryLine("rec_abc", ("rec_abc",)),
+        ),
+        decisions=(
+            MemoryLine("Use SQLite", ("rec_abc",)),
+            MemoryLine("", ("rec_abc",)),
+        ),
+    )
+
+    markdown = render_working_memory_markdown(
+        project=project,
+        generated_at="2026-04-30T00:00:00+00:00",
+        previous_generated_at=None,
+        generation_trigger="manual",
+        records_considered=1,
+        records_included=1,
+        db_records_changed_since_previous=0,
+        draft=draft,
+        candidate_records=[
+            {
+                "record_id": "rec_abc",
+                "kind": "decision",
+                "title": "Use SQLite",
+                "updated_at": "2026-04-30T00:00:00+00:00",
+            }
+        ],
+    )
+
+    assert markdown.count("Use SQLite [rec_abc]") == 1
+    assert "- [rec_abc]" not in markdown
 
 
 def test_changed_record_count_uses_versions_since_baseline(tmp_path, mock_embeddings):
@@ -272,8 +491,9 @@ def test_runtime_refresh_writes_dated_and_current_artifacts(
 def test_cli_show_reads_existing_current_artifact(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
+    mock_embeddings,
 ) -> None:
-    """CLI show prints the current file without invoking refresh."""
+    """CLI show prints live freshness before the current file without refresh."""
     repo = tmp_path / "repo"
     repo.mkdir()
     config_path = write_test_config(tmp_path, projects={"repo": str(repo)})
@@ -281,10 +501,31 @@ def test_cli_show_reads_existing_current_artifact(
     from lerim.config.settings import reload_config
 
     cfg = reload_config()
-    project_id = resolve_project_identity(repo).project_id
+    store = ContextStore(cfg.context_db_path)
+    project_id = _register_seeded_project(store, repo)
     paths = working_memory_paths(cfg, project_id)
     paths.current_dir.mkdir(parents=True)
     paths.current_file.write_text("# Working Memory\n\nhello\n", encoding="utf-8")
+    paths.current_manifest.write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-30T00:00:00+00:00",
+                "records_included": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    store.create_record(
+        project_id=project_id,
+        session_id="sess_working_memory",
+        kind="decision",
+        title="Fresh live context",
+        body="Fresh live context body.",
+        decision="Fresh live context",
+        why="Because show should report live freshness.",
+        created_at="2026-04-30T01:00:00+00:00",
+        updated_at="2026-04-30T01:00:00+00:00",
+    )
     monkeypatch.chdir(repo)
     monkeypatch.setattr(
         "lerim.server.cli.run_working_memory_for_project",
@@ -294,6 +535,10 @@ def test_cli_show_reads_existing_current_artifact(
     code, output = run_cli(["working-memory", "show"])
 
     assert code == 0
+    assert "Working Memory Live Status:" in output
+    assert "- availability: stale" in output
+    assert "- db_records_changed_since_generation: 1" in output
+    assert "Refresh if newest persisted DB context matters." in output
     assert "hello" in output
 
 
@@ -338,3 +583,30 @@ def test_cli_status_json_reports_changed_records(
     assert code == 0
     assert payload["availability"] == "stale"
     assert payload["records_changed_since_generation"] == 1
+
+
+def test_status_reports_error_when_manifest_missing(
+    tmp_path,
+    mock_embeddings,
+) -> None:
+    """A current markdown without manifest is an error, not stale."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg = replace(make_config(tmp_path / ".lerim"), projects={"repo": str(repo)})
+    store = ContextStore(cfg.context_db_path)
+    project_id = _register_seeded_project(store, repo)
+    paths = working_memory_paths(cfg, project_id)
+    paths.current_dir.mkdir(parents=True)
+    paths.current_file.write_text("# Working Memory\n", encoding="utf-8")
+    _create_record(
+        store,
+        project_id=project_id,
+        kind="decision",
+        title="New record without manifest",
+    )
+    project = resolve_working_memory_project(config=cfg, cwd=repo)
+
+    status = working_memory_status(config=cfg, store=store, project=project)
+
+    assert status.availability == "error"
+    assert status.suggested_action == "Run `lerim working-memory refresh --force`."
