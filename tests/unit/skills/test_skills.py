@@ -48,3 +48,15 @@ class TestSkills(unittest.TestCase):
         end = text.index("---\n", 4) + 4
         body = text[end:].strip()
         self.assertTrue(len(body) > 20, "SKILL.md has no body content")
+
+    def test_skill_documents_working_memory_startup(self) -> None:
+        """Packaged skill should tell agents to read Working Memory first."""
+        text = (SKILLS_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("lerim working-memory show", text)
+        self.assertIn("Working Memory is a generated markdown view", text)
+
+    def test_cli_reference_documents_working_memory(self) -> None:
+        """CLI reference should describe Working Memory commands."""
+        text = (SKILLS_DIR / "cli-reference.md").read_text(encoding="utf-8")
+        self.assertIn("lerim working-memory show", text)
+        self.assertIn("working-memory refresh --force", text)

@@ -1,0 +1,5 @@
+case: working_memory_refresh_writes_dated_and_current_artifacts
+expected:
+  workspace_subdir: "working-memory"
+  records_considered: 2
+  records_included: 2
