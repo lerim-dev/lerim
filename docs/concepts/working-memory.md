@@ -6,6 +6,10 @@ It is a generated Markdown view of durable SQLite context records. It is not a
 second memory store, and agents should not edit it by hand. The source of truth
 remains `~/.lerim/context.sqlite3`.
 
+`lerim working-memory show` prepends live DB freshness before printing the
+current markdown snapshot. The preface is current at read time; the markdown is
+the last generated artifact.
+
 The current view lives at:
 
 ```text
@@ -22,12 +26,12 @@ pass `--project <name-or-path>`.
 flowchart TD
     A["Coding agent starts work"] --> B["lerim working-memory show"]
     B --> C{"Current artifact exists?"}
-    C -- "yes" --> D["Read WORKING_MEMORY.md"]
+    C -- "yes" --> D["Read live freshness preface and WORKING_MEMORY.md"]
     C -- "no" --> E["Use lerim working-memory status"]
     E --> F["Suggested action: refresh"]
     D --> G{"Need deeper or newer context?"}
     G -- "yes" --> H["lerim working-memory status"]
-    H --> I{"Records changed since generation?"}
+    H --> I{"DB records changed since generation?"}
     I -- "yes" --> J["lerim working-memory refresh"]
     I -- "no" --> K["Use lerim query or lerim ask for deeper lookup"]
     G -- "no" --> L["Proceed with coding"]
@@ -53,7 +57,7 @@ flowchart TD
     J -- "yes" --> L["Working Memory synthesis agent"]
     L --> M["PydanticAI agent with low-variance settings"]
     M --> N["Structured output: summary sections and cited lines"]
-    N --> O["Validate every line cites known record IDs"]
+    N --> O["Validate every line cites known record IDs and fixed sections"]
     K --> P["Render Markdown"]
     O --> P
     P --> Q["Write run artifacts: WORKING_MEMORY.md, manifest, events, agent log, trace"]
@@ -67,9 +71,11 @@ The Working Memory feature has two layers:
 
 - `lerim.working_memory` owns deterministic use-case logic: project resolution,
   changed-record detection, candidate loading, validation, rendering, manifests,
-  status, and artifact paths.
+  status, artifact paths, deterministic `Start Here`, fixed section order, and
+  live freshness prefaces.
 - `lerim.agents.working_memory` owns model synthesis only. It receives bounded
-  candidate records and returns structured cited lines.
+  candidate records and returns structured cited lines for the model-filled
+  sections.
 
 `LerimRuntime.working_memory()` ties those layers together. The daemon calls the
 runtime for all registered projects during the daily pass, and after `maintain`
@@ -80,6 +86,7 @@ only when maintain changed records.
 Working Memory refresh is intentionally not part of the sync hot path.
 
 - `lerim working-memory show`, `status`, and `path` are fast local reads.
+- `show` prepends live DB freshness before printing the static markdown snapshot.
 - `lerim working-memory refresh` generates only when records changed, unless
   `--force` is passed.
 - The daemon runs a daily pass across registered projects and skips unchanged
@@ -87,6 +94,34 @@ Working Memory refresh is intentionally not part of the sync hot path.
 - `maintain` triggers Working Memory only when it merged, archived,
   consolidated, or otherwise changed records.
 - Empty projects get an empty-state Markdown file without a model call.
+
+## Fixed Markdown Shape
+
+Generated Working Memory has a stable section order so agents can scan it
+predictably:
+
+1. `Summary`
+2. `Start Here`
+3. `Current Handoff`
+4. `Decisions`
+5. `Constraints & Preferences`
+6. `Project Facts`
+7. `Open Risks / Review Queue`
+8. `Follow-up Queries`
+9. `Sources`
+
+`Summary` is the compact startup cache. `Start Here` is deterministic and
+rendered by Lerim from project metadata and artifact status. `Current Handoff`
+must come only from recent episode evidence; without that evidence, it should
+explicitly say no persisted implementation handoff is available and point agents
+back to the current chat, git state, and tests for live work.
+
+`Decisions`, `Constraints & Preferences`, and `Project Facts` hold durable
+records. `Open Risks / Review Queue` and `Follow-up Queries` are populated only
+from records that explicitly describe unresolved work, review concerns, or
+questions worth asking next. `Sources` lists the cited record IDs used in the
+body. Any test/build result in these sections is historical persisted evidence;
+agents must rerun relevant checks after making edits.
 
 ## Artifact Layout
 
@@ -110,7 +145,8 @@ The latest successful run is copied to the stable current path:
 ```
 
 The manifest records the project, `project_id`, run folder, generated time,
-candidate count, included record IDs, and changed-record count.
+previous generation time, trigger, candidate count, included record IDs, and
+changed-record count before generation.
 
 ## What Agents Should Do
 
@@ -119,7 +155,7 @@ At startup, a coding agent should:
 1. Run `lerim working-memory show` from the repo.
 2. If the file is missing or the task depends on newest context, run
    `lerim working-memory status`.
-3. If status reports changed records, suggest or run
+3. If status reports changed DB records, suggest or run
    `lerim working-memory refresh`.
 4. Use `lerim query` for exact inspection and `lerim ask` for synthesized
    answers across more context.
