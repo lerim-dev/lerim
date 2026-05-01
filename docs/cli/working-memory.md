@@ -83,18 +83,26 @@ Dated run artifacts:
 
 ```mermaid
 flowchart TD
-    A["lerim working-memory refresh"] --> B["Resolve registered project"]
-    B --> C["Count DB records changed since current manifest generated_at"]
-    C --> D{"Unchanged and current file exists?"}
-    D -- "yes" --> E["Skip without model call"]
-    D -- "no" --> F["Load active candidate records from SQLite"]
-    F --> G{"Candidates exist?"}
-    G -- "no" --> H["Render empty-state Markdown"]
-    G -- "yes" --> I["Run Working Memory synthesis agent"]
-    I --> J["Validate cited record IDs and fixed sections"]
-    H --> K["Write dated run artifacts"]
-    J --> K
-    K --> L["Copy latest markdown and manifest to workspace/current"]
+    A["Trigger: daily daemon, after maintain, or manual refresh"] --> B["Resolve project and check current manifest"]
+    B --> C{"New DB records or --force?"}
+
+    C -- "no" --> D["Skip generation"]
+    C -- "yes" --> E["Select candidate records from SQLite"]
+    E --> F["Working Memory agent receives compact candidate set"]
+
+    F --> G["Prompt goal: create fast startup memory from candidates only"]
+    G --> H["Agent ranks what matters for starting work: current handoff, decisions, preferences, facts, risks"]
+    H --> I["Agent writes fixed sections with cited record IDs"]
+
+    I --> J{"Every line cites an allowed source record?"}
+    J -- "no" --> K["Validation fails; retry or error"]
+    J -- "yes" --> L["Render WORKING_MEMORY.md"]
+
+    L --> M["Write dated artifact"]
+    M --> N["Update workspace/current/<project_id>/WORKING_MEMORY.md"]
+
+    O["Agent startup"] --> P["lerim working-memory show"]
+    P --> Q["Fast read of generated memory plus live freshness status"]
 ```
 
 ## Automation
