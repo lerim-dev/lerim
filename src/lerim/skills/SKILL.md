@@ -14,6 +14,24 @@ Lerim stores durable context from past agent sessions and exposes it through a s
 - `lerim ask` for retrieval plus synthesis
 - `lerim status` for runtime health, project counts, and queue state
 
+## Resolve the command
+
+Before running Lerim, resolve the command. Some Codex or automation shells have the package available through `uvx` but do not have a plain `lerim` shim on `PATH`.
+
+```bash
+if command -v lerim >/dev/null 2>&1; then
+  LERIM=(lerim)
+elif command -v uvx >/dev/null 2>&1; then
+  LERIM=(uvx lerim)
+elif [ -x /Users/kargarisaac/.local/bin/uvx ]; then
+  LERIM=(/Users/kargarisaac/.local/bin/uvx lerim)
+else
+  echo "Lerim is not runnable from this shell; install a command shim with: uv tool install lerim"
+fi
+```
+
+Do not treat `lerim: command not found` as Lerim being unavailable until the `uvx lerim` fallback has been tried. In examples below, replace `lerim` with the resolved command.
+
 ## When to use
 
 - Before starting a task in a repo with existing Lerim history
@@ -33,13 +51,13 @@ Start with the smallest tool that answers the question:
 Examples:
 
 ```bash
-lerim working-memory show
-lerim working-memory status
-lerim query records count --kind decision
-lerim query records list --kind constraint --limit 10
-lerim ask "What do we already know about the auth flow?"
-lerim ask "What changed recently about storage and why?"
-lerim status --json
+"${LERIM[@]}" working-memory show
+"${LERIM[@]}" working-memory status
+"${LERIM[@]}" query records count --kind decision
+"${LERIM[@]}" query records list --kind constraint --limit 10
+"${LERIM[@]}" ask "What do we already know about the auth flow?"
+"${LERIM[@]}" ask "What changed recently about storage and why?"
+"${LERIM[@]}" status --json
 ```
 
 ## Working Memory flow

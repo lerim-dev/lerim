@@ -6,6 +6,9 @@ Canonical parser source:
 Canonical command:
 - `lerim`
 
+If `lerim` is not on `PATH`, resolve the runnable command in `SKILL.md` first.
+Common fallback: `uvx lerim` or `/Users/kargarisaac/.local/bin/uvx lerim`.
+
 Durable Lerim context lives in the global SQLite DB under the active Lerim data dir (default: `~/.lerim/context.sqlite3`).
 Commands that call the HTTP API (`ask`, `sync`, `maintain`, `status`) require a
 running server (`lerim up` or `lerim serve`). `unscoped` also requires the running
