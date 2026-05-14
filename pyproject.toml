@@ -96,7 +96,7 @@ extend-exclude = ["src/lerim/agents/baml_client"]
 
 [tool.vulture]
 paths = ["src/lerim/", "vulture_whitelist.py"]
-exclude = ["src/lerim/agents/baml_client/*"]
+exclude = ["*/src/lerim/agents/baml_client/*"]
 min_confidence = 60
 
 [dependency-groups]
