@@ -34,9 +34,6 @@ Adapter  # noqa
 # Lazy import pattern
 __getattr__  # noqa
 
-# Used by 30+ test cases in test_transcript.py
-format_transcript  # noqa
-
 # Called via getattr() dynamic dispatch in CLI (_dead_letter_action)
 retry_project_jobs  # noqa
 skip_project_jobs  # noqa
@@ -44,6 +41,9 @@ skip_project_jobs  # noqa
 # Public dataclass/Pydantic fields used by serialization, validation, or callers
 git_branch  # noqa
 model_config  # noqa
+current_utc  # noqa
+candidate_profile_json  # noqa
+candidate_records_json  # noqa
 last_context_tokens  # noqa
 metrics_version  # noqa
 trace_total_lines  # noqa
@@ -52,22 +52,22 @@ episode_updates  # noqa
 durable_findings  # noqa
 implementation_findings  # noqa
 discarded_noise  # noqa
+filtered_durable_findings  # noqa
+rejected_durable_findings  # noqa
+signal_filter_summary  # noqa
+clustered_record_ids  # noqa
+active_record_count  # noqa
+cluster_count  # noqa
 records_changed_since_generation  # noqa
 latest_run_folder  # noqa
 suggested_action  # noqa
 records_changed_since_previous  # noqa
 skip_reason  # noqa
 
-# Pydantic validators and Agent validators registered by decorators
+# Pydantic validators registered by decorators
 validate_level  # noqa
-_require_session_episode  # noqa
 
-# Tool wrappers preserve runtime signatures for PydanticAI schema generation
-__signature__  # noqa
-
-# Public tool registry and public configuration/provider APIs
-CURRENT_AGENT_TOOL_NAMES  # noqa
-build_pydantic_model_from_provider  # noqa
+# Public configuration/provider APIs
 get_config_sources  # noqa
 
 # Lazy module protocol and enum members used through import/attribute access

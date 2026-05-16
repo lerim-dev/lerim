@@ -15,12 +15,6 @@ _CURRENT_RUN: ContextVar[dict[str, Any] | None] = ContextVar(
 )
 
 
-def _preview(value: Any, max_chars: int = 800) -> str:
-    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=True, default=str)
-    text = text.strip()
-    return text if len(text) <= max_chars else text[: max_chars - 3].rstrip() + "..."
-
-
 def _attrs(values: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key, value in values.items():

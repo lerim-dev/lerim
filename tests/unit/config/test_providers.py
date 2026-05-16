@@ -18,7 +18,6 @@ from lerim.config.providers import (
     ensure_provider_api_key,
     list_provider_models,
     normalize_model_name,
-    normalize_openai_base_url,
     validate_provider_for_role,
 )
 from lerim.config.settings import RoleConfig
@@ -104,15 +103,6 @@ def test_model_label_normalizes_known_model_casing(tmp_path) -> None:
     )
 
     assert model_label(config=cfg) == "minimax/MiniMax-M2.7"
-
-
-def test_normalize_openai_base_url_adds_local_v1_suffix() -> None:
-    assert normalize_openai_base_url("ollama", "http://127.0.0.1:11434") == (
-        "http://127.0.0.1:11434/v1"
-    )
-    assert normalize_openai_base_url("ollama", "http://127.0.0.1:11434/v1") == (
-        "http://127.0.0.1:11434/v1"
-    )
 
 
 def test_list_provider_models_known_and_unknown() -> None:

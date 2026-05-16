@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -272,8 +271,3 @@ def _observation(action: str, ok: bool, content: str, args: dict[str, Any]) -> d
         "done": False,
         "completion_summary": "",
     }
-
-
-def utc_now() -> str:
-    """Return current UTC timestamp for tests and valid-until defaults."""
-    return datetime.now(timezone.utc).isoformat()

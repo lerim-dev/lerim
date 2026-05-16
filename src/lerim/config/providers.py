@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from lerim.config.settings import Config, get_config
+from lerim.config.settings import Config
 
 MINIMAX_TEMPERATURE_FLOOR = 0.01
 
@@ -43,12 +43,10 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, Any]] = {
     "ollama": {
         "roles": ["agent"],
         "api_key_env": None,
-        "openai_base_url_suffix": "/v1",
     },
     "mlx": {
         "roles": ["agent"],
         "api_key_env": None,
-        "openai_base_url_suffix": "/v1",
     },
 }
 
@@ -179,25 +177,6 @@ def ensure_provider_api_key(
     if not value:
         raise RuntimeError(f"missing_api_key:{env_name} required for {role_label}")
     return str(value)
-
-
-def default_api_base(provider: str, config: Config | None = None) -> str:
-    """Return provider default API base from config's provider section."""
-    cfg = config or get_config()
-    return cfg.provider_api_bases.get(provider.strip().lower(), "")
-
-
-def normalize_openai_base_url(provider: str, base_url: str) -> str:
-    """Apply provider-declared OpenAI-compatible base URL normalization."""
-    normalized_provider = provider.strip().lower()
-    caps = PROVIDER_CAPABILITIES[normalized_provider]
-    suffix = caps.get("openai_base_url_suffix")
-    if not suffix or not base_url:
-        return base_url
-    normalized = base_url.rstrip("/")
-    if normalized.endswith(str(suffix)):
-        return normalized
-    return normalized + str(suffix)
 
 
 def list_provider_models(provider: str) -> list[str]:
