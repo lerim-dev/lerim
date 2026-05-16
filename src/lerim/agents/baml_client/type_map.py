@@ -16,21 +16,59 @@ from . import stream_types
 
 type_map = {
 
+    "types.ContextAnswer": types.ContextAnswer,
+    "stream_types.ContextAnswer": stream_types.ContextAnswer,
+
+    "types.ContextBriefDraftOutput": types.ContextBriefDraftOutput,
+    "stream_types.ContextBriefDraftOutput": stream_types.ContextBriefDraftOutput,
+
+    "types.ContextBriefLineDraft": types.ContextBriefLineDraft,
+    "stream_types.ContextBriefLineDraft": stream_types.ContextBriefLineDraft,
+
+    "types.ContextCurationAction": types.ContextCurationAction,
+    "stream_types.ContextCurationAction": stream_types.ContextCurationAction,
+
+    "types.ContextCurationPlan": types.ContextCurationPlan,
+    "stream_types.ContextCurationPlan": stream_types.ContextCurationPlan,
+
+    "types.ContextCuratorRecordPatch": types.ContextCuratorRecordPatch,
+    "stream_types.ContextCuratorRecordPatch": stream_types.ContextCuratorRecordPatch,
+
+    "types.ContextRetrievalAction": types.ContextRetrievalAction,
+    "stream_types.ContextRetrievalAction": stream_types.ContextRetrievalAction,
+
+    "types.ContextRetrievalPlan": types.ContextRetrievalPlan,
+    "stream_types.ContextRetrievalPlan": stream_types.ContextRetrievalPlan,
+
     "types.DurableRecordDraft": types.DurableRecordDraft,
     "stream_types.DurableRecordDraft": stream_types.DurableRecordDraft,
+
+    "types.DurableRecordUpdateDraft": types.DurableRecordUpdateDraft,
+    "stream_types.DurableRecordUpdateDraft": stream_types.DurableRecordUpdateDraft,
 
     "types.EpisodeDraft": types.EpisodeDraft,
     "stream_types.EpisodeDraft": stream_types.EpisodeDraft,
 
-    "types.SynthesizedExtraction": types.SynthesizedExtraction,
-    "stream_types.SynthesizedExtraction": stream_types.SynthesizedExtraction,
+    "types.SignalFilterResult": types.SignalFilterResult,
+    "stream_types.SignalFilterResult": stream_types.SignalFilterResult,
 
-    "types.TraceWindowFinding": types.TraceWindowFinding,
-    "stream_types.TraceWindowFinding": stream_types.TraceWindowFinding,
+    "types.SourceWindowFinding": types.SourceWindowFinding,
+    "stream_types.SourceWindowFinding": stream_types.SourceWindowFinding,
 
-    "types.TraceWindowScan": types.TraceWindowScan,
-    "stream_types.TraceWindowScan": stream_types.TraceWindowScan,
+    "types.SourceWindowScan": types.SourceWindowScan,
+    "stream_types.SourceWindowScan": stream_types.SourceWindowScan,
 
+    "types.SynthesizedContextRecords": types.SynthesizedContextRecords,
+    "stream_types.SynthesizedContextRecords": stream_types.SynthesizedContextRecords,
+
+
+    "types.ContextCuratorActionType": types.ContextCuratorActionType,
+
+    "types.ContextCuratorRecordKind": types.ContextCuratorRecordKind,
+
+    "types.ContextRecordKind": types.ContextRecordKind,
+
+    "types.ContextRetrievalActionType": types.ContextRetrievalActionType,
 
     "types.FindingLevel": types.FindingLevel,
 
