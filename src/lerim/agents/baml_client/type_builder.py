@@ -13,50 +13,20 @@
 import typing
 from baml_py import type_builder
 from baml_py import baml_py
-
 # These are exports, not used here, hence the linter is disabled
-from baml_py.baml_py import FieldType, EnumValueBuilder, EnumBuilder, ClassBuilder  # noqa: F401 # pylint: disable=unused-import
+from baml_py.baml_py import FieldType, EnumValueBuilder, EnumBuilder, ClassBuilder # noqa: F401 # pylint: disable=unused-import
 from .globals import DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME
-
 
 class TypeBuilder(type_builder.TypeBuilder):
     def __init__(self):
-        super().__init__(
-            classes=set(
-                [
-                    "ContextAnswer",
-                    "ContextBriefDraftOutput",
-                    "ContextBriefLineDraft",
-                    "ContextCurationAction",
-                    "ContextCurationPlan",
-                    "ContextCuratorRecordPatch",
-                    "ContextRetrievalAction",
-                    "ContextRetrievalPlan",
-                    "DurableRecordDraft",
-                    "DurableRecordUpdateDraft",
-                    "EpisodeDraft",
-                    "SignalFilterResult",
-                    "SourceWindowFinding",
-                    "SourceWindowScan",
-                    "SynthesizedContextRecords",
-                ]
-            ),
-            enums=set(
-                [
-                    "ContextCuratorActionType",
-                    "ContextCuratorRecordKind",
-                    "ContextRecordKind",
-                    "ContextRetrievalActionType",
-                    "FindingLevel",
-                    "RecordKind",
-                    "RecordStatus",
-                ]
-            ),
-            runtime=DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME,
-        )
+        super().__init__(classes=set(
+          ["ContextAnswer","ContextBriefDraftOutput","ContextBriefLineDraft","ContextCurationAction","ContextCurationPlan","ContextCuratorRecordPatch","ContextGraphLink","ContextGraphPlan","ContextRetrievalAction","ContextRetrievalPlan","DurableRecordDraft","DurableRecordUpdateDraft","EpisodeDraft","SignalFilterResult","SourceWindowFinding","SourceWindowScan","SynthesizedContextRecords",]
+        ), enums=set(
+          ["ContextCuratorActionType","ContextCuratorRecordKind","ContextGraphRelationKind","ContextRecordKind","ContextRetrievalActionType","FindingLevel","RecordKind","RecordStatus",]
+        ), runtime=DO_NOT_USE_DIRECTLY_UNLESS_YOU_KNOW_WHAT_YOURE_DOING_RUNTIME)
 
     # #########################################################################
-    # Generated enums 7
+    # Generated enums 8
     # #########################################################################
 
     @property
@@ -66,6 +36,10 @@ class TypeBuilder(type_builder.TypeBuilder):
     @property
     def ContextCuratorRecordKind(self) -> "ContextCuratorRecordKindViewer":
         return ContextCuratorRecordKindViewer(self)
+
+    @property
+    def ContextGraphRelationKind(self) -> "ContextGraphRelationKindViewer":
+        return ContextGraphRelationKindViewer(self)
 
     @property
     def ContextRecordKind(self) -> "ContextRecordKindViewer":
@@ -87,8 +61,9 @@ class TypeBuilder(type_builder.TypeBuilder):
     def RecordStatus(self) -> "RecordStatusViewer":
         return RecordStatusViewer(self)
 
+
     # #########################################################################
-    # Generated classes 15
+    # Generated classes 17
     # #########################################################################
 
     @property
@@ -114,6 +89,14 @@ class TypeBuilder(type_builder.TypeBuilder):
     @property
     def ContextCuratorRecordPatch(self) -> "ContextCuratorRecordPatchViewer":
         return ContextCuratorRecordPatchViewer(self)
+
+    @property
+    def ContextGraphLink(self) -> "ContextGraphLinkViewer":
+        return ContextGraphLinkViewer(self)
+
+    @property
+    def ContextGraphPlan(self) -> "ContextGraphPlanViewer":
+        return ContextGraphPlanViewer(self)
 
     @property
     def ContextRetrievalAction(self) -> "ContextRetrievalActionViewer":
@@ -152,23 +135,16 @@ class TypeBuilder(type_builder.TypeBuilder):
         return SynthesizedContextRecordsViewer(self)
 
 
-# #########################################################################
-# Generated enums 7
-# #########################################################################
 
+# #########################################################################
+# Generated enums 8
+# #########################################################################
 
 class ContextCuratorActionTypeAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("ContextCuratorActionType")
-        self._values: typing.Set[str] = set(
-            [
-                "NOOP",
-                "REVISE",
-                "ARCHIVE",
-                "SUPERSEDE",
-            ]
-        )
+        self._values: typing.Set[str] = set([  "NOOP",  "REVISE",  "ARCHIVE",  "SUPERSEDE",  ])
         self._vals = ContextCuratorActionTypeValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -183,19 +159,17 @@ class ContextCuratorActionTypeViewer(ContextCuratorActionTypeAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_values(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
-        return [
-            (name, type_builder.EnumValueViewer(self._bldr.value(name)))
-            for name in self._values
-        ]
+
+    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
+        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
 
 
 class ContextCuratorActionTypeValues:
     def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
         self.__bldr = enum_bldr
-        self.__values = values  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def NOOP(self) -> type_builder.EnumValueViewer:
@@ -214,20 +188,13 @@ class ContextCuratorActionTypeValues:
         return type_builder.EnumValueViewer(self.__bldr.value("SUPERSEDE"))
 
 
+
+
 class ContextCuratorRecordKindAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("ContextCuratorRecordKind")
-        self._values: typing.Set[str] = set(
-            [
-                "DECISION",
-                "PREFERENCE",
-                "CONSTRAINT",
-                "FACT",
-                "REFERENCE",
-                "EPISODE",
-            ]
-        )
+        self._values: typing.Set[str] = set([  "DECISION",  "PREFERENCE",  "CONSTRAINT",  "FACT",  "REFERENCE",  "EPISODE",  ])
         self._vals = ContextCuratorRecordKindValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -242,19 +209,17 @@ class ContextCuratorRecordKindViewer(ContextCuratorRecordKindAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_values(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
-        return [
-            (name, type_builder.EnumValueViewer(self._bldr.value(name)))
-            for name in self._values
-        ]
+
+    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
+        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
 
 
 class ContextCuratorRecordKindValues:
     def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
         self.__bldr = enum_bldr
-        self.__values = values  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def DECISION(self) -> type_builder.EnumValueViewer:
@@ -281,20 +246,79 @@ class ContextCuratorRecordKindValues:
         return type_builder.EnumValueViewer(self.__bldr.value("EPISODE"))
 
 
+
+
+class ContextGraphRelationKindAst:
+    def __init__(self, tb: type_builder.TypeBuilder):
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        self._bldr = _tb.enum("ContextGraphRelationKind")
+        self._values: typing.Set[str] = set([  "SUPPORTS",  "REFINES",  "DEPENDS_ON",  "CONTRADICTS",  "SAME_TOPIC",  "EVIDENCE_FOR",  "SUPERSEDES",  "RELATED",  ])
+        self._vals = ContextGraphRelationKindValues(self._bldr, self._values)
+
+    def type(self) -> baml_py.FieldType:
+        return self._bldr.field()
+
+    @property
+    def values(self) -> "ContextGraphRelationKindValues":
+        return self._vals
+
+
+class ContextGraphRelationKindViewer(ContextGraphRelationKindAst):
+    def __init__(self, tb: type_builder.TypeBuilder):
+        super().__init__(tb)
+
+
+    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
+        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
+
+
+class ContextGraphRelationKindValues:
+    def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
+        self.__bldr = enum_bldr
+        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
+
+    @property
+    def SUPPORTS(self) -> type_builder.EnumValueViewer:
+        return type_builder.EnumValueViewer(self.__bldr.value("SUPPORTS"))
+
+    @property
+    def REFINES(self) -> type_builder.EnumValueViewer:
+        return type_builder.EnumValueViewer(self.__bldr.value("REFINES"))
+
+    @property
+    def DEPENDS_ON(self) -> type_builder.EnumValueViewer:
+        return type_builder.EnumValueViewer(self.__bldr.value("DEPENDS_ON"))
+
+    @property
+    def CONTRADICTS(self) -> type_builder.EnumValueViewer:
+        return type_builder.EnumValueViewer(self.__bldr.value("CONTRADICTS"))
+
+    @property
+    def SAME_TOPIC(self) -> type_builder.EnumValueViewer:
+        return type_builder.EnumValueViewer(self.__bldr.value("SAME_TOPIC"))
+
+    @property
+    def EVIDENCE_FOR(self) -> type_builder.EnumValueViewer:
+        return type_builder.EnumValueViewer(self.__bldr.value("EVIDENCE_FOR"))
+
+    @property
+    def SUPERSEDES(self) -> type_builder.EnumValueViewer:
+        return type_builder.EnumValueViewer(self.__bldr.value("SUPERSEDES"))
+
+    @property
+    def RELATED(self) -> type_builder.EnumValueViewer:
+        return type_builder.EnumValueViewer(self.__bldr.value("RELATED"))
+
+
+
+
 class ContextRecordKindAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("ContextRecordKind")
-        self._values: typing.Set[str] = set(
-            [
-                "DECISION",
-                "PREFERENCE",
-                "CONSTRAINT",
-                "FACT",
-                "REFERENCE",
-                "EPISODE",
-            ]
-        )
+        self._values: typing.Set[str] = set([  "DECISION",  "PREFERENCE",  "CONSTRAINT",  "FACT",  "REFERENCE",  "EPISODE",  ])
         self._vals = ContextRecordKindValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -309,19 +333,17 @@ class ContextRecordKindViewer(ContextRecordKindAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_values(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
-        return [
-            (name, type_builder.EnumValueViewer(self._bldr.value(name)))
-            for name in self._values
-        ]
+
+    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
+        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
 
 
 class ContextRecordKindValues:
     def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
         self.__bldr = enum_bldr
-        self.__values = values  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def DECISION(self) -> type_builder.EnumValueViewer:
@@ -348,17 +370,13 @@ class ContextRecordKindValues:
         return type_builder.EnumValueViewer(self.__bldr.value("EPISODE"))
 
 
+
+
 class ContextRetrievalActionTypeAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("ContextRetrievalActionType")
-        self._values: typing.Set[str] = set(
-            [
-                "COUNT",
-                "LIST",
-                "SEARCH",
-            ]
-        )
+        self._values: typing.Set[str] = set([  "COUNT",  "LIST",  "SEARCH",  ])
         self._vals = ContextRetrievalActionTypeValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -373,19 +391,17 @@ class ContextRetrievalActionTypeViewer(ContextRetrievalActionTypeAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_values(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
-        return [
-            (name, type_builder.EnumValueViewer(self._bldr.value(name)))
-            for name in self._values
-        ]
+
+    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
+        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
 
 
 class ContextRetrievalActionTypeValues:
     def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
         self.__bldr = enum_bldr
-        self.__values = values  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def COUNT(self) -> type_builder.EnumValueViewer:
@@ -400,21 +416,13 @@ class ContextRetrievalActionTypeValues:
         return type_builder.EnumValueViewer(self.__bldr.value("SEARCH"))
 
 
+
+
 class FindingLevelAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("FindingLevel")
-        self._values: typing.Set[str] = set(
-            [
-                "DECISION",
-                "PREFERENCE",
-                "FEEDBACK",
-                "REFERENCE",
-                "CONSTRAINT",
-                "FACT",
-                "IMPLEMENTATION",
-            ]
-        )
+        self._values: typing.Set[str] = set([  "DECISION",  "PREFERENCE",  "FEEDBACK",  "REFERENCE",  "CONSTRAINT",  "FACT",  "IMPLEMENTATION",  ])
         self._vals = FindingLevelValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -429,19 +437,17 @@ class FindingLevelViewer(FindingLevelAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_values(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
-        return [
-            (name, type_builder.EnumValueViewer(self._bldr.value(name)))
-            for name in self._values
-        ]
+
+    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
+        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
 
 
 class FindingLevelValues:
     def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
         self.__bldr = enum_bldr
-        self.__values = values  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def DECISION(self) -> type_builder.EnumValueViewer:
@@ -472,19 +478,13 @@ class FindingLevelValues:
         return type_builder.EnumValueViewer(self.__bldr.value("IMPLEMENTATION"))
 
 
+
+
 class RecordKindAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("RecordKind")
-        self._values: typing.Set[str] = set(
-            [
-                "DECISION",
-                "PREFERENCE",
-                "CONSTRAINT",
-                "FACT",
-                "REFERENCE",
-            ]
-        )
+        self._values: typing.Set[str] = set([  "DECISION",  "PREFERENCE",  "CONSTRAINT",  "FACT",  "REFERENCE",  ])
         self._vals = RecordKindValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -499,19 +499,17 @@ class RecordKindViewer(RecordKindAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_values(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
-        return [
-            (name, type_builder.EnumValueViewer(self._bldr.value(name)))
-            for name in self._values
-        ]
+
+    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
+        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
 
 
 class RecordKindValues:
     def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
         self.__bldr = enum_bldr
-        self.__values = values  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def DECISION(self) -> type_builder.EnumValueViewer:
@@ -534,16 +532,13 @@ class RecordKindValues:
         return type_builder.EnumValueViewer(self.__bldr.value("REFERENCE"))
 
 
+
+
 class RecordStatusAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.enum("RecordStatus")
-        self._values: typing.Set[str] = set(
-            [
-                "ACTIVE",
-                "ARCHIVED",
-            ]
-        )
+        self._values: typing.Set[str] = set([  "ACTIVE",  "ARCHIVED",  ])
         self._vals = RecordStatusValues(self._bldr, self._values)
 
     def type(self) -> baml_py.FieldType:
@@ -558,19 +553,17 @@ class RecordStatusViewer(RecordStatusAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_values(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
-        return [
-            (name, type_builder.EnumValueViewer(self._bldr.value(name)))
-            for name in self._values
-        ]
+
+    def list_values(self) -> typing.List[typing.Tuple[str, type_builder.EnumValueViewer]]:
+        return [(name, type_builder.EnumValueViewer(self._bldr.value(name))) for name in self._values]
 
 
 class RecordStatusValues:
     def __init__(self, enum_bldr: baml_py.EnumBuilder, values: typing.Set[str]):
         self.__bldr = enum_bldr
-        self.__values = values  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__values = values # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def ACTIVE(self) -> type_builder.EnumValueViewer:
@@ -581,21 +574,18 @@ class RecordStatusValues:
         return type_builder.EnumValueViewer(self.__bldr.value("ARCHIVED"))
 
 
-# #########################################################################
-# Generated classes 15
-# #########################################################################
 
+
+
+# #########################################################################
+# Generated classes 17
+# #########################################################################
 
 class ContextAnswerAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("ContextAnswer")
-        self._properties: typing.Set[str] = set(
-            [
-                "answer",
-                "supporting_record_ids",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "answer",  "supporting_record_ids",  ])
         self._props = ContextAnswerProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -610,19 +600,18 @@ class ContextAnswerViewer(ContextAnswerAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class ContextAnswerProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def answer(self) -> type_builder.ClassPropertyViewer:
@@ -630,27 +619,16 @@ class ContextAnswerProperties:
 
     @property
     def supporting_record_ids(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("supporting_record_ids")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("supporting_record_ids"))
+
+
 
 
 class ContextBriefDraftOutputAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("ContextBriefDraftOutput")
-        self._properties: typing.Set[str] = set(
-            [
-                "summary",
-                "start_here",
-                "current_handoff",
-                "decisions",
-                "constraints_preferences",
-                "project_facts",
-                "open_risks",
-                "follow_up_queries",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "summary",  "start_here",  "current_handoff",  "decisions",  "constraints_preferences",  "project_facts",  "open_risks",  "follow_up_queries",  ])
         self._props = ContextBriefDraftOutputProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -665,19 +643,18 @@ class ContextBriefDraftOutputViewer(ContextBriefDraftOutputAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class ContextBriefDraftOutputProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def summary(self) -> type_builder.ClassPropertyViewer:
@@ -697,9 +674,7 @@ class ContextBriefDraftOutputProperties:
 
     @property
     def constraints_preferences(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("constraints_preferences")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("constraints_preferences"))
 
     @property
     def project_facts(self) -> type_builder.ClassPropertyViewer:
@@ -711,21 +686,16 @@ class ContextBriefDraftOutputProperties:
 
     @property
     def follow_up_queries(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("follow_up_queries")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("follow_up_queries"))
+
+
 
 
 class ContextBriefLineDraftAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("ContextBriefLineDraft")
-        self._properties: typing.Set[str] = set(
-            [
-                "text",
-                "record_ids",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "text",  "record_ids",  ])
         self._props = ContextBriefLineDraftProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -740,19 +710,18 @@ class ContextBriefLineDraftViewer(ContextBriefLineDraftAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class ContextBriefLineDraftProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def text(self) -> type_builder.ClassPropertyViewer:
@@ -763,19 +732,13 @@ class ContextBriefLineDraftProperties:
         return type_builder.ClassPropertyViewer(self.__bldr.property("record_ids"))
 
 
+
+
 class ContextCurationActionAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("ContextCurationAction")
-        self._properties: typing.Set[str] = set(
-            [
-                "action_type",
-                "record_id",
-                "replacement_record_id",
-                "reason",
-                "patch",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "action_type",  "record_id",  "replacement_record_id",  "reason",  "patch",  ])
         self._props = ContextCurationActionProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -790,19 +753,18 @@ class ContextCurationActionViewer(ContextCurationActionAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class ContextCurationActionProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def action_type(self) -> type_builder.ClassPropertyViewer:
@@ -814,9 +776,7 @@ class ContextCurationActionProperties:
 
     @property
     def replacement_record_id(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("replacement_record_id")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("replacement_record_id"))
 
     @property
     def reason(self) -> type_builder.ClassPropertyViewer:
@@ -827,16 +787,13 @@ class ContextCurationActionProperties:
         return type_builder.ClassPropertyViewer(self.__bldr.property("patch"))
 
 
+
+
 class ContextCurationPlanAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("ContextCurationPlan")
-        self._properties: typing.Set[str] = set(
-            [
-                "actions",
-                "completion_summary",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "actions",  "completion_summary",  ])
         self._props = ContextCurationPlanProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -851,19 +808,18 @@ class ContextCurationPlanViewer(ContextCurationPlanAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class ContextCurationPlanProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def actions(self) -> type_builder.ClassPropertyViewer:
@@ -871,32 +827,16 @@ class ContextCurationPlanProperties:
 
     @property
     def completion_summary(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("completion_summary")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("completion_summary"))
+
+
 
 
 class ContextCuratorRecordPatchAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("ContextCuratorRecordPatch")
-        self._properties: typing.Set[str] = set(
-            [
-                "kind",
-                "title",
-                "body",
-                "status",
-                "valid_from",
-                "valid_until",
-                "decision",
-                "why",
-                "alternatives",
-                "consequences",
-                "user_intent",
-                "what_happened",
-                "outcomes",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "kind",  "title",  "body",  "status",  "valid_from",  "valid_until",  "decision",  "why",  "alternatives",  "consequences",  "user_intent",  "what_happened",  "outcomes",  ])
         self._props = ContextCuratorRecordPatchProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -911,19 +851,18 @@ class ContextCuratorRecordPatchViewer(ContextCuratorRecordPatchAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class ContextCuratorRecordPatchProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def kind(self) -> type_builder.ClassPropertyViewer:
@@ -978,28 +917,119 @@ class ContextCuratorRecordPatchProperties:
         return type_builder.ClassPropertyViewer(self.__bldr.property("outcomes"))
 
 
+
+
+class ContextGraphLinkAst:
+    def __init__(self, tb: type_builder.TypeBuilder):
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        self._bldr = _tb.class_("ContextGraphLink")
+        self._properties: typing.Set[str] = set([  "source_record_id",  "target_record_id",  "relation_kind",  "label",  "rationale",  "evidence_record_ids",  "confidence",  ])
+        self._props = ContextGraphLinkProperties(self._bldr, self._properties)
+
+    def type(self) -> baml_py.FieldType:
+        return self._bldr.field()
+
+    @property
+    def props(self) -> "ContextGraphLinkProperties":
+        return self._props
+
+
+class ContextGraphLinkViewer(ContextGraphLinkAst):
+    def __init__(self, tb: type_builder.TypeBuilder):
+        super().__init__(tb)
+
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
+
+
+class ContextGraphLinkProperties:
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+        self.__bldr = bldr
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
+
+    @property
+    def source_record_id(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("source_record_id"))
+
+    @property
+    def target_record_id(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("target_record_id"))
+
+    @property
+    def relation_kind(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("relation_kind"))
+
+    @property
+    def label(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("label"))
+
+    @property
+    def rationale(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("rationale"))
+
+    @property
+    def evidence_record_ids(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("evidence_record_ids"))
+
+    @property
+    def confidence(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("confidence"))
+
+
+
+
+class ContextGraphPlanAst:
+    def __init__(self, tb: type_builder.TypeBuilder):
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
+        self._bldr = _tb.class_("ContextGraphPlan")
+        self._properties: typing.Set[str] = set([  "links",  "completion_summary",  ])
+        self._props = ContextGraphPlanProperties(self._bldr, self._properties)
+
+    def type(self) -> baml_py.FieldType:
+        return self._bldr.field()
+
+    @property
+    def props(self) -> "ContextGraphPlanProperties":
+        return self._props
+
+
+class ContextGraphPlanViewer(ContextGraphPlanAst):
+    def __init__(self, tb: type_builder.TypeBuilder):
+        super().__init__(tb)
+
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
+
+
+class ContextGraphPlanProperties:
+    def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
+        self.__bldr = bldr
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
+
+    @property
+    def links(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("links"))
+
+    @property
+    def completion_summary(self) -> type_builder.ClassPropertyViewer:
+        return type_builder.ClassPropertyViewer(self.__bldr.property("completion_summary"))
+
+
+
+
 class ContextRetrievalActionAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("ContextRetrievalAction")
-        self._properties: typing.Set[str] = set(
-            [
-                "action_type",
-                "query",
-                "kind",
-                "status",
-                "source_session_id",
-                "created_since",
-                "created_until",
-                "updated_since",
-                "updated_until",
-                "valid_at",
-                "include_archived",
-                "order_by",
-                "limit",
-                "rationale",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "action_type",  "query",  "kind",  "status",  "source_session_id",  "created_since",  "created_until",  "updated_since",  "updated_until",  "valid_at",  "include_archived",  "order_by",  "limit",  "rationale",  ])
         self._props = ContextRetrievalActionProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -1014,19 +1044,18 @@ class ContextRetrievalActionViewer(ContextRetrievalActionAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class ContextRetrievalActionProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def action_type(self) -> type_builder.ClassPropertyViewer:
@@ -1046,9 +1075,7 @@ class ContextRetrievalActionProperties:
 
     @property
     def source_session_id(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("source_session_id")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("source_session_id"))
 
     @property
     def created_since(self) -> type_builder.ClassPropertyViewer:
@@ -1072,9 +1099,7 @@ class ContextRetrievalActionProperties:
 
     @property
     def include_archived(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("include_archived")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("include_archived"))
 
     @property
     def order_by(self) -> type_builder.ClassPropertyViewer:
@@ -1089,16 +1114,13 @@ class ContextRetrievalActionProperties:
         return type_builder.ClassPropertyViewer(self.__bldr.property("rationale"))
 
 
+
+
 class ContextRetrievalPlanAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("ContextRetrievalPlan")
-        self._properties: typing.Set[str] = set(
-            [
-                "actions",
-                "rationale",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "actions",  "rationale",  ])
         self._props = ContextRetrievalPlanProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -1113,19 +1135,18 @@ class ContextRetrievalPlanViewer(ContextRetrievalPlanAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class ContextRetrievalPlanProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def actions(self) -> type_builder.ClassPropertyViewer:
@@ -1136,24 +1157,13 @@ class ContextRetrievalPlanProperties:
         return type_builder.ClassPropertyViewer(self.__bldr.property("rationale"))
 
 
+
+
 class DurableRecordDraftAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("DurableRecordDraft")
-        self._properties: typing.Set[str] = set(
-            [
-                "kind",
-                "title",
-                "body",
-                "status",
-                "valid_from",
-                "valid_until",
-                "decision",
-                "why",
-                "alternatives",
-                "consequences",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "kind",  "title",  "body",  "status",  "valid_from",  "valid_until",  "decision",  "why",  "alternatives",  "consequences",  ])
         self._props = DurableRecordDraftProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -1168,19 +1178,18 @@ class DurableRecordDraftViewer(DurableRecordDraftAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class DurableRecordDraftProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def kind(self) -> type_builder.ClassPropertyViewer:
@@ -1223,26 +1232,13 @@ class DurableRecordDraftProperties:
         return type_builder.ClassPropertyViewer(self.__bldr.property("consequences"))
 
 
+
+
 class DurableRecordUpdateDraftAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("DurableRecordUpdateDraft")
-        self._properties: typing.Set[str] = set(
-            [
-                "record_id",
-                "kind",
-                "title",
-                "body",
-                "status",
-                "valid_from",
-                "valid_until",
-                "decision",
-                "why",
-                "alternatives",
-                "consequences",
-                "change_reason",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "record_id",  "kind",  "title",  "body",  "status",  "valid_from",  "valid_until",  "decision",  "why",  "alternatives",  "consequences",  "change_reason",  ])
         self._props = DurableRecordUpdateDraftProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -1257,19 +1253,18 @@ class DurableRecordUpdateDraftViewer(DurableRecordUpdateDraftAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class DurableRecordUpdateDraftProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def record_id(self) -> type_builder.ClassPropertyViewer:
@@ -1320,20 +1315,13 @@ class DurableRecordUpdateDraftProperties:
         return type_builder.ClassPropertyViewer(self.__bldr.property("change_reason"))
 
 
+
+
 class EpisodeDraftAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("EpisodeDraft")
-        self._properties: typing.Set[str] = set(
-            [
-                "title",
-                "body",
-                "status",
-                "user_intent",
-                "what_happened",
-                "outcomes",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "title",  "body",  "status",  "user_intent",  "what_happened",  "outcomes",  ])
         self._props = EpisodeDraftProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -1348,19 +1336,18 @@ class EpisodeDraftViewer(EpisodeDraftAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class EpisodeDraftProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def title(self) -> type_builder.ClassPropertyViewer:
@@ -1387,17 +1374,13 @@ class EpisodeDraftProperties:
         return type_builder.ClassPropertyViewer(self.__bldr.property("outcomes"))
 
 
+
+
 class SignalFilterResultAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("SignalFilterResult")
-        self._properties: typing.Set[str] = set(
-            [
-                "kept_durable_findings",
-                "rejected_findings",
-                "filtering_summary",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "kept_durable_findings",  "rejected_findings",  "filtering_summary",  ])
         self._props = SignalFilterResultProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -1412,52 +1395,39 @@ class SignalFilterResultViewer(SignalFilterResultAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class SignalFilterResultProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def kept_durable_findings(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("kept_durable_findings")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("kept_durable_findings"))
 
     @property
     def rejected_findings(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("rejected_findings")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("rejected_findings"))
 
     @property
     def filtering_summary(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("filtering_summary")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("filtering_summary"))
+
+
 
 
 class SourceWindowFindingAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("SourceWindowFinding")
-        self._properties: typing.Set[str] = set(
-            [
-                "theme",
-                "level",
-                "line",
-                "quote",
-                "note",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "theme",  "level",  "line",  "quote",  "note",  ])
         self._props = SourceWindowFindingProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -1472,19 +1442,18 @@ class SourceWindowFindingViewer(SourceWindowFindingAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class SourceWindowFindingProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def theme(self) -> type_builder.ClassPropertyViewer:
@@ -1507,18 +1476,13 @@ class SourceWindowFindingProperties:
         return type_builder.ClassPropertyViewer(self.__bldr.property("note"))
 
 
+
+
 class SourceWindowScanAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("SourceWindowScan")
-        self._properties: typing.Set[str] = set(
-            [
-                "episode_update",
-                "durable_findings",
-                "implementation_findings",
-                "discarded_noise",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "episode_update",  "durable_findings",  "implementation_findings",  "discarded_noise",  ])
         self._props = SourceWindowScanProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -1533,19 +1497,18 @@ class SourceWindowScanViewer(SourceWindowScanAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class SourceWindowScanProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def episode_update(self) -> type_builder.ClassPropertyViewer:
@@ -1553,33 +1516,24 @@ class SourceWindowScanProperties:
 
     @property
     def durable_findings(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("durable_findings")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("durable_findings"))
 
     @property
     def implementation_findings(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("implementation_findings")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("implementation_findings"))
 
     @property
     def discarded_noise(self) -> type_builder.ClassPropertyViewer:
         return type_builder.ClassPropertyViewer(self.__bldr.property("discarded_noise"))
 
 
+
+
 class SynthesizedContextRecordsAst:
     def __init__(self, tb: type_builder.TypeBuilder):
-        _tb = tb._tb  # type: ignore (we know how to use this private attribute)
+        _tb = tb._tb # type: ignore (we know how to use this private attribute)
         self._bldr = _tb.class_("SynthesizedContextRecords")
-        self._properties: typing.Set[str] = set(
-            [
-                "episode",
-                "durable_records",
-                "record_updates",
-                "completion_summary",
-            ]
-        )
+        self._properties: typing.Set[str] = set([  "episode",  "durable_records",  "record_updates",  "completion_summary",  ])
         self._props = SynthesizedContextRecordsProperties(self._bldr, self._properties)
 
     def type(self) -> baml_py.FieldType:
@@ -1594,19 +1548,18 @@ class SynthesizedContextRecordsViewer(SynthesizedContextRecordsAst):
     def __init__(self, tb: type_builder.TypeBuilder):
         super().__init__(tb)
 
-    def list_properties(
-        self,
-    ) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
-        return [
-            (name, type_builder.ClassPropertyViewer(self._bldr.property(name)))
-            for name in self._properties
-        ]
+
+    def list_properties(self) -> typing.List[typing.Tuple[str, type_builder.ClassPropertyViewer]]:
+        return [(name, type_builder.ClassPropertyViewer(self._bldr.property(name))) for name in self._properties]
+
 
 
 class SynthesizedContextRecordsProperties:
     def __init__(self, bldr: baml_py.ClassBuilder, properties: typing.Set[str]):
         self.__bldr = bldr
-        self.__properties = properties  # type: ignore (we know how to use this private attribute) # noqa: F821
+        self.__properties = properties # type: ignore (we know how to use this private attribute) # noqa: F821
+
+
 
     @property
     def episode(self) -> type_builder.ClassPropertyViewer:
@@ -1622,6 +1575,4 @@ class SynthesizedContextRecordsProperties:
 
     @property
     def completion_summary(self) -> type_builder.ClassPropertyViewer:
-        return type_builder.ClassPropertyViewer(
-            self.__bldr.property("completion_summary")
-        )
+        return type_builder.ClassPropertyViewer(self.__bldr.property("completion_summary"))

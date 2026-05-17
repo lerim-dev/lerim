@@ -37,7 +37,7 @@ def get_checks(checks: typing.Dict[CheckName, Check]) -> typing.List[Check]:
 def all_succeeded(checks: typing.Dict[CheckName, Check]) -> bool:
     return all(check.status == "succeeded" for check in get_checks(checks))
 # #########################################################################
-# Generated enums (7)
+# Generated enums (8)
 # #########################################################################
 
 class ContextCuratorActionType(str, Enum):
@@ -53,6 +53,16 @@ class ContextCuratorRecordKind(str, Enum):
     FACT = "FACT"
     REFERENCE = "REFERENCE"
     EPISODE = "EPISODE"
+
+class ContextGraphRelationKind(str, Enum):
+    SUPPORTS = "SUPPORTS"
+    REFINES = "REFINES"
+    DEPENDS_ON = "DEPENDS_ON"
+    CONTRADICTS = "CONTRADICTS"
+    SAME_TOPIC = "SAME_TOPIC"
+    EVIDENCE_FOR = "EVIDENCE_FOR"
+    SUPERSEDES = "SUPERSEDES"
+    RELATED = "RELATED"
 
 class ContextRecordKind(str, Enum):
     DECISION = "DECISION"
@@ -88,7 +98,7 @@ class RecordStatus(str, Enum):
     ARCHIVED = "ARCHIVED"
 
 # #########################################################################
-# Generated classes (15)
+# Generated classes (17)
 # #########################################################################
 
 class ContextAnswer(BaseModel):
@@ -134,6 +144,19 @@ class ContextCuratorRecordPatch(BaseModel):
     user_intent: typing.Optional[str] = None
     what_happened: typing.Optional[str] = None
     outcomes: typing.Optional[str] = None
+
+class ContextGraphLink(BaseModel):
+    source_record_id: str
+    target_record_id: str
+    relation_kind: ContextGraphRelationKind
+    label: str
+    rationale: str
+    evidence_record_ids: typing.List[str]
+    confidence: float
+
+class ContextGraphPlan(BaseModel):
+    links: typing.List["ContextGraphLink"]
+    completion_summary: typing.Optional[str] = None
 
 class ContextRetrievalAction(BaseModel):
     action_type: ContextRetrievalActionType

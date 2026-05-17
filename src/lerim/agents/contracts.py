@@ -6,7 +6,9 @@ runtime.py or any agent module to avoid circular imports.
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class IngestResultContract(BaseModel):
@@ -38,6 +40,21 @@ class ContextCuratorResultContract(BaseModel):
 	records_created: int = 0
 	records_updated: int = 0
 	records_archived: int = 0
+	context_graph: dict[str, Any] = Field(default_factory=dict)
+	cost_usd: float = 0.0
+
+
+class ContextGraphResultContract(BaseModel):
+	"""Stable context-graph return payload schema used by CLI and daemon."""
+
+	context_db_path: str
+	project_id: str
+	workspace_root: str
+	run_folder: str
+	artifacts: dict[str, str]
+	nodes_written: int = 0
+	edges_written: int = 0
+	semantic_clusters: int = 0
 	cost_usd: float = 0.0
 
 
@@ -82,5 +99,14 @@ if __name__ == "__main__":
 		artifacts={"agent_log": "/tmp/workspace/context-curator-run/agent.log"},
 	)
 	assert context_curator.cost_usd == 0.0
+
+	context_graph = ContextGraphResultContract(
+		context_db_path="/tmp/context.sqlite3",
+		project_id="proj_demo",
+		workspace_root="/tmp/workspace",
+		run_folder="/tmp/workspace/context-graph-run",
+		artifacts={"agent_log": "/tmp/workspace/context-graph-run/agent.log"},
+	)
+	assert context_graph.edges_written == 0
 
 	print("runtime contracts: self-test passed")

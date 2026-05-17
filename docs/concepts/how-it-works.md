@@ -10,8 +10,9 @@ The flow is:
 2. supported traces are normalized; custom traces are already clean
 3. the trace ingestor extracts durable context records and drops low-value candidates
 4. the context curator cleans, merges, archives, and supersedes records
-5. the context-brief compiler generates fast startup context from records
-6. the context answerer retrieves records and answers questions
+5. the context graph agent links related records and assigns semantic clusters
+6. the context-brief compiler generates fast startup context from records
+7. the context answerer retrieves records and answers questions
 
 The current package includes supported source adapters and custom clean-trace
 folders. Customer deployments can adapt the input layer around business traces
@@ -35,6 +36,9 @@ flowchart TD
     G --> H["Context curator"]
     H --> G
 
+    G --> O["Context Graph"]
+    O --> P["Graph dashboard and linked context"]
+
     G --> I["Answer"]
     I --> J["lerim answer / agent tools"]
 
@@ -44,6 +48,7 @@ flowchart TD
 
     N["Observability"] -. "operation and agent spans" .-> D
     N -. "operation and agent spans" .-> H
+    N -. "operation and agent spans" .-> O
     N -. "operation and agent spans" .-> I
     N -. "operation and agent spans" .-> K
 ```
@@ -78,7 +83,7 @@ them through the context store.
 The expected product shape is:
 
 ```text
-raw trace -> evidence -> durable signal -> scoped context -> future agent
+raw trace -> evidence -> durable signal -> curated context -> linked graph/brief -> future agent
 ```
 
 Most routine traces should not create permanent context. A successful run can
@@ -88,6 +93,12 @@ Curation loads active records, builds semantic-neighbor clusters, reviews each
 cluster, reviews records not already targeted by a cluster action for
 single-record health issues, then applies validated archive, revise, and
 supersede operations through the context store.
+
+Context graph linking runs after curation. It loads active durable records,
+builds semantic candidate pairs, proposes sparse relationships, reviews those
+links, assigns persisted semantic clusters, and writes the graph projection for
+inspection and cloud sync. The dashboard derives Louvain and combined visual
+lenses from those accepted links.
 
 The context answerer follows a small retrieval plan:
 
@@ -101,6 +112,7 @@ context rather than raw transcripts.
 Search indexes are derived, not canonical:
 
 - `records` is the authoritative source for durable context.
+- `context_nodes` and `context_edges` are a derived graph projection over active records.
 - `records_fts` mirrors canonical record text for lexical retrieval.
 - `record_embeddings` mirrors canonical record search text for semantic
   retrieval.

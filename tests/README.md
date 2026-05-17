@@ -118,6 +118,7 @@ The current system is:
 - local semantic retrieval via ONNX embeddings + `sqlite-vec` + FTS5 + RRF
 - ingest graph: deterministic window reads, BAML trace observation, BAML durable-signal filtering, BAML context writing, context-store persistence
 - curate graph: active-record inventory, semantic-neighbor clusters, BAML context-cluster review, BAML record-health review for records without prior cluster actions, validated store mutations
+- context graph: active-record inventory, semantic candidate pairs, BAML link/review steps, semantic cluster persistence, context graph shipping
 - answer flow: BAML retrieval planning, read-only `ContextStore` count/list/search execution, BAML answer synthesis
 
 ## Fixtures

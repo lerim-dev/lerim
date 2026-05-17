@@ -42,6 +42,7 @@ project and records a service run.
 - `connect`
 - `ingest`
 - `curate`
+- context graph linking runs as part of `curate`
 - `trace` (`import`) (host-only)
 - `context-brief` (`show`, `status`, `path`, `refresh`) (host-only)
 - `dashboard`

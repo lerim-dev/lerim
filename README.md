@@ -2,7 +2,7 @@
   <img src="assets/lerim.png" alt="Lerim Logo" width="160">
 </p>
 
-<h3 align="center">Context compiler infrastructure for AI agents.</h3>
+<h3 align="center">Living context graph infrastructure for AI agents.</h3>
 
 <p align="center">
   Lerim extracts reusable decisions, constraints, evidence, and handoffs from completed agent work so future agents start with trusted context instead of raw logs.
@@ -28,9 +28,9 @@
 
 # Lerim
 
-Lerim is context compiler infrastructure for AI agents.
+Lerim is living context graph infrastructure for AI agents.
 
-It watches supported agent sessions, filters noisy execution history into durable signal, and turns that signal into a shared context layer future agents can query.
+Lerim builds a living context graph from agent traces. It filters noisy execution history into durable signals, links related decisions and evidence, and gives future agents the context they need before they start.
 
 Instead of replaying raw traces or losing what happened after each run, Lerim keeps:
 
@@ -65,6 +65,7 @@ reviews, and internal automation logs.
 - Trace-to-context extraction. `ingest` reads supported sources and custom clean-trace folders, extracts reusable signal, and can archive routine runs without creating noisy durable records.
 - Shared context across agents. What one agent learns can become useful context for a different agent or workflow later.
 - Context curation. Lerim consolidates overlap, archives weak records, and keeps the context layer compact.
+- Living context graph. Lerim links related decisions, constraints, evidence, facts, and handoffs so teams can inspect how reusable context connects.
 - Query and startup context. Agents can ask questions against accumulated context or start from a compact context brief.
 - Evidence-backed memory. Useful decisions, constraints, preferences, references, and handoffs stay linked to the work that produced them.
 - Customer-adaptable workflows. The same context layer can be shaped around a software team, support desk, research process, operations workflow, or custom business agent.
@@ -163,7 +164,7 @@ Indexes supported trace sessions and extracts durable context from recent work. 
 
 ### `lerim curate`
 
-Improves context quality over time by merging duplicates, archiving weak records, and refreshing useful context. This is where Lerim keeps memory selective instead of turning every trace into permanent context.
+Improves context quality over time by merging duplicates, archiving weak records, refreshing the derived context graph, and keeping useful context selective instead of turning every trace into permanent memory.
 
 ### `lerim answer`
 
@@ -221,7 +222,7 @@ answer_max_retrieval_actions = 20
 
 ## How It Works
 
-Lerim has six internal phases:
+Lerim has seven internal phases:
 
 1. `trace_ingestor`
    Reads new supported traces/session metadata and prepares trace windows.
@@ -235,10 +236,13 @@ Lerim has six internal phases:
 4. `context_curator`
    Refines existing records by merging overlap and retiring low-value stale records.
 
-5. `context_answerer`
+5. `context_graph`
+   Builds a sparse, evidence-backed graph of related records after curation.
+
+6. `context_answerer`
    Retrieves relevant records and answers a question using the current context layer.
 
-6. `context_brief_compiler`
+7. `context_brief_compiler`
    Generates a compact, cited Markdown view from recent durable records so agents
    can start with fast context before querying deeper.
 
@@ -247,7 +251,7 @@ In practice, this means Lerim becomes the shared precedent store behind your age
 The trace-to-context pipeline is intentionally selective:
 
 ```text
-raw trace -> evidence -> durable signal -> scoped context -> future agent
+raw trace -> evidence -> durable signal -> context graph -> future agent
 ```
 
 Most routine traces should produce no new durable record. Lerim's value is compact, cited context, not more logs.
@@ -288,6 +292,10 @@ archived episode and no durable records.
 The context curator builds semantic-neighbor clusters from active records,
 reviews clusters, reviews remaining records for single-record health issues,
 and applies validated store operations.
+
+The context graph agent runs after curation, reviews semantic candidate pairs,
+keeps only useful grounded links, and persists sparse relationships between
+records for graph exploration and downstream context navigation.
 
 The context answerer plans exact count/list/search retrieval actions, executes
 read-only context queries, and synthesizes the answer from retrieved records
@@ -357,6 +365,7 @@ Good starting points include:
 - trace-source adapters and custom trace-folder examples
 - extraction quality
 - context curation quality
+- context graph link quality
 - docs and demo examples
 
 Helpful links:

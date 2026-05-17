@@ -1,15 +1,17 @@
 # Lerim
 
-Lerim turns completed AI-agent work into reusable company context for future agents.
+Lerim builds a living context graph from agent traces. It filters noisy execution
+history into durable signals, links related decisions and evidence, and gives
+future agents the context they need before they start.
 
 ## Summary
 
 Lerim sits above agent workflows, extracts durable signal from their traces, and gives future agents compact context they can query before they start work.
 
-The product direction is a context compiler for support, research, operations,
-revenue, custom business agents, and engineering automation. Current adapters
-are one compatibility path; custom clean-trace folders are the path for other
-agents and business workflows.
+The product direction is living context graph infrastructure for support,
+research, operations, revenue, custom business agents, and engineering
+automation. Current adapters are one compatibility path; custom clean-trace
+folders are the path for other agents and business workflows.
 
 If you are evaluating Lerim, start with the workflow: traces in, durable context
 out, cited answers and startup context for future agents.
@@ -19,12 +21,14 @@ The operating model is simple:
 - capture traces from supported agent work
 - filter noisy execution history into durable signal
 - curate overlap so context stays compact
+- link related context into a navigable graph
 - answer questions and compile startup context for future agents
 
-## Main flows
+## Main phases
 
 - `ingest` extracts durable records from supported traces
-- `curate` merges, links, and archives low-value records so memory stays selective
+- `curate` merges and archives low-value records so memory stays selective
+- `context_graph` links curated records into a sparse context graph during curate cycles
 - `answer` retrieves records and answers a question
 
 ## Common workflows

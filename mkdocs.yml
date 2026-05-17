@@ -124,6 +124,7 @@ nav:
   - Agent Architecture:
     - Trace Ingestion: agents/trace-ingestion.md
     - Context Curator: agents/context-curator.md
+    - Context Graph: agents/context-graph.md
     - Context Answerer: agents/context-answerer.md
     - Context Brief: agents/context-brief.md
   - Configuration:

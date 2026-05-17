@@ -10,6 +10,9 @@ filesystem, and subprocess calls.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timezone
+import json
+import os
 import sqlite3
 import subprocess
 import urllib.error
@@ -627,6 +630,53 @@ def test_api_status_normalizes_non_curate_history_to_ingest(
 
     assert result["latest_ingest"]["job_type"] == "ingest"
     assert result["recent_activity"][0]["op_type"] == "ingest"
+
+
+def test_api_status_reports_active_writer_lock_as_running(
+    monkeypatch, tmp_path
+) -> None:
+    """Status uses the live writer lock when service-run history is stale."""
+    cfg = make_config(tmp_path)
+    lock_path = cfg.global_data_dir / "index" / api_mod.WRITER_LOCK_NAME
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    started_at = "2026-05-16T21:07:56+00:00"
+    lock_path.write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "owner": "curate",
+                "command": "lerim curate",
+                "started_at": started_at,
+                "heartbeat_at": datetime.now(timezone.utc).isoformat(),
+                "host": "test-host",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])
+    monkeypatch.setattr(api_mod, "count_fts_indexed", lambda: 0)
+    monkeypatch.setattr(api_mod, "count_session_jobs_by_status", lambda: {})
+    monkeypatch.setattr(
+        api_mod,
+        "latest_service_run",
+        lambda svc: {
+            "job_type": svc,
+            "status": "partial",
+            "started_at": "2026-05-16T19:50:01+00:00",
+            "completed_at": "2026-05-16T20:09:09+00:00",
+        },
+    )
+    _stub_status_catalog(monkeypatch)
+
+    result = api_status()
+
+    assert result["schedule"]["curate"]["running"] is True
+    assert result["schedule"]["curate"]["last_status"] == "started"
+    assert result["schedule"]["curate"]["last_started_at"] == started_at
+    assert result["schedule"]["curate"]["last_completed_at"] is None
+    assert result["schedule"]["ingest"]["running"] is False
 
 
 def test_api_status_preserves_bad_project_selection_error(

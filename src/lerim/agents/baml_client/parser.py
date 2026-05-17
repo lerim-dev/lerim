@@ -53,6 +53,12 @@ class LlmResponseParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="FilterDurableSignal", llm_response=llm_response, mode="request")
         return typing.cast(types.SignalFilterResult, __result__)
 
+    def LinkContextRecords(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> types.ContextGraphPlan:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="LinkContextRecords", llm_response=llm_response, mode="request")
+        return typing.cast(types.ContextGraphPlan, __result__)
+
     def ObserveSourceWindow(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.SourceWindowScan:
@@ -64,6 +70,12 @@ class LlmResponseParser:
     ) -> types.ContextRetrievalPlan:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="PlanContextRetrieval", llm_response=llm_response, mode="request")
         return typing.cast(types.ContextRetrievalPlan, __result__)
+
+    def ReviewContextGraphLinks(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> types.ContextGraphPlan:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ReviewContextGraphLinks", llm_response=llm_response, mode="request")
+        return typing.cast(types.ContextGraphPlan, __result__)
 
     def ReviewSynthesizedContextRecords(
         self, llm_response: str, baml_options: BamlCallOptions = {},
@@ -115,6 +127,12 @@ class LlmStreamParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="FilterDurableSignal", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.SignalFilterResult, __result__)
 
+    def LinkContextRecords(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> stream_types.ContextGraphPlan:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="LinkContextRecords", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.ContextGraphPlan, __result__)
+
     def ObserveSourceWindow(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> stream_types.SourceWindowScan:
@@ -126,6 +144,12 @@ class LlmStreamParser:
     ) -> stream_types.ContextRetrievalPlan:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="PlanContextRetrieval", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.ContextRetrievalPlan, __result__)
+
+    def ReviewContextGraphLinks(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> stream_types.ContextGraphPlan:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ReviewContextGraphLinks", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.ContextGraphPlan, __result__)
 
     def ReviewSynthesizedContextRecords(
         self, llm_response: str, baml_options: BamlCallOptions = {},

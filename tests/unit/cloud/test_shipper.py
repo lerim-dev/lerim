@@ -21,10 +21,14 @@ from lerim.cloud.shipper import (
 	_get_json_sync,
 	_is_cloud_configured,
 	_post_batch_sync,
+	_query_context_graph_edges,
+	_query_context_graph_nodes,
 	_pull_records,
 	_query_context_records,
 	_query_new_sessions,
 	_query_service_runs,
+	_ship_graph_edges,
+	_ship_graph_nodes,
 	_read_transcript,
 	_ship_logs,
 	_ship_records,
@@ -32,6 +36,7 @@ from lerim.cloud.shipper import (
 	_ship_sessions,
 	ship_once,
 )
+from lerim.agents.context_graph.persistence import replace_context_graph
 from lerim.context import ContextStore, resolve_project_identity
 from tests.helpers import make_config
 
@@ -175,6 +180,67 @@ def _insert_context_record(
 		kind=kind,
 		title=title,
 		body=content or summary,
+	)
+
+
+def _insert_context_graph(context_db_path: Path, project_path: Path) -> None:
+	"""Insert a tiny learned context graph for shipping tests."""
+	store = ContextStore(context_db_path)
+	store.initialize()
+	identity = resolve_project_identity(project_path)
+	store.register_project(identity)
+	store.upsert_session(
+		project_id=identity.project_id,
+		session_id="graph",
+		agent_type="context_graph",
+		source_trace_ref=f"context_graph:{identity.project_id}",
+		repo_path=str(project_path),
+		cwd=str(project_path),
+		started_at="2026-04-01T00:00:00+00:00",
+		model_name="test-model",
+		instructions_text=None,
+		prompt_text=None,
+		metadata={},
+	)
+	for record_id, kind, title in (
+		("graph-decision", "decision", "Use approval workflow"),
+		("graph-evidence", "fact", "Policy threshold exists"),
+	):
+		store.create_record(
+			project_id=identity.project_id,
+			session_id="graph",
+			record_id=record_id,
+			kind=kind,
+			title=title,
+			body=title,
+			decision=title if kind == "decision" else None,
+			why="Policy context requires it." if kind == "decision" else None,
+		)
+	replace_context_graph(
+		context_db_path=context_db_path,
+		project_identity=identity,
+		session_id="graph",
+		records=[
+			{"record_id": "graph-decision", "kind": "decision", "title": "Use approval workflow", "body": "Decision body."},
+			{"record_id": "graph-evidence", "kind": "fact", "title": "Policy threshold exists", "body": "Fact body."},
+		],
+		semantic_clusters=[
+			{"cluster_id": "semantic_1", "record_ids": ["graph-decision", "graph-evidence"]}
+		],
+		candidate_pairs=[
+			{"source_record_id": "graph-decision", "target_record_id": "graph-evidence"}
+		],
+		links=[
+			{
+				"source_record_id": "graph-evidence",
+				"target_record_id": "graph-decision",
+				"relation_kind": "evidence_for",
+				"label": "Evidence for approval",
+				"rationale": "The policy supports the decision.",
+				"evidence_record_ids": ["graph-evidence", "graph-decision"],
+				"confidence": 0.86,
+			}
+		],
 	)
 
 
@@ -747,6 +813,66 @@ class TestQueryContextRecords:
 		project_dir.mkdir()
 		results = _query_context_records(tmp_path / "missing.sqlite3", {"p": str(project_dir)}, "", 100)
 		assert results == []
+
+
+# ---------------------------------------------------------------------------
+# context graph shipping
+# ---------------------------------------------------------------------------
+
+
+class TestContextGraphShipping:
+	"""Tests for derived context graph shipping."""
+
+	def test_queries_context_graph_nodes_and_edges(self, tmp_path):
+		"""Graph queries return learned nodes and edges for configured projects."""
+		project_dir = tmp_path / "project_a"
+		project_dir.mkdir()
+		context_db_path = tmp_path / "context.sqlite3"
+		_insert_context_graph(context_db_path, project_dir)
+
+		nodes = _query_context_graph_nodes(
+			context_db_path, {"project_a": str(project_dir)}, "", 100
+		)
+		edges = _query_context_graph_edges(
+			context_db_path, {"project_a": str(project_dir)}, "", 100
+		)
+
+		assert {node["node_id"] for node in nodes} == {"graph-decision", "graph-evidence"}
+		assert nodes[0]["project"] == "project_a"
+		assert all("source_record_id" not in node for node in nodes)
+		assert {edge["relation_kind"] for edge in edges} == {"evidence_for"}
+		assert edges[0]["evidence_record_ids"] == ["graph-evidence", "graph-decision"]
+
+	def test_ships_context_graph_nodes_and_edges(self, tmp_path):
+		"""Graph shipper posts nodes and edges and advances their watermarks."""
+		project_dir = tmp_path / "project_a"
+		project_dir.mkdir()
+		cfg = replace(make_config(tmp_path), projects={"project_a": str(project_dir)})
+		_insert_context_graph(cfg.context_db_path, project_dir)
+		state = _ShipperState()
+		captured = []
+
+		async def mock_post(endpoint, path, token, payload):
+			"""Capture graph batches."""
+			captured.append((path, payload))
+			return True
+
+		with patch("lerim.cloud.shipper._post_batch", side_effect=mock_post):
+			nodes_shipped = asyncio.run(
+				_ship_graph_nodes("https://api.test", "tok", cfg, state)
+			)
+			edges_shipped = asyncio.run(
+				_ship_graph_edges("https://api.test", "tok", cfg, state)
+			)
+
+		assert nodes_shipped == 2
+		assert edges_shipped == 1
+		assert state.graph_nodes_shipped_at
+		assert state.graph_edges_shipped_at
+		assert captured[0][0] == "/api/v1/ingest/graph/nodes"
+		assert captured[1][0] == "/api/v1/ingest/graph/edges"
+		assert captured[0][1]["nodes"][0]["semantic_cluster"] == "semantic_1"
+		assert captured[1][1]["edges"][0]["relation_kind"] == "evidence_for"
 
 
 # ---------------------------------------------------------------------------

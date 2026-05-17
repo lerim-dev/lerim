@@ -23,7 +23,7 @@ class StreamState(BaseModel, typing.Generic[StreamStateValueT]):
     value: StreamStateValueT
     state: typing_extensions.Literal["Pending", "Incomplete", "Complete"]
 # #########################################################################
-# Generated classes (15)
+# Generated classes (17)
 # #########################################################################
 
 class ContextAnswer(BaseModel):
@@ -69,6 +69,19 @@ class ContextCuratorRecordPatch(BaseModel):
     user_intent: typing.Optional[str] = None
     what_happened: typing.Optional[str] = None
     outcomes: typing.Optional[str] = None
+
+class ContextGraphLink(BaseModel):
+    source_record_id: typing.Optional[str] = None
+    target_record_id: typing.Optional[str] = None
+    relation_kind: typing.Optional[types.ContextGraphRelationKind] = None
+    label: typing.Optional[str] = None
+    rationale: typing.Optional[str] = None
+    evidence_record_ids: typing.List[str]
+    confidence: typing.Optional[float] = None
+
+class ContextGraphPlan(BaseModel):
+    links: typing.List["ContextGraphLink"]
+    completion_summary: typing.Optional[str] = None
 
 class ContextRetrievalAction(BaseModel):
     action_type: typing.Optional[types.ContextRetrievalActionType] = None

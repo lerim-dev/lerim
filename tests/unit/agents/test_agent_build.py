@@ -13,6 +13,7 @@ from lerim.agents.context_answerer import (
 )
 from lerim.agents.trace_ingestion import TraceIngestionResult
 from lerim.agents.context_curator import ContextCuratorResult
+from lerim.agents.context_graph import ContextGraphResult
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -37,6 +38,17 @@ class TestBuildCurateAgent:
         content = path.read_text(encoding="utf-8")
         assert "function CurateContextCluster" in content
         assert "function CurateRecordHealthBatch" in content
+
+
+class TestBuildContextGraphAgent:
+    """Tests for context-graph public contract."""
+
+    def test_baml_source_exists(self):
+        path = REPO_ROOT / "src" / "lerim" / "agents" / "baml_src" / "context_graph.baml"
+        assert path.exists()
+        content = path.read_text(encoding="utf-8")
+        assert "function LinkContextRecords" in content
+        assert "function ReviewContextGraphLinks" in content
 
 
 class TestBuildAnswerAgent:
@@ -79,12 +91,25 @@ class TestContextCuratorResultSchema:
     """Tests for ContextCuratorResult model validation."""
 
     def test_creation(self):
-        result = ContextCuratorResult(completion_summary="maintained")
-        assert result.completion_summary == "maintained"
+        result = ContextCuratorResult(completion_summary="curated")
+        assert result.completion_summary == "curated"
 
     def test_field_required(self):
         with pytest.raises(ValidationError):
             ContextCuratorResult()
+
+
+class TestContextGraphResultSchema:
+    """Tests for ContextGraphResult model validation."""
+
+    def test_creation(self):
+        result = ContextGraphResult(completion_summary="linked", nodes_written=2, edges_written=1)
+        assert result.completion_summary == "linked"
+        assert result.edges_written == 1
+
+    def test_field_required(self):
+        with pytest.raises(ValidationError):
+            ContextGraphResult()
 
 
 class TestContextAnswerResultSchema:

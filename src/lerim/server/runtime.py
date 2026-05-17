@@ -16,11 +16,13 @@ from typing import Any
 
 from lerim.agents.context_answerer import run_context_answerer
 from lerim.agents.contracts import (
+    ContextGraphResultContract,
     ContextCuratorResultContract,
     IngestResultContract,
     ContextBriefResultContract,
 )
 from lerim.agents.trace_ingestion import TraceIngestionResult, TraceIngestionRunDetails, run_trace_ingestion
+from lerim.agents.context_graph import run_context_graph
 from lerim.agents.context_curator import run_context_curator
 from lerim.agents.mlflow_observability import finish_mlflow_run, lerim_mlflow_run
 from lerim.agents.context_brief import compile_context_brief
@@ -624,6 +626,33 @@ class LerimRuntime:
                     artifact_paths["agent_trace"].write_text("[]", encoding="utf-8")
 
                 counts = _record_change_counts(self.config, session_id)
+                graph_result, graph_details = run_context_graph(
+                    context_db_path=self.config.context_db_path,
+                    project_identity=project_identity,
+                    session_id=session_id,
+                    config=self.config,
+                    return_details=True,
+                )
+                graph_observability = {
+                    "llm_calls": graph_details.llm_calls,
+                    "done": graph_details.done,
+                    "context_db_path": graph_details.context_db_path,
+                    "project_id": graph_details.project_id,
+                    "session_id": graph_details.session_id,
+                    "model_name": graph_details.model_name,
+                    "active_record_count": graph_details.active_record_count,
+                    "semantic_cluster_count": graph_details.semantic_cluster_count,
+                    "candidate_pair_count": graph_details.candidate_pair_count,
+                    "proposed_link_count": graph_details.proposed_link_count,
+                    "written_node_count": graph_details.written_node_count,
+                    "written_edge_count": graph_details.written_edge_count,
+                }
+                graph_summary = {
+                    "nodes_written": graph_result.nodes_written,
+                    "edges_written": graph_result.edges_written,
+                    "semantic_clusters": graph_result.semantic_clusters,
+                    **graph_observability,
+                }
                 finished_at = datetime.now(timezone.utc).isoformat()
                 records_updated = int(counts.get("update") or 0) + int(
                     counts.get("supersede") or 0
@@ -633,6 +662,7 @@ class LerimRuntime:
                 manifest["records_created"] = int(counts.get("create") or 0)
                 manifest["records_updated"] = records_updated
                 manifest["records_archived"] = int(counts.get("archive") or 0)
+                manifest["context_graph"] = graph_summary
                 _write_json_artifact(artifact_paths["manifest"], manifest)
                 _append_jsonl_artifact(
                     artifact_paths["events"],
@@ -643,6 +673,7 @@ class LerimRuntime:
                         "records_created": manifest["records_created"],
                         "records_updated": manifest["records_updated"],
                         "records_archived": manifest["records_archived"],
+                        "context_graph": graph_summary,
                     },
                 )
                 finish_mlflow_run(
@@ -654,6 +685,7 @@ class LerimRuntime:
                         "records_created": manifest["records_created"],
                         "records_updated": manifest["records_updated"],
                         "records_archived": manifest["records_archived"],
+                        "context_graph": graph_summary,
                     },
                     records_created=manifest["records_created"],
                     records_updated=manifest["records_updated"],
@@ -669,9 +701,160 @@ class LerimRuntime:
                     "records_created": manifest["records_created"],
                     "records_updated": records_updated,
                     "records_archived": manifest["records_archived"],
+                    "context_graph": graph_summary,
                     "cost_usd": 0.0,
                 }
                 return ContextCuratorResultContract.model_validate(payload).model_dump(
+                    mode="json"
+                )
+        except Exception as exc:
+            _mark_run_failed(
+                artifact_paths=artifact_paths,
+                manifest=manifest,
+                exc=exc,
+            )
+            raise
+
+    # ------------------------------------------------------------------
+    # Context-graph flow
+    # ------------------------------------------------------------------
+
+    def context_graph(
+        self,
+        repo_root: str | Path | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Run context graph linking after curated records are available."""
+        resolved_repo_root = (
+            Path(repo_root).expanduser().resolve()
+            if repo_root
+            else Path(self._default_cwd or Path.cwd()).expanduser().resolve()
+        )
+        return self._context_graph_inner(
+            resolved_repo_root,
+            session_id=session_id or self.generate_session_id(),
+        )
+
+    def _context_graph_inner(
+        self,
+        repo_root: Path,
+        *,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Inner context graph logic called by context_graph()."""
+        project_identity = resolve_project_identity(repo_root)
+        resolved_workspace_root = _resolve_runtime_roots(config=self.config)
+        store = _store_for_config(self.config)
+        store.register_project(project_identity)
+        store.upsert_session(
+            project_id=project_identity.project_id,
+            session_id=session_id,
+            agent_type="context_graph",
+            source_trace_ref=f"context_graph:{project_identity.project_id}",
+            repo_path=str(project_identity.repo_path),
+            cwd=str(project_identity.repo_path),
+            started_at=datetime.now(timezone.utc).isoformat(),
+            model_name=str(self.config.agent_role.model),
+            instructions_text=None,
+            prompt_text=None,
+            metadata={},
+        )
+
+        run_id, run_folder = _new_run_folder(resolved_workspace_root, "context-graph")
+        artifact_paths = _build_artifact_paths(run_folder, include_session_log=False)
+        artifact_paths["subagents_log"].write_text("", encoding="utf-8")
+        manifest = {
+            "run_id": run_id,
+            "operation": "context-graph",
+            "status": "running",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "mlflow_client_request_id": run_id,
+            "session_id": session_id,
+            "agent_type": "context_graph",
+            "project_id": project_identity.project_id,
+            "project": project_identity.project_slug,
+            "repo_path": str(project_identity.repo_path),
+            "workspace_root": str(resolved_workspace_root),
+            "run_folder": str(run_folder),
+            "artifacts": {key: str(path) for key, path in artifact_paths.items()},
+        }
+        _write_json_artifact(artifact_paths["manifest"], manifest)
+        _append_jsonl_artifact(
+            artifact_paths["events"],
+            {"ts": manifest["started_at"], "event": "started", "run_id": run_id},
+        )
+
+        try:
+            with lerim_mlflow_run(
+                enabled=self.config.mlflow_enabled,
+                operation="context-graph",
+                run_id=run_id,
+                session_id=session_id,
+                project_id=project_identity.project_id,
+                project_name=project_identity.project_slug,
+                run_folder=run_folder,
+                request_preview=f"context-graph:{session_id}",
+            ) as mlflow_run:
+                result, details = run_context_graph(
+                    context_db_path=self.config.context_db_path,
+                    project_identity=project_identity,
+                    session_id=session_id,
+                    config=self.config,
+                    return_details=True,
+                )
+
+                response_text = (result.completion_summary or "").strip() or "(no response)"
+                _write_text_with_newline(artifact_paths["agent_log"], response_text)
+
+                try:
+                    _write_graph_agent_trace(artifact_paths["agent_trace"], details)
+                except Exception as exc:
+                    logger.warning(f"[context-graph] Failed to write agent trace: {exc}")
+                    artifact_paths["agent_trace"].write_text("[]", encoding="utf-8")
+
+                finished_at = datetime.now(timezone.utc).isoformat()
+                manifest["status"] = "succeeded"
+                manifest["completed_at"] = finished_at
+                manifest["nodes_written"] = result.nodes_written
+                manifest["edges_written"] = result.edges_written
+                manifest["semantic_clusters"] = result.semantic_clusters
+                _write_json_artifact(artifact_paths["manifest"], manifest)
+                _append_jsonl_artifact(
+                    artifact_paths["events"],
+                    {
+                        "ts": finished_at,
+                        "event": "succeeded",
+                        "run_id": run_id,
+                        "nodes_written": result.nodes_written,
+                        "edges_written": result.edges_written,
+                        "semantic_clusters": result.semantic_clusters,
+                    },
+                )
+                finish_mlflow_run(
+                    mlflow_run,
+                    final_status="succeeded",
+                    response_preview=response_text,
+                    outputs={
+                        "completion_summary": response_text,
+                        "llm_calls": details.llm_calls,
+                        "nodes_written": result.nodes_written,
+                        "edges_written": result.edges_written,
+                        "semantic_clusters": result.semantic_clusters,
+                    },
+                )
+
+                payload = {
+                    "context_db_path": str(self.config.context_db_path),
+                    "project_id": project_identity.project_id,
+                    "workspace_root": str(resolved_workspace_root),
+                    "run_folder": str(run_folder),
+                    "artifacts": {key: str(path) for key, path in artifact_paths.items()},
+                    "nodes_written": result.nodes_written,
+                    "edges_written": result.edges_written,
+                    "semantic_clusters": result.semantic_clusters,
+                    "cost_usd": 0.0,
+                }
+                return ContextGraphResultContract.model_validate(payload).model_dump(
                     mode="json"
                 )
         except Exception as exc:

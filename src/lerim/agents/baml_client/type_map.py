@@ -34,6 +34,12 @@ type_map = {
     "types.ContextCuratorRecordPatch": types.ContextCuratorRecordPatch,
     "stream_types.ContextCuratorRecordPatch": stream_types.ContextCuratorRecordPatch,
 
+    "types.ContextGraphLink": types.ContextGraphLink,
+    "stream_types.ContextGraphLink": stream_types.ContextGraphLink,
+
+    "types.ContextGraphPlan": types.ContextGraphPlan,
+    "stream_types.ContextGraphPlan": stream_types.ContextGraphPlan,
+
     "types.ContextRetrievalAction": types.ContextRetrievalAction,
     "stream_types.ContextRetrievalAction": stream_types.ContextRetrievalAction,
 
@@ -65,6 +71,8 @@ type_map = {
     "types.ContextCuratorActionType": types.ContextCuratorActionType,
 
     "types.ContextCuratorRecordKind": types.ContextCuratorRecordKind,
+
+    "types.ContextGraphRelationKind": types.ContextGraphRelationKind,
 
     "types.ContextRecordKind": types.ContextRecordKind,
 

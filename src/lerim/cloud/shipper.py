@@ -33,6 +33,8 @@ _STATE_PATH = get_global_data_dir_path() / "cloud_shipper_state.json"
 _BATCH_LOGS = 500
 _BATCH_SESSIONS = 100
 _BATCH_RECORDS = 100
+_BATCH_GRAPH_NODES = 200
+_BATCH_GRAPH_EDGES = 300
 
 _HTTP_TIMEOUT_SECONDS = 30
 _GZIP_THRESHOLD_BYTES = 1024
@@ -51,6 +53,8 @@ class _ShipperState:
     log_file: str = "lerim.jsonl"
     sessions_shipped_at: str = ""
     records_shipped_at: str = ""
+    graph_nodes_shipped_at: str = ""
+    graph_edges_shipped_at: str = ""
     records_pulled_at: str = ""
     service_runs_shipped_at: str = ""
     jobs_shipped_at: str = ""
@@ -77,6 +81,8 @@ class _ShipperState:
                 log_file=str(raw.get("log_file") or "lerim.jsonl"),
                 sessions_shipped_at=str(raw.get("sessions_shipped_at") or ""),
                 records_shipped_at=str(raw.get("records_shipped_at") or ""),
+                graph_nodes_shipped_at=str(raw.get("graph_nodes_shipped_at") or ""),
+                graph_edges_shipped_at=str(raw.get("graph_edges_shipped_at") or ""),
                 records_pulled_at=str(raw.get("records_pulled_at") or ""),
                 service_runs_shipped_at=str(raw.get("service_runs_shipped_at") or ""),
                 jobs_shipped_at=str(raw.get("jobs_shipped_at") or ""),
@@ -769,6 +775,180 @@ async def _ship_records(
     return shipped
 
 
+# ── context graph shipping ───────────────────────────────────────────────────
+
+
+def _query_context_graph_nodes(
+    context_db_path: Path,
+    projects: dict[str, str],
+    since_iso: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Query derived context graph nodes for the selected projects."""
+    if not context_db_path.exists() or not projects:
+        return []
+    ContextStore(context_db_path).initialize()
+    selected_ids = {
+        resolve_project_identity(Path(project_path)).project_id: project_name
+        for project_name, project_path in projects.items()
+    }
+    placeholders = ", ".join("?" for _ in selected_ids)
+    sql = (
+        "SELECT node_id, project_id, node_type, label, summary, status, "
+        "semantic_cluster, created_at, updated_at "
+        f"FROM context_nodes WHERE project_id IN ({placeholders})"
+    )
+    params: list[Any] = list(selected_ids.keys())
+    if since_iso:
+        sql += " AND updated_at > ?"
+        params.append(since_iso)
+    sql += " ORDER BY updated_at ASC LIMIT ?"
+    params.append(limit)
+    try:
+        conn = sqlite3.connect(context_db_path)
+        conn.row_factory = lambda cur, row: {
+            col[0]: row[idx] for idx, col in enumerate(cur.description)
+        }
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("cloud shipper: context graph node query failed: {}", exc)
+        return []
+    for row in rows:
+        row["project"] = selected_ids.get(str(row.get("project_id") or ""), "")
+    return rows
+
+
+def _query_context_graph_edges(
+    context_db_path: Path,
+    projects: dict[str, str],
+    since_iso: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Query derived context graph edges for the selected projects."""
+    if not context_db_path.exists() or not projects:
+        return []
+    ContextStore(context_db_path).initialize()
+    selected_ids = {
+        resolve_project_identity(Path(project_path)).project_id: project_name
+        for project_name, project_path in projects.items()
+    }
+    placeholders = ", ".join("?" for _ in selected_ids)
+    sql = (
+        "SELECT edge_id, project_id, source_node_id, target_node_id, relation_kind, label, "
+        "rationale, evidence_record_ids, confidence, status, created_at, updated_at "
+        f"FROM context_edges WHERE project_id IN ({placeholders})"
+    )
+    params: list[Any] = list(selected_ids.keys())
+    if since_iso:
+        sql += " AND updated_at > ?"
+        params.append(since_iso)
+    sql += " ORDER BY updated_at ASC LIMIT ?"
+    params.append(limit)
+    try:
+        conn = sqlite3.connect(context_db_path)
+        conn.row_factory = lambda cur, row: {
+            col[0]: row[idx] for idx, col in enumerate(cur.description)
+        }
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("cloud shipper: context graph edge query failed: {}", exc)
+        return []
+    for row in rows:
+        row["project"] = selected_ids.get(str(row.get("project_id") or ""), "")
+        try:
+            evidence = json.loads(str(row.get("evidence_record_ids") or "[]"))
+        except json.JSONDecodeError:
+            evidence = []
+        row["evidence_record_ids"] = evidence if isinstance(evidence, list) else []
+    return rows
+
+
+async def _ship_graph_nodes(
+    endpoint: str,
+    token: str,
+    config: Config,
+    state: _ShipperState,
+) -> int:
+    """Ship derived context graph nodes from the canonical context DB."""
+    projects = config.projects or {}
+    if not projects:
+        return 0
+    all_nodes = await asyncio.to_thread(
+        _query_context_graph_nodes,
+        config.context_db_path,
+        projects,
+        state.graph_nodes_shipped_at,
+        _BATCH_GRAPH_NODES * 10,
+    )
+    if not all_nodes:
+        return 0
+    shipped = 0
+    latest_updated = state.graph_nodes_shipped_at
+    for i in range(0, len(all_nodes), _BATCH_GRAPH_NODES):
+        batch = all_nodes[i : i + _BATCH_GRAPH_NODES]
+        ok = await _post_batch(
+            endpoint,
+            "/api/v1/ingest/graph/nodes",
+            token,
+            {"nodes": batch},
+        )
+        if ok:
+            shipped += len(batch)
+            for node in batch:
+                ts = str(node.get("updated_at") or "")
+                if ts > latest_updated:
+                    latest_updated = ts
+        else:
+            break
+    if latest_updated and latest_updated != state.graph_nodes_shipped_at:
+        state.graph_nodes_shipped_at = latest_updated
+    return shipped
+
+
+async def _ship_graph_edges(
+    endpoint: str,
+    token: str,
+    config: Config,
+    state: _ShipperState,
+) -> int:
+    """Ship derived context graph edges from the canonical context DB."""
+    projects = config.projects or {}
+    if not projects:
+        return 0
+    all_edges = await asyncio.to_thread(
+        _query_context_graph_edges,
+        config.context_db_path,
+        projects,
+        state.graph_edges_shipped_at,
+        _BATCH_GRAPH_EDGES * 10,
+    )
+    if not all_edges:
+        return 0
+    shipped = 0
+    latest_updated = state.graph_edges_shipped_at
+    for i in range(0, len(all_edges), _BATCH_GRAPH_EDGES):
+        batch = all_edges[i : i + _BATCH_GRAPH_EDGES]
+        ok = await _post_batch(
+            endpoint,
+            "/api/v1/ingest/graph/edges",
+            token,
+            {"edges": batch},
+        )
+        if ok:
+            shipped += len(batch)
+            for edge in batch:
+                ts = str(edge.get("updated_at") or "")
+                if ts > latest_updated:
+                    latest_updated = ts
+        else:
+            break
+    if latest_updated and latest_updated != state.graph_edges_shipped_at:
+        state.graph_edges_shipped_at = latest_updated
+    return shipped
+
+
 # ── service-run shipping ─────────────────────────────────────────────────
 
 
@@ -971,6 +1151,8 @@ async def ship_once(config: Config) -> dict[str, int]:
         endpoint, token, state, config.sessions_db_path
     )
     records_shipped = await _ship_records(endpoint, token, config, state)
+    graph_nodes_shipped = await _ship_graph_nodes(endpoint, token, config, state)
+    graph_edges_shipped = await _ship_graph_edges(endpoint, token, config, state)
 
     state.save(path=state_path)
 
@@ -980,5 +1162,7 @@ async def ship_once(config: Config) -> dict[str, int]:
         "service_runs": service_runs_shipped,
         "job_statuses": job_statuses_shipped,
         "records": records_shipped,
+        "graph_nodes": graph_nodes_shipped,
+        "graph_edges": graph_edges_shipped,
         "records_pulled": records_pulled,
     }

@@ -8,6 +8,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+API_POST_TIMEOUT_SECONDS = 1800
+
 
 @dataclass(frozen=True)
 class ApiClientError(Exception):
@@ -52,7 +54,7 @@ def api_post(
             method="POST",
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=300) as resp:
+        with urllib.request.urlopen(req, timeout=API_POST_TIMEOUT_SECONDS) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
         raise _http_api_error(path, exc) from exc

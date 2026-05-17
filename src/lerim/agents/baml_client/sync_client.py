@@ -164,6 +164,20 @@ class BamlSyncClient:
                 "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
             })
             return typing.cast(types.SignalFilterResult, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> types.ContextGraphPlan:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            __stream__ = self.stream.LinkContextRecords(run_instruction=run_instruction,cluster_id=cluster_id,records_json=records_json,candidate_pairs_json=candidate_pairs_json,existing_edges_json=existing_edges_json,
+                baml_options=baml_options)
+            return __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="LinkContextRecords", args={
+                "run_instruction": run_instruction,"cluster_id": cluster_id,"records_json": records_json,"candidate_pairs_json": candidate_pairs_json,"existing_edges_json": existing_edges_json,
+            })
+            return typing.cast(types.ContextGraphPlan, __result__.cast_to(types, types, stream_types, False, __runtime__))
     def ObserveSourceWindow(self, run_instruction: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
         baml_options: BamlCallOptions = {},
     ) -> types.SourceWindowScan:
@@ -192,6 +206,20 @@ class BamlSyncClient:
                 "question": question,"current_utc": current_utc,"hints": hints,
             })
             return typing.cast(types.ContextRetrievalPlan, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    def ReviewContextGraphLinks(self, run_instruction: str,records_json: str,proposed_links_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> types.ContextGraphPlan:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            __stream__ = self.stream.ReviewContextGraphLinks(run_instruction=run_instruction,records_json=records_json,proposed_links_json=proposed_links_json,
+                baml_options=baml_options)
+            return __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="ReviewContextGraphLinks", args={
+                "run_instruction": run_instruction,"records_json": records_json,"proposed_links_json": proposed_links_json,
+            })
+            return typing.cast(types.ContextGraphPlan, __result__.cast_to(types, types, stream_types, False, __runtime__))
     def ReviewSynthesizedContextRecords(self, run_instruction: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
         baml_options: BamlCallOptions = {},
     ) -> types.SynthesizedContextRecords:
@@ -289,6 +317,18 @@ class BamlStreamClient:
           lambda x: typing.cast(types.SignalFilterResult, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
+    def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlSyncStream[stream_types.ContextGraphPlan, types.ContextGraphPlan]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="LinkContextRecords", args={
+            "run_instruction": run_instruction,"cluster_id": cluster_id,"records_json": records_json,"candidate_pairs_json": candidate_pairs_json,"existing_edges_json": existing_edges_json,
+        })
+        return baml_py.BamlSyncStream[stream_types.ContextGraphPlan, types.ContextGraphPlan](
+          __result__,
+          lambda x: typing.cast(stream_types.ContextGraphPlan, x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(types.ContextGraphPlan, x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
     def ObserveSourceWindow(self, run_instruction: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.SourceWindowScan, types.SourceWindowScan]:
@@ -311,6 +351,18 @@ class BamlStreamClient:
           __result__,
           lambda x: typing.cast(stream_types.ContextRetrievalPlan, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.ContextRetrievalPlan, x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
+    def ReviewContextGraphLinks(self, run_instruction: str,records_json: str,proposed_links_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlSyncStream[stream_types.ContextGraphPlan, types.ContextGraphPlan]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="ReviewContextGraphLinks", args={
+            "run_instruction": run_instruction,"records_json": records_json,"proposed_links_json": proposed_links_json,
+        })
+        return baml_py.BamlSyncStream[stream_types.ContextGraphPlan, types.ContextGraphPlan](
+          __result__,
+          lambda x: typing.cast(stream_types.ContextGraphPlan, x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(types.ContextGraphPlan, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
     def ReviewSynthesizedContextRecords(self, run_instruction: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
@@ -380,6 +432,13 @@ class BamlHttpRequestClient:
             "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
         }, mode="request")
         return __result__
+    def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="LinkContextRecords", args={
+            "run_instruction": run_instruction,"cluster_id": cluster_id,"records_json": records_json,"candidate_pairs_json": candidate_pairs_json,"existing_edges_json": existing_edges_json,
+        }, mode="request")
+        return __result__
     def ObserveSourceWindow(self, run_instruction: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
@@ -392,6 +451,13 @@ class BamlHttpRequestClient:
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="PlanContextRetrieval", args={
             "question": question,"current_utc": current_utc,"hints": hints,
+        }, mode="request")
+        return __result__
+    def ReviewContextGraphLinks(self, run_instruction: str,records_json: str,proposed_links_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="ReviewContextGraphLinks", args={
+            "run_instruction": run_instruction,"records_json": records_json,"proposed_links_json": proposed_links_json,
         }, mode="request")
         return __result__
     def ReviewSynthesizedContextRecords(self, run_instruction: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
@@ -451,6 +517,13 @@ class BamlHttpStreamRequestClient:
             "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
         }, mode="stream")
         return __result__
+    def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="LinkContextRecords", args={
+            "run_instruction": run_instruction,"cluster_id": cluster_id,"records_json": records_json,"candidate_pairs_json": candidate_pairs_json,"existing_edges_json": existing_edges_json,
+        }, mode="stream")
+        return __result__
     def ObserveSourceWindow(self, run_instruction: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
@@ -463,6 +536,13 @@ class BamlHttpStreamRequestClient:
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="PlanContextRetrieval", args={
             "question": question,"current_utc": current_utc,"hints": hints,
+        }, mode="stream")
+        return __result__
+    def ReviewContextGraphLinks(self, run_instruction: str,records_json: str,proposed_links_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="ReviewContextGraphLinks", args={
+            "run_instruction": run_instruction,"records_json": records_json,"proposed_links_json": proposed_links_json,
         }, mode="stream")
         return __result__
     def ReviewSynthesizedContextRecords(self, run_instruction: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,

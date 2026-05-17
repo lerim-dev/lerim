@@ -38,7 +38,7 @@ from lerim.context.spec import (
 if TYPE_CHECKING:
     from lerim.context.retrieval import SearchHit
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 LOGGER = logging.getLogger(__name__)
 TIMESTAMP_COLUMNS = {
     "scopes": ("created_at", "updated_at"),
@@ -52,6 +52,8 @@ TIMESTAMP_COLUMNS = {
         "valid_until",
         "changed_at",
     ),
+    "context_nodes": ("created_at", "updated_at"),
+    "context_edges": ("created_at", "updated_at"),
 }
 
 
@@ -295,6 +297,48 @@ class ContextStore:
                     FOREIGN KEY(changed_by_session_id) REFERENCES sessions(session_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS context_nodes (
+                    node_id TEXT PRIMARY KEY,
+                    project_id TEXT,
+                    scope_type TEXT NOT NULL DEFAULT 'project',
+                    scope_id TEXT NOT NULL,
+                    scope_label TEXT,
+                    node_type TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    summary TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    semantic_cluster TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(project_id) REFERENCES projects(project_id),
+                    FOREIGN KEY(scope_type, scope_id) REFERENCES scopes(scope_type, scope_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS context_edges (
+                    edge_id TEXT PRIMARY KEY,
+                    project_id TEXT,
+                    scope_type TEXT NOT NULL DEFAULT 'project',
+                    scope_id TEXT NOT NULL,
+                    scope_label TEXT,
+                    source_node_id TEXT NOT NULL,
+                    target_node_id TEXT NOT NULL,
+                    relation_kind TEXT NOT NULL,
+                    label TEXT,
+                    rationale TEXT,
+                    evidence_record_ids TEXT NOT NULL DEFAULT '[]',
+                    confidence REAL NOT NULL DEFAULT 0.5,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    created_by_session_id TEXT,
+                    FOREIGN KEY(project_id) REFERENCES projects(project_id),
+                    FOREIGN KEY(scope_type, scope_id) REFERENCES scopes(scope_type, scope_id),
+                    FOREIGN KEY(source_node_id) REFERENCES context_nodes(node_id),
+                    FOREIGN KEY(target_node_id) REFERENCES context_nodes(node_id),
+                    FOREIGN KEY(created_by_session_id) REFERENCES sessions(session_id),
+                    UNIQUE(project_id, source_node_id, target_node_id, relation_kind)
+                );
+
                 CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
                     record_id UNINDEXED,
                     project_id UNINDEXED,
@@ -393,6 +437,15 @@ class ContextStore:
             CREATE INDEX IF NOT EXISTS idx_records_source_session_id ON records(source_session_id);
             CREATE INDEX IF NOT EXISTS idx_record_versions_record_id ON record_versions(record_id);
             CREATE INDEX IF NOT EXISTS idx_record_versions_changed_at ON record_versions(changed_at);
+            CREATE INDEX IF NOT EXISTS idx_context_nodes_project_status ON context_nodes(project_id, status);
+            CREATE INDEX IF NOT EXISTS idx_context_nodes_scope ON context_nodes(scope_type, scope_id);
+            CREATE INDEX IF NOT EXISTS idx_context_nodes_updated_at ON context_nodes(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_context_edges_project_status ON context_edges(project_id, status);
+            CREATE INDEX IF NOT EXISTS idx_context_edges_scope ON context_edges(scope_type, scope_id);
+            CREATE INDEX IF NOT EXISTS idx_context_edges_source ON context_edges(source_node_id);
+            CREATE INDEX IF NOT EXISTS idx_context_edges_target ON context_edges(target_node_id);
+            CREATE INDEX IF NOT EXISTS idx_context_edges_relation ON context_edges(relation_kind);
+            CREATE INDEX IF NOT EXISTS idx_context_edges_updated_at ON context_edges(updated_at);
             """
         )
 
@@ -821,6 +874,28 @@ class ContextStore:
                 "version_no",
                 "change_kind",
             },
+            "context_nodes": {
+                "node_id",
+                "project_id",
+                "scope_type",
+                "scope_id",
+                "node_type",
+                "label",
+                "status",
+                "semantic_cluster",
+            },
+            "context_edges": {
+                "edge_id",
+                "project_id",
+                "scope_type",
+                "scope_id",
+                "source_node_id",
+                "target_node_id",
+                "relation_kind",
+                "evidence_record_ids",
+                "confidence",
+                "status",
+            },
             "records_fts": {
                 "record_id",
                 "project_id",
@@ -1061,6 +1136,8 @@ class ContextStore:
     ) -> dict[str, int]:
         """Delete context rows for project_id, or all context rows when omitted."""
         counts = self._count_memory(conn, project_id=project_id)
+        self._delete_rows(conn, "context_edges", project_id=project_id)
+        self._delete_rows(conn, "context_nodes", project_id=project_id)
         self._delete_rows(conn, "records_fts", project_id=project_id)
         self._delete_rows(conn, "record_embeddings", project_id=project_id)
         self._delete_rows(conn, "record_versions", project_id=project_id)
@@ -1076,6 +1153,8 @@ class ContextStore:
             "records": self._count_rows(conn, "records", project_id=project_id),
             "record_versions": self._count_rows(conn, "record_versions", project_id=project_id),
             "context_sessions": self._count_rows(conn, "sessions", project_id=project_id),
+            "context_nodes": self._count_rows(conn, "context_nodes", project_id=project_id),
+            "context_edges": self._count_rows(conn, "context_edges", project_id=project_id),
             "records_fts": self._count_rows(conn, "records_fts", project_id=project_id),
             "record_embeddings": self._count_rows(conn, "record_embeddings", project_id=project_id),
         }
@@ -1086,6 +1165,8 @@ class ContextStore:
             "records": 0,
             "record_versions": 0,
             "context_sessions": 0,
+            "context_nodes": 0,
+            "context_edges": 0,
             "records_fts": 0,
             "record_embeddings": 0,
         }

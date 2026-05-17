@@ -8,7 +8,8 @@ The pattern is:
 1. an agent completes work inside a business process
 2. the trace contains evidence, decisions, constraints, open questions, and handoffs
 3. Lerim extracts the reusable signal
-4. the next agent starts with compact, cited context instead of a raw transcript
+4. Lerim links related decisions, evidence, and constraints into a context graph
+5. the next agent starts with compact, cited context instead of a raw transcript
 
 ## Research and market intelligence
 

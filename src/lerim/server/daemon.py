@@ -552,6 +552,11 @@ def _new_project_metric() -> dict[str, Any]:
             "updated": 0,
             "archived": 0,
         },
+        "context_graph": {
+            "nodes_written": 0,
+            "edges_written": 0,
+            "semantic_clusters": 0,
+        },
     }
 
 
@@ -583,6 +588,23 @@ def _merge_project_metric(target: dict[str, Any], source: dict[str, Any]) -> Non
     for key in ("created", "updated", "archived"):
         t_counts[key] = int(t_counts.get(key) or 0) + int(s_counts.get(key) or 0)
     target["curate_counts"] = t_counts
+    t_graph = (
+        target.get("context_graph")
+        if isinstance(target.get("context_graph"), dict)
+        else {}
+    )
+    s_graph = (
+        source.get("context_graph")
+        if isinstance(source.get("context_graph"), dict)
+        else {}
+    )
+    for key in (
+        "nodes_written",
+        "edges_written",
+        "semantic_clusters",
+    ):
+        t_graph[key] = int(t_graph.get(key) or 0) + int(s_graph.get(key) or 0)
+    target["context_graph"] = t_graph
 
 
 def _aggregate_ingest_totals(
@@ -618,12 +640,18 @@ def _aggregate_curate_totals(
 ) -> dict[str, Any]:
     """Build curate totals across projects for details_json."""
     counts = {"created": 0, "updated": 0, "archived": 0}
+    graph_counts = {
+        "nodes_written": 0,
+        "edges_written": 0,
+        "semantic_clusters": 0,
+    }
     totals = {
         "projects_count": len(projects_metrics),
         "records_created": 0,
         "records_updated": 0,
         "records_archived": 0,
         "counts": counts,
+        "context_graph": graph_counts,
     }
     for metrics in projects_metrics.values():
         for key in ("records_created", "records_updated", "records_archived"):
@@ -635,6 +663,13 @@ def _aggregate_curate_totals(
         )
         for key in ("created", "updated", "archived"):
             counts[key] += int(m_counts.get(key) or 0)
+        m_graph = (
+            metrics.get("context_graph")
+            if isinstance(metrics.get("context_graph"), dict)
+            else {}
+        )
+        for key in graph_counts:
+            graph_counts[key] += int(m_graph.get(key) or 0)
     return totals
 
 
@@ -1278,6 +1313,15 @@ def run_curate_once(
                     "updated": int(result.get("records_updated") or 0),
                     "archived": int(result.get("records_archived") or 0),
                 }
+                graph_result = result.get("context_graph") or {}
+                results[project_name]["context_graph"] = graph_result
+                metric_row["context_graph"] = {
+                    "nodes_written": int(graph_result.get("nodes_written") or 0),
+                    "edges_written": int(graph_result.get("edges_written") or 0),
+                    "semantic_clusters": int(
+                        graph_result.get("semantic_clusters") or 0
+                    ),
+                }
                 if _record_count_delta(metric_row) > 0:
                     wm_result = run_context_brief_for_project(
                         project_name=project_name,
@@ -1305,6 +1349,7 @@ def run_curate_once(
                     "records_archived": int(metric_row.get("records_archived") or 0),
                     "duration_ms": int(metric_row.get("duration_ms") or 0),
                     "curate_counts": metric_row.get("curate_counts") or {},
+                    "context_graph": metric_row.get("context_graph") or {},
                     "error": str(metric_row.get("last_error") or ""),
                 }
             )

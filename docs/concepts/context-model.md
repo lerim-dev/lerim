@@ -23,7 +23,7 @@ Each record can carry:
 - structured payload
 - status
 - validity window
-- links to related records
+- graph links to related records
 - evidence from traces
 - version history
 
@@ -44,9 +44,24 @@ It can:
 
 - merge duplicates
 - archive low-value records
-- add links
 - supersede outdated records
 - keep context selective as more traces are processed
+
+## What the context graph does
+
+The context graph is derived from active curated records.
+
+It can link:
+
+- evidence to the decision it supports
+- constraints to decisions that depend on them
+- newer context to older records it supersedes
+- contradictory records for review
+- records that share a reusable topic
+
+The graph stores the persisted semantic cluster for each node. The dashboard can
+derive Louvain and combined visual lenses from the accepted graph links without
+adding those transient labels to the runtime store.
 
 ## What answer does
 

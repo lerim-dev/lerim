@@ -32,6 +32,7 @@ from lerim.server.daemon import (
     LockBusyError,
     ServiceLock,
     WRITER_LOCK_NAME,
+    active_lock_state,
     resolve_window_bounds,
     run_curate_once,
     run_ingest_once,
@@ -724,6 +725,8 @@ def _schedule_item(
     latest: dict[str, Any] | None,
     interval_minutes: int,
     now: datetime,
+    active_writer: dict[str, object] | None = None,
+    owner: str | None = None,
 ) -> dict[str, Any]:
     """Build public schedule metadata for one recurring daemon task."""
     interval_seconds = max(int(interval_minutes) * 60, 30)
@@ -732,6 +735,11 @@ def _schedule_item(
     started_at = str(latest.get("started_at") or "").strip()
     completed_at = str(latest.get("completed_at") or "").strip()
     running = status == "started" and not completed_at
+    if active_writer and owner and active_writer.get("owner") == owner:
+        status = "started"
+        started_at = str(active_writer.get("started_at") or started_at).strip()
+        completed_at = ""
+        running = True
 
     anchor = _parse_iso_time(completed_at) or _parse_iso_time(started_at)
     next_due: datetime | None = None
@@ -1142,6 +1150,10 @@ def api_status(
         recent_activity = []
 
     latest_ingest = _normalize_latest_run(latest_ingest_raw)
+    active_writer = active_lock_state(
+        config.global_data_dir / "index" / WRITER_LOCK_NAME,
+        stale_seconds=60,
+    )
 
     payload: dict[str, Any] = {
         "timestamp": now.isoformat(),
@@ -1167,11 +1179,15 @@ def api_status(
                 latest=latest_ingest_raw,
                 interval_minutes=config.ingest_interval_minutes,
                 now=now,
+                active_writer=active_writer,
+                owner="ingest",
             ),
             "curate": _schedule_item(
                 latest=latest_curate_raw,
                 interval_minutes=config.curate_interval_minutes,
                 now=now,
+                active_writer=active_writer,
+                owner="curate",
             ),
         },
         "unscoped_sessions": {
