@@ -106,7 +106,7 @@ def build_semantic_candidates(
     neighbor_limit: int = CONTEXT_GRAPH_NEIGHBOR_LIMIT,
     max_cluster_size: int = CONTEXT_GRAPH_MAX_CLUSTER_SIZE,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Build mutual semantic-neighbor clusters and candidate link pairs."""
+    """Build semantic-neighbor clusters and candidate link pairs."""
     if len(records) < 2:
         return [], []
     store = ContextStore(context_db_path)
@@ -136,8 +136,6 @@ def build_semantic_candidates(
     edges: dict[str, set[str]] = defaultdict(set)
     for record_id, neighbor_ids in directed_neighbors.items():
         for neighbor_id in neighbor_ids:
-            if record_id not in directed_neighbors.get(neighbor_id, set()):
-                continue
             edges[record_id].add(neighbor_id)
             edges[neighbor_id].add(record_id)
 

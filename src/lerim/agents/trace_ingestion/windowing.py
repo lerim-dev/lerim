@@ -9,7 +9,7 @@ from typing import Any
 from lerim.agents.trace_ingestion.state import TraceIngestionGraphState
 
 TRACE_MAX_LINE_BYTES = 5_000
-TRACE_MAX_CHUNK_BYTES = 50_000
+TRACE_MAX_CHUNK_BYTES = 24_000
 MODEL_CONTEXT_TOKEN_LIMIT = 200_000
 CONTEXT_SOFT_PRESSURE_PCT = 0.60
 WINDOW_RESERVE_TOKENS = 30_000

@@ -82,6 +82,73 @@ def test_duplicate_episode_replay_is_idempotent(tmp_path) -> None:
     assert sorted(row["kind"] for row in rows) == ["episode", "fact"]
 
 
+def test_episode_defaults_to_archived_when_durable_record_exists(tmp_path) -> None:
+    """Trace recap episodes should not stay active by default beside durable context."""
+    ctx = _context(tmp_path)
+    prepare_context_store(ctx)
+    payload = _synthesized_payload()
+    payload["episode"].pop("status", None)
+
+    observations, done, _summary = persist_synthesized_extraction(payload, ctx)
+
+    store = ContextStore(ctx.context_db_path)
+    rows = store.query(
+        entity="records",
+        mode="list",
+        project_ids=[ctx.project_identity.project_id],
+        source_session_id=ctx.session_id,
+        limit=10,
+        include_archived=True,
+    )["rows"]
+    episode = next(row for row in rows if row["kind"] == "episode")
+
+    assert done is True
+    assert observations[0]["ok"] is True
+    assert episode["status"] == "archived"
+
+
+def test_episode_is_archived_when_model_marks_active_beside_durable_record(tmp_path) -> None:
+    """Durable records should carry reusable signal, not the episode wrapper."""
+    ctx = _context(tmp_path)
+    prepare_context_store(ctx)
+    payload = _synthesized_payload()
+    payload["episode"]["status"] = "active"
+
+    observations, done, _summary = persist_synthesized_extraction(payload, ctx)
+
+    store = ContextStore(ctx.context_db_path)
+    rows = store.query(
+        entity="records",
+        mode="list",
+        project_ids=[ctx.project_identity.project_id],
+        source_session_id=ctx.session_id,
+        limit=10,
+        include_archived=True,
+    )["rows"]
+    episode = next(row for row in rows if row["kind"] == "episode")
+
+    assert done is True
+    assert observations[0]["ok"] is True
+    assert episode["status"] == "archived"
+
+
+def test_model_completion_summary_is_not_persisted(tmp_path) -> None:
+    """Persistence uses deterministic summaries instead of model-authored chatter."""
+    ctx = _context(tmp_path)
+    prepare_context_store(ctx)
+    payload = _synthesized_payload()
+    payload["completion_summary"] = (
+        "Created context but also mentioned temporary browser console CSS details."
+    )
+
+    observations, done, summary = persist_synthesized_extraction(payload, ctx)
+
+    assert done is True
+    assert summary == "Trace ingestion completed: 1 durable record created."
+    assert observations[-1]["content"] == summary
+    assert "CSS" not in summary
+
+
 def test_record_updates_revise_existing_durable_without_duplicate(tmp_path) -> None:
     """Synthesized updates should append a version instead of creating a duplicate."""
     ctx = _context(tmp_path)

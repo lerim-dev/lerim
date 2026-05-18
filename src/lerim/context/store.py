@@ -238,6 +238,8 @@ class ContextStore:
                     body TEXT NOT NULL,
                     status TEXT NOT NULL,
                     source_session_id TEXT,
+                    source_event_refs TEXT,
+                    evidence_refs TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     valid_from TEXT NOT NULL,
@@ -273,6 +275,8 @@ class ContextStore:
                     body TEXT NOT NULL,
                     status TEXT NOT NULL,
                     source_session_id TEXT,
+                    source_event_refs TEXT,
+                    evidence_refs TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     valid_from TEXT NOT NULL,
@@ -356,6 +360,7 @@ class ContextStore:
                 """
             )
             self._migrate_scope_schema(conn)
+            self._ensure_record_evidence_schema(conn)
             self._ensure_secondary_indexes(conn)
             self._validate_schema(conn)
             conn.execute(
@@ -556,6 +561,17 @@ class ContextStore:
         rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
         return {str(row["name"]) for row in rows}
 
+    def _ensure_record_evidence_schema(self, conn: sqlite3.Connection) -> None:
+        """Add source evidence columns to existing record tables."""
+        for table_name in ("records", "record_versions"):
+            columns = self._table_columns(conn, table_name)
+            if not columns:
+                continue
+            if "source_event_refs" not in columns:
+                conn.execute(f"ALTER TABLE {table_name} ADD COLUMN source_event_refs TEXT")
+            if "evidence_refs" not in columns:
+                conn.execute(f"ALTER TABLE {table_name} ADD COLUMN evidence_refs TEXT")
+
     def _column_expr(self, columns: set[str], name: str, default_sql: str) -> str:
         """Return a SELECT expression for an existing column or SQL default."""
         return name if name in columns else default_sql
@@ -691,6 +707,8 @@ class ContextStore:
                 body TEXT NOT NULL,
                 status TEXT NOT NULL,
                 source_session_id TEXT,
+                source_event_refs TEXT,
+                evidence_refs TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 valid_from TEXT NOT NULL,
@@ -717,19 +735,21 @@ class ContextStore:
         scope_label = self._column_expr(columns, "scope_label", "COALESCE(project_id, record_id)")
         source_name = self._column_expr(columns, "source_name", "NULL")
         source_profile = self._column_expr(columns, "source_profile", "NULL")
+        source_event_refs = self._column_expr(columns, "source_event_refs", "NULL")
+        evidence_refs = self._column_expr(columns, "evidence_refs", "NULL")
         conn.execute(
             f"""
             INSERT INTO records(
                 record_id, project_id, scope_type, scope_id, scope_label,
                 source_name, source_profile, kind, title, body, status,
-                source_session_id, created_at, updated_at, valid_from,
+                source_session_id, source_event_refs, evidence_refs, created_at, updated_at, valid_from,
                 valid_until, superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes
             )
             SELECT
                 record_id, project_id, {scope_type}, {scope_id}, {scope_label},
                 {source_name}, {source_profile}, kind, title, body, status,
-                source_session_id, created_at, updated_at, valid_from,
+                source_session_id, {source_event_refs}, {evidence_refs}, created_at, updated_at, valid_from,
                 valid_until, superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes
             FROM {old_name}
@@ -791,6 +811,8 @@ class ContextStore:
                 body TEXT NOT NULL,
                 status TEXT NOT NULL,
                 source_session_id TEXT,
+                source_event_refs TEXT,
+                evidence_refs TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 valid_from TEXT NOT NULL,
@@ -821,12 +843,15 @@ class ContextStore:
         scope_label = self._column_expr(columns, "scope_label", "COALESCE(project_id, record_id)")
         source_name = self._column_expr(columns, "source_name", "NULL")
         source_profile = self._column_expr(columns, "source_profile", "NULL")
+        source_event_refs = self._column_expr(columns, "source_event_refs", "NULL")
+        evidence_refs = self._column_expr(columns, "evidence_refs", "NULL")
         conn.execute(
             f"""
             INSERT INTO record_versions(
                 version_id, project_id, scope_type, scope_id, scope_label,
                 source_name, source_profile, record_id, version_no, kind,
-                title, body, status, source_session_id, created_at, updated_at,
+                title, body, status, source_session_id, source_event_refs, evidence_refs,
+                created_at, updated_at,
                 valid_from, valid_until, superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes,
                 change_kind, change_reason, changed_at, changed_by_session_id
@@ -834,7 +859,8 @@ class ContextStore:
             SELECT
                 version_id, project_id, {scope_type}, {scope_id}, {scope_label},
                 {source_name}, {source_profile}, record_id, version_no, kind,
-                title, body, status, source_session_id, created_at, updated_at,
+                title, body, status, source_session_id, {source_event_refs}, {evidence_refs},
+                created_at, updated_at,
                 valid_from, valid_until, superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes,
                 change_kind, change_reason, changed_at, changed_by_session_id
@@ -865,6 +891,8 @@ class ContextStore:
                 "title",
                 "body",
                 "status",
+                "source_event_refs",
+                "evidence_refs",
             },
             "record_versions": {
                 "version_id",
@@ -872,6 +900,8 @@ class ContextStore:
                 "scope_type",
                 "scope_id",
                 "version_no",
+                "source_event_refs",
+                "evidence_refs",
                 "change_kind",
             },
             "context_nodes": {
@@ -1445,6 +1475,8 @@ class ContextStore:
         user_intent: str | None = None,
         what_happened: str | None = None,
         outcomes: str | None = None,
+        source_event_refs: list[str] | str | None = None,
+        evidence_refs: list[str] | str | None = None,
         change_reason: str | None = None,
         scope_identity: ScopeIdentity | None = None,
         scope_type: str | None = None,
@@ -1488,6 +1520,8 @@ class ContextStore:
             user_intent=user_intent,
             what_happened=what_happened,
             outcomes=outcomes,
+            source_event_refs=source_event_refs,
+            evidence_refs=evidence_refs,
         )
         payload.update(
             {
@@ -1515,10 +1549,11 @@ class ContextStore:
                 INSERT INTO records(
                     record_id, project_id, scope_type, scope_id, scope_label,
                     source_name, source_profile, kind, title, body, status, source_session_id,
-                    created_at, updated_at, valid_from, valid_until, superseded_by_record_id,
+                    source_event_refs, evidence_refs, created_at, updated_at,
+                    valid_from, valid_until, superseded_by_record_id,
                     decision, why, alternatives, consequences, user_intent, what_happened, outcomes
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record_id,
@@ -1533,6 +1568,8 @@ class ContextStore:
                     payload["body"],
                     payload["status"],
                     payload["source_session_id"],
+                    payload["source_event_refs"],
+                    payload["evidence_refs"],
                     payload["created_at"],
                     payload["updated_at"],
                     payload["valid_from"],
@@ -1632,6 +1669,10 @@ class ContextStore:
             user_intent=changes.get("user_intent", merged["user_intent"]),
             what_happened=changes.get("what_happened", merged["what_happened"]),
             outcomes=changes.get("outcomes", merged["outcomes"]),
+            source_event_refs=changes.get(
+                "source_event_refs", merged.get("source_event_refs")
+            ),
+            evidence_refs=changes.get("evidence_refs", merged.get("evidence_refs")),
         )
         payload.update(
             {
@@ -1657,6 +1698,8 @@ class ContextStore:
             "user_intent",
             "what_happened",
             "outcomes",
+            "source_event_refs",
+            "evidence_refs",
         )
         if all(payload[field] == merged[field] for field in meaningful_fields):
             raise ValueError("no_changes")
@@ -1674,7 +1717,8 @@ class ContextStore:
             UPDATE records
             SET kind=?, title=?, body=?, status=?, updated_at=?, valid_from=?,
                 valid_until=?, superseded_by_record_id=?, decision=?, why=?,
-                alternatives=?, consequences=?, user_intent=?, what_happened=?, outcomes=?
+                alternatives=?, consequences=?, user_intent=?, what_happened=?, outcomes=?,
+                source_event_refs=?, evidence_refs=?
             WHERE record_id=?
             """,
             (
@@ -1693,6 +1737,8 @@ class ContextStore:
                 payload["user_intent"],
                 payload["what_happened"],
                 payload["outcomes"],
+                payload["source_event_refs"],
+                payload["evidence_refs"],
                 record_id,
             ),
         )
@@ -2259,6 +2305,8 @@ class ContextStore:
             "body": str(row["body"]),
             "status": str(row["status"]),
             "source_session_id": row["source_session_id"],
+            "source_event_refs": _row_value(row, "source_event_refs"),
+            "evidence_refs": _row_value(row, "evidence_refs"),
             "created_at": str(row["created_at"]),
             "updated_at": str(row["updated_at"]),
             "valid_from": str(row["valid_from"]),
@@ -2297,6 +2345,8 @@ class ContextStore:
         user_intent: Any,
         what_happened: Any,
         outcomes: Any,
+        source_event_refs: Any = None,
+        evidence_refs: Any = None,
     ) -> dict[str, Any]:
         """Normalize and validate one record payload."""
         payload = normalize_record_payload(
@@ -2317,6 +2367,8 @@ class ContextStore:
             user_intent=user_intent,
             what_happened=what_happened,
             outcomes=outcomes,
+            source_event_refs=source_event_refs,
+            evidence_refs=evidence_refs,
         )
         for field_name in ("created_at", "updated_at", "valid_from", "valid_until"):
             payload[field_name] = _normalize_datetime_utc(payload[field_name])
@@ -2370,11 +2422,12 @@ class ContextStore:
                 version_id, project_id, scope_type, scope_id, scope_label,
                 source_name, source_profile, record_id, version_no, kind, title,
                 body, status, source_session_id, created_at, updated_at,
-                valid_from, valid_until, superseded_by_record_id, decision, why,
+                source_event_refs, evidence_refs, valid_from, valid_until,
+                superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes,
                 change_kind, change_reason, changed_at, changed_by_session_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _new_id("ver"),
@@ -2393,6 +2446,8 @@ class ContextStore:
                 payload["source_session_id"],
                 payload["created_at"],
                 payload["updated_at"],
+                payload["source_event_refs"],
+                payload["evidence_refs"],
                 payload["valid_from"],
                 payload["valid_until"],
                 payload["superseded_by_record_id"],

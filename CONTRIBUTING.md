@@ -21,7 +21,7 @@ tests/run_tests.sh unit
 # Smoke tests (needs live agent provider + API key)
 tests/run_tests.sh smoke
 
-# Real integration tests (extract, maintain, ask)
+# Real integration tests (ingestion, curation, answering)
 tests/run_tests.sh integration
 
 # End-to-end runtime flow

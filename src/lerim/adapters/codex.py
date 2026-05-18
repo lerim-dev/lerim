@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -130,8 +131,51 @@ def _clean_event_msg(obj: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def compact_trace(raw_text: str) -> str:
-    """Strip tool outputs and noise from Codex session JSONL."""
+    """Strip Codex control-plane entries from session JSONL.
+
+    Current Codex traces contain both a visible event stream and lower-level
+    response items. When the visible stream is present, use it as the canonical
+    source to avoid duplicating messages or preserving tool/runtime scaffolding.
+    Older traces without visible events still fall back to response-item
+    compaction.
+    """
+    parsed = _parse_jsonl(raw_text)
+    if any(_is_visible_event_msg(obj) for _line, obj in parsed if obj is not None):
+        kept: list[str] = []
+        for _line, obj in parsed:
+            if obj is None:
+                continue
+            cleaned = _clean_event_msg(obj)
+            if cleaned is not None:
+                kept.append(json.dumps(cleaned, ensure_ascii=False))
+        return "\n".join(kept) + ("\n" if kept else "")
     return compact_jsonl(raw_text, _clean_entry)
+
+
+def _parse_jsonl(raw_text: str) -> list[tuple[str, dict[str, Any] | None]]:
+    """Parse JSONL lines, preserving malformed lines for fallback compaction."""
+    parsed: list[tuple[str, dict[str, Any] | None]] = []
+    for line in raw_text.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            obj = json.loads(stripped)
+        except json.JSONDecodeError:
+            parsed.append((line, None))
+            continue
+        parsed.append((line, obj if isinstance(obj, dict) else None))
+    return parsed
+
+
+def _is_visible_event_msg(obj: dict[str, Any]) -> bool:
+    """Return whether a Codex event is a user-visible conversation message."""
+    if obj.get("type") != "event_msg":
+        return False
+    payload = obj.get("payload")
+    if not isinstance(payload, dict):
+        return False
+    return str(payload.get("type") or "") in {"user_message", "agent_message"}
 
 
 def _default_cache_dir() -> Path:

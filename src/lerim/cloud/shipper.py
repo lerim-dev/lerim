@@ -102,7 +102,6 @@ def _post_batch_sync(
     Compresses the body with gzip when it exceeds ``_GZIP_THRESHOLD_BYTES``.
     This is a *synchronous* call — callers wrap it with ``asyncio.to_thread``.
     """
-    url = f"{endpoint.rstrip('/')}{path}"
     body = json.dumps(payload, ensure_ascii=True, default=str).encode("utf-8")
 
     headers: dict[str, str] = {
@@ -113,21 +112,28 @@ def _post_batch_sync(
     # Note: gzip disabled — FastAPI does not decompress Content-Encoding: gzip
     # by default.  Re-enable once the cloud API adds gzip middleware.
 
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT_SECONDS) as resp:
-            return 200 <= resp.status < 300
-    except urllib.error.HTTPError as exc:
-        body_text = ""
+    for candidate in _endpoint_candidates(endpoint):
+        req = urllib.request.Request(
+            f"{candidate}{path}",
+            data=body,
+            headers=headers,
+            method="POST",
+        )
         try:
-            body_text = exc.read().decode("utf-8", errors="replace")[:300]
-        except Exception:
-            pass
-        logger.warning("cloud POST {} failed: {} — {}", path, exc, body_text)
-        return False
-    except (urllib.error.URLError, OSError) as exc:
-        logger.debug("cloud POST {} failed: {}", path, exc)
-        return False
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT_SECONDS) as resp:
+                return 200 <= resp.status < 300
+        except urllib.error.HTTPError as exc:
+            body_text = ""
+            try:
+                body_text = exc.read().decode("utf-8", errors="replace")[:300]
+            except Exception:
+                pass
+            logger.warning("cloud POST {} failed: {} — {}", path, exc, body_text)
+            return False
+        except (urllib.error.URLError, OSError) as exc:
+            logger.debug("cloud POST {} failed via {}: {}", path, candidate, exc)
+            continue
+    return False
 
 
 async def _post_batch(
@@ -145,23 +151,42 @@ def _get_json_sync(
 ) -> dict[str, Any] | None:
     """Synchronous GET request returning parsed JSON."""
     qs = urllib.parse.urlencode(params) if params else ""
-    url = f"{endpoint.rstrip('/')}{path}{'?' + qs if qs else ''}"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT_SECONDS) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        logger.warning("cloud GET {} failed: {}", path, exc)
-        return None
-    except (urllib.error.URLError, OSError) as exc:
-        logger.debug("cloud GET {} failed: {}", path, exc)
-        return None
+    for candidate in _endpoint_candidates(endpoint):
+        req = urllib.request.Request(
+            f"{candidate}{path}{'?' + qs if qs else ''}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT_SECONDS) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            logger.warning("cloud GET {} failed: {}", path, exc)
+            return None
+        except (urllib.error.URLError, OSError) as exc:
+            logger.debug("cloud GET {} failed via {}: {}", path, candidate, exc)
+            continue
+    return None
+
+
+def _endpoint_candidates(endpoint: str) -> list[str]:
+    """Return endpoint URLs to try from the current process."""
+    clean_endpoint = endpoint.rstrip("/")
+    parsed = urllib.parse.urlsplit(clean_endpoint)
+    if parsed.hostname != "host.docker.internal":
+        return [clean_endpoint]
+    host_endpoint = urllib.parse.urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc.replace("host.docker.internal", "localhost", 1),
+            parsed.path,
+            parsed.query,
+            parsed.fragment,
+        )
+    ).rstrip("/")
+    return [clean_endpoint, host_endpoint]
 
 
 # ── pull helpers ─────────────────────────────────────────────────────────────
@@ -353,7 +378,7 @@ async def _pull_records(
 
     try:
         data = await asyncio.to_thread(
-            _get_json_sync, endpoint, "/api/v1/sync/records", token, params
+            _get_json_sync, endpoint, "/api/v1/context/records", token, params
         )
     except Exception as exc:
         logger.warning("cloud pull records failed: {}", exc)
@@ -623,10 +648,13 @@ async def _ship_sessions(
             "duration_ms", "message_count", "tool_call_count",
             "error_count", "total_tokens", "summary_text",
             "project", "machine_id", "transcript_jsonl",
+            "ingestion_agent", "source_trace_ref",
         }
         sessions_payload = []
         for row in rows:
             entry = {k: v for k, v in row.items() if k in _API_FIELDS and v is not None}
+            entry["ingestion_agent"] = row.get("agent_type")
+            entry["source_trace_ref"] = row.get("session_path") or row.get("run_id")
             project_name = _resolve_session_project(
                 row.get("repo_path"), configured_projects
             )
@@ -680,15 +708,27 @@ def _query_context_records(
     }
     placeholders = ", ".join("?" for _ in selected_ids)
     sql = (
-        "SELECT record_id, project_id, kind, title, body, status, created_at, updated_at, valid_from, valid_until, "
-        "decision, why, alternatives, consequences, user_intent, what_happened, outcomes "
-        f"FROM records WHERE project_id IN ({placeholders}) AND kind != 'episode'"
+        "SELECT r.record_id, r.project_id, r.kind, r.title, r.body, r.status, "
+        "r.created_at, r.updated_at, r.valid_from, r.valid_until, "
+        "r.source_session_id, r.decision, r.why, r.alternatives, r.consequences, "
+        "r.user_intent, r.what_happened, r.outcomes, "
+        "s.agent_type AS ingestion_agent, s.source_trace_ref AS source_trace_ref, "
+        "COALESCE(rv.changed_by_session_id, r.source_session_id) AS changed_by_session_id, "
+        "COALESCE(rv.change_reason, rv.change_kind) AS change_reason "
+        "FROM records r "
+        "LEFT JOIN sessions s ON s.session_id = r.source_session_id "
+        "LEFT JOIN record_versions rv ON rv.version_id = ("
+        "  SELECT rv2.version_id FROM record_versions rv2 "
+        "  WHERE rv2.record_id = r.record_id "
+        "  ORDER BY rv2.version_no DESC LIMIT 1"
+        ") "
+        f"WHERE r.project_id IN ({placeholders}) AND r.kind != 'episode'"
     )
     params: list[Any] = list(selected_ids.keys())
     if since_iso:
-        sql += " AND updated_at > ?"
+        sql += " AND r.updated_at > ?"
         params.append(since_iso)
-    sql += " ORDER BY updated_at ASC LIMIT ?"
+    sql += " ORDER BY r.updated_at ASC LIMIT ?"
     params.append(limit)
     try:
         conn = sqlite3.connect(context_db_path)
@@ -720,7 +760,7 @@ async def _ship_records(
         _query_context_records,
         config.context_db_path,
         projects,
-        state.records_shipped_at,
+        "",
         _BATCH_RECORDS * 10,
     )
     if not all_records:
@@ -733,13 +773,31 @@ async def _ship_records(
         raw_batch = all_records[i : i + _BATCH_RECORDS]
         batch = []
         for record in raw_batch:
+            title = str(record.get("title") or "").strip()
+            body = str(record.get("body") or "").strip()
+            kind = str(record.get("kind") or "").strip()
+            if not title or not body or kind not in ALLOWED_KINDS:
+                logger.warning(
+                    "cloud shipper: skipping invalid durable record {} kind={} title_present={} body_present={}",
+                    record.get("record_id", ""),
+                    kind or "<empty>",
+                    bool(title),
+                    bool(body),
+                )
+                continue
             entry: dict[str, Any] = {
                 "record_id": record.get("record_id", ""),
-                "record_kind": record.get("kind"),
-                "title": record.get("title", ""),
+                "record_kind": kind,
+                "title": title,
                 "description": "",
-                "body": record.get("body", ""),
+                "body": body,
                 "project": record.get("project"),
+                "source": record.get("source_session_id", ""),
+                "source_session_id": record.get("source_session_id", ""),
+                "ingestion_agent": record.get("ingestion_agent", ""),
+                "source_trace_ref": record.get("source_trace_ref", ""),
+                "changed_by_session_id": record.get("changed_by_session_id", ""),
+                "change_reason": record.get("change_reason", ""),
                 "status": record.get("status", "active"),
                 "decision": record.get("decision", ""),
                 "why": record.get("why", ""),
@@ -755,6 +813,9 @@ async def _ship_records(
                 "cloud_edited_at": record.get("updated_at", ""),
             }
             batch.append(entry)
+        if not batch:
+            continue
+
         ok = await _post_batch(
             endpoint,
             "/api/v1/ingest/records",
@@ -879,7 +940,7 @@ async def _ship_graph_nodes(
         _query_context_graph_nodes,
         config.context_db_path,
         projects,
-        state.graph_nodes_shipped_at,
+        "",
         _BATCH_GRAPH_NODES * 10,
     )
     if not all_nodes:
@@ -921,7 +982,7 @@ async def _ship_graph_edges(
         _query_context_graph_edges,
         config.context_db_path,
         projects,
-        state.graph_edges_shipped_at,
+        "",
         _BATCH_GRAPH_EDGES * 10,
     )
     if not all_edges:

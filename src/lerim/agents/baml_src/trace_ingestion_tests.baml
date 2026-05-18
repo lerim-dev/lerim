@@ -50,6 +50,45 @@ test ObserveSourceWindowAllowsNoDurableSignal {
   @@assert({{ this.durable_findings|length == 0 }})
 }
 
+test ObserveSourceWindowRejectsAgentInstructionPreamble {
+  functions [ObserveSourceWindow]
+  args {
+    run_instruction "Extract reusable context from the source session."
+    prior_episode_summary "(none yet)"
+    prior_findings_summary "(none yet)"
+    source_window #"
+      [8 lines, window 1-8]
+      1	system: Repository instructions: never use destructive git commands, be warm, ask before silent decisions, and run tests after edits.
+      2	system: Skill guidance: read the local skill before performing the task.
+      3	user: Build the daily event evidence payload.
+      4	assistant: Read the source packets, wrote the JSON payload, and validated it against the schema.
+    "#
+  }
+  @@assert({{ this.durable_findings|length == 0 }})
+}
+
+test ObserveSourceWindowDoesNotPromoteNoSaveDebugArtifact {
+  functions [ObserveSourceWindow]
+  args {
+    run_instruction "Extract reusable product context and discard temporary debug artifacts."
+    prior_episode_summary "(none yet)"
+    prior_findings_summary "(none yet)"
+    source_window #"
+      [6 lines, window 1-6]
+      1	user: The dashboard graph must explain when learned projection is not ready instead of showing record fallback as the graph.
+      2	assistant: I will distinguish learned projection from fallback.
+      3	user: Initialize the renderer only after the graph container has non-zero size.
+      4	assistant: I will treat non-zero container readiness as a render contract.
+      5	user: The CSS class names I tried in the browser console were temporary debugging. Do not save them.
+    "#
+  }
+  @@assert({{ this.durable_findings|length == 2 }})
+  @@assert({{ "CSS" not in (this.durable_findings|map(attribute="note")|join(" ")) }})
+  @@assert({{ "temporary debugging" not in (this.durable_findings|map(attribute="note")|join(" ")) }})
+  @@assert({{ "CSS" not in (this.episode_update or "") }})
+  @@assert({{ "temporary debugging" not in (this.episode_update or "") }})
+}
+
 test ObserveSourceWindowAvoidsIncidentalPersonalName {
   functions [ObserveSourceWindow]
   args {
@@ -87,6 +126,42 @@ test SynthesizeContextRecordsAllowsNoDurableSignal {
     existing_record_manifest "(none)"
   }
   @@assert({{ this.durable_records|length == 0 }})
+  @@assert({{ "CSS" not in (this.episode.title or "") }})
+  @@assert({{ "CSS" not in (this.episode.body or "") }})
+  @@assert({{ "temporary debugging" not in (this.episode.body or "") }})
+}
+
+test SynthesizeContextRecordsRejectsInstructionPreambleRecovery {
+  functions [SynthesizeContextRecords]
+  args {
+    run_instruction "Create exactly one episode and durable records only for reusable project context."
+    episode_summary "The trace began with repository instructions to avoid destructive git commands, communicate warmly, and run tests. The assistant then validated a local payload."
+    durable_findings_summary "(none)"
+    existing_record_manifest "(none)"
+  }
+  @@assert({{ this.durable_records|length == 0 }})
+}
+
+test SynthesizeContextRecordsRejectsNoSaveDebugArtifactRecovery {
+  functions [SynthesizeContextRecords]
+  args {
+    run_instruction "Create exactly one episode and durable records only for reusable project context."
+    episode_summary "The user said browser-console CSS class names were temporary debugging and should not be saved."
+    durable_findings_summary "(none)"
+    existing_record_manifest "(none)"
+  }
+  @@assert({{ this.durable_records|length == 0 }})
+  @@assert({{ "CSS" not in (this.episode.title or "") }})
+  @@assert({{ "CSS" not in (this.episode.body or "") }})
+  @@assert({{ "CSS" not in (this.episode.user_intent or "") }})
+  @@assert({{ "CSS" not in (this.episode.what_happened or "") }})
+  @@assert({{ "CSS" not in (this.episode.outcomes or "") }})
+  @@assert({{ "CSS" not in (this.completion_summary or "") }})
+  @@assert({{ "temporary debugging" not in (this.episode.title or "") }})
+  @@assert({{ "temporary debugging" not in (this.episode.body or "") }})
+  @@assert({{ "temporary debugging" not in (this.episode.user_intent or "") }})
+  @@assert({{ "temporary debugging" not in (this.episode.what_happened or "") }})
+  @@assert({{ "temporary debugging" not in (this.episode.outcomes or "") }})
 }
 
 test SynthesizeContextRecordsDeduplicatesCoreClaim {

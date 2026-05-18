@@ -28,7 +28,9 @@ from lerim.adapters.registry import (
     list_platforms,
 )
 from lerim.context import ContextStore, resolve_project_identity
+from lerim.cloud.reset import reset_cloud_data
 from lerim.server.daemon import (
+    DAEMON_LOCK_BUSY_RETRY_SECONDS,
     LockBusyError,
     ServiceLock,
     WRITER_LOCK_NAME,
@@ -567,6 +569,7 @@ def api_memory_reset(
             session_counts = (
                 count_all_session_state() if dry_run else reset_all_session_state()
             )
+            cloud_reset = reset_cloud_data(config, dry_run=dry_run)
             cloud_state_path = config.global_data_dir / "cloud_shipper_state.json"
             cloud_state_count = 1 if cloud_state_path.exists() else 0
             if not dry_run and cloud_state_path.exists():
@@ -581,8 +584,13 @@ def api_memory_reset(
                     **session_counts,
                     "cloud_shipper_state": cloud_state_count,
                 },
+                "cloud_reset": cloud_reset,
                 "kept": kept,
-                "notes": [],
+                "notes": (
+                    ["cloud dashboard reset failed; local memory was still reset"]
+                    if cloud_reset.get("error")
+                    else []
+                ),
             }
 
         try:
@@ -745,7 +753,13 @@ def _schedule_item(
     next_due: datetime | None = None
     seconds_until: int | None = None
     if not running:
-        next_due = (anchor + timedelta(seconds=interval_seconds)) if anchor else now
+        due_interval_seconds = interval_seconds
+        if status == "lock_busy":
+            due_interval_seconds = min(
+                max(DAEMON_LOCK_BUSY_RETRY_SECONDS, 1.0),
+                interval_seconds,
+            )
+        next_due = (anchor + timedelta(seconds=due_interval_seconds)) if anchor else now
         seconds_until = max(0, int((next_due - now).total_seconds()))
 
     return {
@@ -791,8 +805,7 @@ def _catalog_unavailable_health(_exc: sqlite3.Error) -> dict[str, Any]:
         "oldest_running_age_seconds": None,
         "oldest_dead_letter_age_seconds": None,
         "advice": (
-            "Session catalog is unavailable; stop Lerim and rebuild "
-            "the session index."
+            "Session catalog is unavailable; stop Lerim and rebuild the session index."
         ),
         "error": "Session catalog storage is unavailable.",
     }
@@ -1168,9 +1181,7 @@ def api_status(
         "queue_health": queue_health,
         "session_catalog": {
             "status": "unavailable" if catalog_error else "available",
-            "error": "Session catalog storage is unavailable."
-            if catalog_error
-            else "",
+            "error": "Session catalog storage is unavailable." if catalog_error else "",
         },
         "projects": projects_payload,
         "ingest_window_days": config.ingest_window_days,
@@ -1197,9 +1208,7 @@ def api_status(
         "scope": {
             "strict_project_only": True,
             "mode": normalized_scope,
-            "skipped_unscoped": int(
-                latest_ingest_metrics.get("skipped_unscoped") or 0
-            ),
+            "skipped_unscoped": int(latest_ingest_metrics.get("skipped_unscoped") or 0),
         },
         "latest_ingest": latest_ingest,
         "latest_curate": _normalize_latest_run(latest_curate_raw),

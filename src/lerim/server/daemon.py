@@ -35,6 +35,7 @@ from lerim.sessions.catalog import (
 
 
 ACTIVITY_LOG_PATH: Path | None = None
+DAEMON_LOCK_BUSY_RETRY_SECONDS = 10.0
 
 
 def log_activity(
@@ -1237,7 +1238,7 @@ def run_curate_once(
 
     writer = ServiceLock(lock_path(WRITER_LOCK_NAME), stale_seconds=60)
     try:
-            writer.acquire("curate", "lerim curate")
+        writer.acquire("curate", "lerim curate")
     except LockBusyError as exc:
         op_result = OperationResult(
             operation="curate",

@@ -542,6 +542,8 @@ class TestShipSessions:
 		assert len(captured) == 1
 		sessions = captured[0]["sessions"]
 		assert any("transcript_jsonl" in s for s in sessions)
+		assert sessions[0]["ingestion_agent"] == "claude"
+		assert sessions[0]["source_trace_ref"] == str(transcript_path)
 
 	def test_includes_project_for_known_repo_path(self, tmp_path):
 		"""Session payload includes configured project resolved from repo_path."""
@@ -757,6 +759,46 @@ class TestQueryContextRecords:
 		assert results[0]["created_at"]
 		assert results[0]["valid_from"]
 
+	def test_queries_record_provenance(self, tmp_path):
+		"""Query includes BAML/LangGraph provenance needed by the dashboard."""
+		project_dir = tmp_path / "project_a"
+		project_dir.mkdir()
+		context_db_path = tmp_path / "context.sqlite3"
+		store = ContextStore(context_db_path)
+		store.initialize()
+		identity = resolve_project_identity(project_dir)
+		store.register_project(identity)
+		store.upsert_session(
+			project_id=identity.project_id,
+			session_id="ctx-session",
+			agent_type="baml-langgraph-trace-ingestion",
+			source_trace_ref="/tmp/trace.jsonl",
+			repo_path=str(project_dir),
+			cwd=str(project_dir),
+			started_at="2026-05-17T00:00:00+00:00",
+			model_name="test-model",
+			instructions_text=None,
+			prompt_text=None,
+			metadata={},
+		)
+		store.create_record(
+			project_id=identity.project_id,
+			session_id="ctx-session",
+			record_id="rec-provenance",
+			kind="constraint",
+			title="Preserve provenance",
+			body="Dashboard records need ingestion provenance.",
+		)
+
+		results = _query_context_records(
+			context_db_path, {"project_a": str(project_dir)}, "", 100
+		)
+
+		assert results[0]["ingestion_agent"] == "baml-langgraph-trace-ingestion"
+		assert results[0]["source_trace_ref"] == "/tmp/trace.jsonl"
+		assert results[0]["changed_by_session_id"] == "ctx-session"
+		assert results[0]["change_reason"] == "create"
+
 	def test_excludes_episode_records(self, tmp_path):
 		"""Episode rows are not shipped through cloud record sync."""
 		project_dir = tmp_path / "project_a"
@@ -874,6 +916,38 @@ class TestContextGraphShipping:
 		assert captured[0][1]["nodes"][0]["semantic_cluster"] == "semantic_1"
 		assert captured[1][1]["edges"][0]["relation_kind"] == "evidence_for"
 
+	def test_context_graph_reships_after_cloud_reset_watermark(self, tmp_path):
+		"""Graph projection is idempotently resent even when local watermarks are ahead."""
+		project_dir = tmp_path / "project_a"
+		project_dir.mkdir()
+		cfg = replace(make_config(tmp_path), projects={"project_a": str(project_dir)})
+		_insert_context_graph(cfg.context_db_path, project_dir)
+		state = _ShipperState(
+			graph_nodes_shipped_at="2099-01-01T00:00:00Z",
+			graph_edges_shipped_at="2099-01-01T00:00:00Z",
+		)
+		captured = []
+
+		async def mock_post(endpoint, path, token, payload):
+			"""Capture graph batches."""
+			captured.append((path, payload))
+			return True
+
+		with patch("lerim.cloud.shipper._post_batch", side_effect=mock_post):
+			nodes_shipped = asyncio.run(
+				_ship_graph_nodes("https://api.test", "tok", cfg, state)
+			)
+			edges_shipped = asyncio.run(
+				_ship_graph_edges("https://api.test", "tok", cfg, state)
+			)
+
+		assert nodes_shipped == 2
+		assert edges_shipped == 1
+		assert [item[0] for item in captured] == [
+			"/api/v1/ingest/graph/nodes",
+			"/api/v1/ingest/graph/edges",
+		]
+
 
 # ---------------------------------------------------------------------------
 # _ship_records
@@ -920,6 +994,78 @@ class TestShipRecords:
 		assert captured[0]["records"][0]["created_at"]
 		assert captured[0]["records"][0]["valid_from"]
 		assert "valid_until" in captured[0]["records"][0]
+
+	def test_ships_record_provenance(self, tmp_path):
+		"""Cloud record payload carries ingestion provenance fields."""
+		project_dir = tmp_path / "proj"
+		project_dir.mkdir()
+		cfg = replace(make_config(tmp_path), projects={"proj": str(project_dir)})
+		store = ContextStore(cfg.context_db_path)
+		store.initialize()
+		identity = resolve_project_identity(project_dir)
+		store.register_project(identity)
+		store.upsert_session(
+			project_id=identity.project_id,
+			session_id="ctx-session",
+			agent_type="baml-langgraph-trace-ingestion",
+			source_trace_ref="/tmp/trace.jsonl",
+			repo_path=str(project_dir),
+			cwd=str(project_dir),
+			started_at="2026-05-17T00:00:00+00:00",
+			model_name="test-model",
+			instructions_text=None,
+			prompt_text=None,
+			metadata={},
+		)
+		store.create_record(
+			project_id=identity.project_id,
+			session_id="ctx-session",
+			record_id="mem-provenance",
+			kind="fact",
+			title="Cloud provenance",
+			body="The dashboard can verify extraction provenance.",
+		)
+		state = _ShipperState()
+		captured = []
+
+		async def mock_post(endpoint, path, token, payload):
+			"""Capture payload."""
+			captured.append(payload)
+			return True
+
+		with patch("lerim.cloud.shipper._post_batch", side_effect=mock_post):
+			shipped = asyncio.run(
+				_ship_records("https://api.test", "tok", cfg, state)
+			)
+
+		assert shipped == 1
+		payload = captured[0]["records"][0]
+		assert payload["ingestion_agent"] == "baml-langgraph-trace-ingestion"
+		assert payload["source_trace_ref"] == "/tmp/trace.jsonl"
+		assert payload["changed_by_session_id"] == "ctx-session"
+		assert payload["change_reason"] == "create"
+
+	def test_records_reship_after_cloud_reset_watermark(self, tmp_path):
+		"""Canonical context records are resent when cloud was reset out of band."""
+		project_dir = tmp_path / "proj"
+		project_dir.mkdir()
+		cfg = replace(make_config(tmp_path), projects={"proj": str(project_dir)})
+		_insert_context_record(cfg.context_db_path, project_dir, "mem-reset")
+		state = _ShipperState(records_shipped_at="2099-01-01T00:00:00Z")
+		captured = []
+
+		async def mock_post(endpoint, path, token, payload):
+			"""Capture payload."""
+			captured.append(payload)
+			return True
+
+		with patch("lerim.cloud.shipper._post_batch", side_effect=mock_post):
+			shipped = asyncio.run(
+				_ship_records("https://api.test", "tok", cfg, state)
+			)
+
+		assert shipped == 1
+		assert captured[0]["records"][0]["record_id"] == "mem-reset"
 
 
 # ---------------------------------------------------------------------------

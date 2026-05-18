@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
+from lerim.agents.context_graph import run_context_graph
 from lerim.agents.context_graph.clustering import build_cluster_assignments
-from lerim.agents.context_graph.graph import _call_baml_with_retries, _validate_links_for_records
-from lerim.agents.context_graph.inventory import build_semantic_candidates, load_graph_records
+from lerim.agents.context_graph.graph import (
+    _call_baml_with_retries,
+    _validate_links_for_records,
+)
+from lerim.agents.context_graph.inventory import (
+    build_semantic_candidates,
+    load_graph_records,
+)
 from lerim.agents.context_graph.persistence import replace_context_graph
 from lerim.context import ContextStore
 from lerim.context.project_identity import ProjectIdentity
@@ -24,7 +32,9 @@ def mock_embeddings(monkeypatch):
     provider.embed_document.return_value = [0.1] * 384
     provider.embed_query.return_value = [0.1] * 384
     monkeypatch.setattr("lerim.context.store.get_embedding_provider", lambda: provider)
-    monkeypatch.setattr("lerim.context.embedding.get_embedding_provider", lambda: provider)
+    monkeypatch.setattr(
+        "lerim.context.embedding.get_embedding_provider", lambda: provider
+    )
 
 
 def _identity(tmp_path) -> ProjectIdentity:
@@ -227,18 +237,80 @@ class TestContextGraphValidation:
 class TestContextGraphInventory:
     """Tests for semantic graph candidate generation."""
 
-    def test_semantic_candidates_allow_cross_kind_neighbors(self, tmp_path, monkeypatch):
+    def test_semantic_candidates_allow_cross_kind_neighbors(
+        self, tmp_path, monkeypatch
+    ):
         identity = _identity(tmp_path)
         records = [
-            {"record_id": "rec_decision", "kind": "decision", "title": "Approval workflow", "body": "A", "updated_at": "3"},
-            {"record_id": "rec_fact", "kind": "fact", "title": "Approval threshold", "body": "B", "updated_at": "2"},
+            {
+                "record_id": "rec_decision",
+                "kind": "decision",
+                "title": "Approval workflow",
+                "body": "A",
+                "updated_at": "3",
+            },
+            {
+                "record_id": "rec_fact",
+                "kind": "fact",
+                "title": "Approval threshold",
+                "body": "B",
+                "updated_at": "2",
+            },
         ]
 
         def fake_search(self, **kwargs):
             query = str(kwargs["query"])
             if "workflow" in query:
-                return [SimpleNamespace(record_id="rec_decision"), SimpleNamespace(record_id="rec_fact")]
-            return [SimpleNamespace(record_id="rec_fact"), SimpleNamespace(record_id="rec_decision")]
+                return [
+                    SimpleNamespace(record_id="rec_decision"),
+                    SimpleNamespace(record_id="rec_fact"),
+                ]
+            return [
+                SimpleNamespace(record_id="rec_fact"),
+                SimpleNamespace(record_id="rec_decision"),
+            ]
+
+        monkeypatch.setattr(ContextStore, "search", fake_search)
+        clusters, pairs = build_semantic_candidates(
+            context_db_path=tmp_path / "context.sqlite3",
+            project_identity=identity,
+            records=records,
+        )
+
+        assert len(clusters) == 1
+        assert pairs[0]["source_record_id"] == "rec_decision"
+        assert pairs[0]["target_record_id"] == "rec_fact"
+
+    def test_semantic_candidates_do_not_require_mutual_neighbors(
+        self, tmp_path, monkeypatch
+    ):
+        identity = _identity(tmp_path)
+        records = [
+            {
+                "record_id": "rec_decision",
+                "kind": "decision",
+                "title": "Approval workflow",
+                "body": "A",
+                "updated_at": "3",
+            },
+            {
+                "record_id": "rec_fact",
+                "kind": "fact",
+                "title": "Approval threshold",
+                "body": "B",
+                "updated_at": "2",
+            },
+        ]
+
+        def fake_search(self, **kwargs):
+            del self
+            query = str(kwargs["query"])
+            if "workflow" in query:
+                return [
+                    SimpleNamespace(record_id="rec_decision"),
+                    SimpleNamespace(record_id="rec_fact"),
+                ]
+            return [SimpleNamespace(record_id="rec_fact")]
 
         monkeypatch.setattr(ContextStore, "search", fake_search)
         clusters, pairs = build_semantic_candidates(
@@ -252,14 +324,108 @@ class TestContextGraphInventory:
         assert pairs[0]["target_record_id"] == "rec_fact"
 
 
+class TestContextGraphPipeline:
+    """Tests for the full graph projection contract."""
+
+    def test_run_context_graph_writes_nodes_and_edges(
+        self, tmp_path, tmp_config, monkeypatch
+    ):
+        """A graph run over related durable records should leave a visible projection."""
+        store, identity = _seed_store(tmp_path)
+
+        def fake_search(self, **kwargs):
+            del self
+            query = str(kwargs["query"])
+            if "workflow" in query:
+                return [
+                    SimpleNamespace(record_id="rec_decision"),
+                    SimpleNamespace(record_id="rec_evidence"),
+                ]
+            return [
+                SimpleNamespace(record_id="rec_evidence"),
+                SimpleNamespace(record_id="rec_decision"),
+            ]
+
+        class FakeContextGraphClient:
+            def LinkContextRecords(
+                self,
+                *,
+                candidate_pairs_json: str,
+                **_kwargs,
+            ):
+                pairs = json.loads(candidate_pairs_json)
+                pair = pairs[0]
+                source = str(pair["target_record_id"])
+                target = str(pair["source_record_id"])
+                return {
+                    "links": [
+                        {
+                            "source_record_id": source,
+                            "target_record_id": target,
+                            "relation_kind": "evidence_for",
+                            "label": "Evidence for approval decision",
+                            "rationale": "The policy threshold supports the approval workflow decision.",
+                            "evidence_record_ids": [source, target],
+                            "confidence": 0.84,
+                        }
+                    ]
+                }
+
+            def ReviewContextGraphLinks(
+                self,
+                *,
+                proposed_links_json: str,
+                **_kwargs,
+            ):
+                return {"links": json.loads(proposed_links_json)}
+
+        monkeypatch.setattr(ContextStore, "search", fake_search)
+        monkeypatch.setattr(
+            "lerim.agents.context_graph.graph.build_baml_client_for_role",
+            lambda **_kwargs: FakeContextGraphClient(),
+        )
+
+        result, details = run_context_graph(
+            context_db_path=store.db_path,
+            project_identity=identity,
+            session_id="graph",
+            config=tmp_config,
+            return_details=True,
+        )
+
+        assert result.nodes_written == 2
+        assert result.edges_written == 1
+        assert details.candidate_pair_count == 1
+        assert details.written_edge_count == 1
+        with store.connect() as conn:
+            active_nodes = conn.execute(
+                "SELECT COUNT(1) FROM context_nodes WHERE status = 'active'"
+            ).fetchone()[0]
+            active_edges = conn.execute(
+                "SELECT COUNT(1) FROM context_edges WHERE status = 'active'"
+            ).fetchone()[0]
+        assert active_nodes == 2
+        assert active_edges == 1
+
+
 class TestContextGraphPersistence:
     """Tests for context graph storage and reset."""
 
     def test_replace_context_graph_writes_nodes_edges_and_clusters(self, tmp_path):
         store, identity = _seed_store(tmp_path)
         records = [
-            {"record_id": "rec_decision", "kind": "decision", "title": "Use approval workflow", "body": "Decision body."},
-            {"record_id": "rec_evidence", "kind": "fact", "title": "Approval threshold exists", "body": "Fact body."},
+            {
+                "record_id": "rec_decision",
+                "kind": "decision",
+                "title": "Use approval workflow",
+                "body": "Decision body.",
+            },
+            {
+                "record_id": "rec_evidence",
+                "kind": "fact",
+                "title": "Approval threshold exists",
+                "body": "Fact body.",
+            },
         ]
 
         summary = replace_context_graph(
@@ -268,7 +434,10 @@ class TestContextGraphPersistence:
             session_id="graph",
             records=records,
             semantic_clusters=[
-                {"cluster_id": "semantic_1", "record_ids": ["rec_decision", "rec_evidence"]}
+                {
+                    "cluster_id": "semantic_1",
+                    "record_ids": ["rec_decision", "rec_evidence"],
+                }
             ],
             candidate_pairs=[
                 {"source_record_id": "rec_decision", "target_record_id": "rec_evidence"}
@@ -289,8 +458,12 @@ class TestContextGraphPersistence:
         assert summary.nodes_written == 2
         assert summary.edges_written == 1
         with store.connect() as conn:
-            node_count = conn.execute("SELECT COUNT(1) FROM context_nodes WHERE status = 'active'").fetchone()[0]
-            edge = conn.execute("SELECT * FROM context_edges WHERE status = 'active'").fetchone()
+            node_count = conn.execute(
+                "SELECT COUNT(1) FROM context_nodes WHERE status = 'active'"
+            ).fetchone()[0]
+            edge = conn.execute(
+                "SELECT * FROM context_edges WHERE status = 'active'"
+            ).fetchone()
         assert node_count == 2
         assert edge["relation_kind"] == "evidence_for"
         assert edge["source_node_id"] == "rec_evidence"
@@ -302,8 +475,18 @@ class TestContextGraphPersistence:
     def test_replace_context_graph_archives_removed_candidate_edges(self, tmp_path):
         store, identity = _seed_store(tmp_path)
         records = [
-            {"record_id": "rec_decision", "kind": "decision", "title": "Use approval workflow", "body": "Decision body."},
-            {"record_id": "rec_evidence", "kind": "fact", "title": "Approval threshold exists", "body": "Fact body."},
+            {
+                "record_id": "rec_decision",
+                "kind": "decision",
+                "title": "Use approval workflow",
+                "body": "Decision body.",
+            },
+            {
+                "record_id": "rec_evidence",
+                "kind": "fact",
+                "title": "Approval threshold exists",
+                "body": "Fact body.",
+            },
         ]
         link = {
             "source_record_id": "rec_evidence",
@@ -319,7 +502,12 @@ class TestContextGraphPersistence:
             project_identity=identity,
             session_id="graph",
             records=records,
-            semantic_clusters=[{"cluster_id": "semantic_1", "record_ids": ["rec_decision", "rec_evidence"]}],
+            semantic_clusters=[
+                {
+                    "cluster_id": "semantic_1",
+                    "record_ids": ["rec_decision", "rec_evidence"],
+                }
+            ],
             candidate_pairs=[
                 {"source_record_id": "rec_decision", "target_record_id": "rec_evidence"}
             ],
@@ -331,7 +519,12 @@ class TestContextGraphPersistence:
             project_identity=identity,
             session_id="graph",
             records=records,
-            semantic_clusters=[{"cluster_id": "semantic_1", "record_ids": ["rec_decision", "rec_evidence"]}],
+            semantic_clusters=[
+                {
+                    "cluster_id": "semantic_1",
+                    "record_ids": ["rec_decision", "rec_evidence"],
+                }
+            ],
             candidate_pairs=[
                 {"source_record_id": "rec_decision", "target_record_id": "rec_evidence"}
             ],
@@ -340,24 +533,45 @@ class TestContextGraphPersistence:
 
         assert summary.edges_written == 0
         with store.connect() as conn:
-            active_edges = conn.execute("SELECT COUNT(1) FROM context_edges WHERE status = 'active'").fetchone()[0]
-            archived_edges = conn.execute("SELECT COUNT(1) FROM context_edges WHERE status = 'archived'").fetchone()[0]
+            active_edges = conn.execute(
+                "SELECT COUNT(1) FROM context_edges WHERE status = 'active'"
+            ).fetchone()[0]
+            archived_edges = conn.execute(
+                "SELECT COUNT(1) FROM context_edges WHERE status = 'archived'"
+            ).fetchone()[0]
         assert active_edges == 0
         assert archived_edges == 1
 
     def test_replace_context_graph_archives_rows_for_archived_records(self, tmp_path):
         store, identity = _seed_store(tmp_path)
         records = [
-            {"record_id": "rec_decision", "kind": "decision", "title": "Use approval workflow", "body": "Decision body."},
-            {"record_id": "rec_evidence", "kind": "fact", "title": "Approval threshold exists", "body": "Fact body."},
+            {
+                "record_id": "rec_decision",
+                "kind": "decision",
+                "title": "Use approval workflow",
+                "body": "Decision body.",
+            },
+            {
+                "record_id": "rec_evidence",
+                "kind": "fact",
+                "title": "Approval threshold exists",
+                "body": "Fact body.",
+            },
         ]
-        pair = [{"source_record_id": "rec_decision", "target_record_id": "rec_evidence"}]
+        pair = [
+            {"source_record_id": "rec_decision", "target_record_id": "rec_evidence"}
+        ]
         replace_context_graph(
             context_db_path=store.db_path,
             project_identity=identity,
             session_id="graph",
             records=records,
-            semantic_clusters=[{"cluster_id": "semantic_1", "record_ids": ["rec_decision", "rec_evidence"]}],
+            semantic_clusters=[
+                {
+                    "cluster_id": "semantic_1",
+                    "record_ids": ["rec_decision", "rec_evidence"],
+                }
+            ],
             candidate_pairs=pair,
             links=[
                 {
@@ -385,7 +599,12 @@ class TestContextGraphPersistence:
             project_identity=identity,
             session_id="graph",
             records=[
-                {"record_id": "rec_decision", "kind": "decision", "title": "Use approval workflow", "body": "Decision body."}
+                {
+                    "record_id": "rec_decision",
+                    "kind": "decision",
+                    "title": "Use approval workflow",
+                    "body": "Decision body.",
+                }
             ],
             semantic_clusters=[],
             candidate_pairs=[],
@@ -394,8 +613,12 @@ class TestContextGraphPersistence:
 
         assert summary.semantic_clusters == 0
         with store.connect() as conn:
-            active_nodes = conn.execute("SELECT node_id FROM context_nodes WHERE status = 'active'").fetchall()
-            active_edges = conn.execute("SELECT COUNT(1) FROM context_edges WHERE status = 'active'").fetchone()[0]
+            active_nodes = conn.execute(
+                "SELECT node_id FROM context_nodes WHERE status = 'active'"
+            ).fetchall()
+            active_edges = conn.execute(
+                "SELECT COUNT(1) FROM context_edges WHERE status = 'active'"
+            ).fetchone()[0]
         assert [row["node_id"] for row in active_nodes] == ["rec_decision"]
         assert active_edges == 0
 

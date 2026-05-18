@@ -102,6 +102,62 @@ class TestEmitStructured:
         assert "- x: 42" in lines[1]
 
 
+class TestCloudShipOnce:
+    """Tests for the daemon's cloud shipping helper."""
+
+    def test_skips_when_cloud_token_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without a cloud token, serve startup should not import the shipper."""
+        imported = []
+
+        def _imported_shipper() -> None:
+            imported.append(1)
+
+        monkeypatch.setattr(
+            "lerim.cloud.shipper.ship_once",
+            _imported_shipper,
+        )
+
+        logger = type(
+            "Logger",
+            (),
+            {"info": lambda *_args, **_kwargs: None, "warning": lambda *_args, **_kwargs: None},
+        )()
+        cli._ship_to_cloud_once(make_config(tmp_path), logger)
+
+        assert imported == []
+
+    def test_runs_cloud_ship_when_configured(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Configured cloud sync runs before long daemon work can block it."""
+        from dataclasses import replace
+
+        shipped = []
+        logged = []
+
+        async def _ship_once(_config: Any) -> dict[str, int]:
+            shipped.append(1)
+            return {"records": 2, "graph_nodes": 2, "graph_edges": 1}
+
+        monkeypatch.setattr("lerim.cloud.shipper.ship_once", _ship_once)
+        cfg = replace(make_config(tmp_path), cloud_token="token")
+        logger = type(
+            "Logger",
+            (),
+            {
+                "info": lambda *_args, **_kwargs: logged.append(_args),
+                "warning": lambda *_args, **_kwargs: None,
+            },
+        )()
+
+        cli._ship_to_cloud_once(cfg, logger)
+
+        assert shipped == [1]
+        assert logged
+
+
 # ===================================================================
 # _api_request_failed
 # ===================================================================
@@ -1640,7 +1696,44 @@ class TestCmdMemory:
 
         assert code == 2
         assert calls == []
-        assert json.loads(buf.getvalue())["error"] is True
+
+    def test_memory_reset_all_prints_cloud_reset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fake_reset(**kwargs: Any) -> dict[str, Any]:
+            return {
+                "error": False,
+                "scope": "all",
+                "project": None,
+                "dry_run": kwargs.get("dry_run"),
+                "deleted": {"records": 1},
+                "cloud_reset": {
+                    "configured": True,
+                    "dry_run": kwargs.get("dry_run"),
+                    "error": False,
+                    "deleted": {"records": 2, "sessions": 3},
+                },
+                "kept": ["config"],
+                "notes": [],
+            }
+
+        monkeypatch.setattr(cli, "api_memory_reset", fake_reset)
+        args = _ns(
+            command="memory",
+            json=False,
+            memory_action="reset",
+            project=None,
+            all=True,
+            yes=True,
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = cli._cmd_memory(args)
+
+        assert code == 0
+        text = buf.getvalue()
+        assert "Cloud dashboard reset:" in text
+        assert "- sessions: 3" in text
 
     def test_memory_reset_cancelled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(

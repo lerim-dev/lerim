@@ -215,3 +215,48 @@ test CurateRecordHealthBatchKeepsHealthyRecord {
   @@assert({{ "REVISE" not in (this.actions|map(attribute="action_type")|join(" ")) }})
   @@assert({{ "SUPERSEDE" not in (this.actions|map(attribute="action_type")|join(" ")) }})
 }
+
+test CurateRecordHealthBatchArchivesHistoricalStatusSnapshot {
+  functions [CurateRecordHealthBatch]
+  args {
+    run_instruction "Archive time-sensitive implementation snapshots that are not reusable context."
+    batch_id "health_historical_status"
+    records_json #"
+      [
+        {
+          "record_id": "rec_status_snapshot",
+          "kind": "fact",
+          "title": "Dashboard graph currently has 22 nodes",
+          "body": "A previous inspection found the local graph projection had 22 nodes and 12 edges, the cloud database was empty, and the running dashboard still showed old chunks.",
+          "status": "active",
+          "created_at": "2026-04-01T00:00:00+00:00",
+          "updated_at": "2026-04-01T00:00:00+00:00"
+        }
+      ]
+    "#
+  }
+  @@assert({{ "ARCHIVE" in (this.actions|map(attribute="action_type")|join(" ")) }})
+}
+
+test CurateRecordHealthBatchKeepsUserAdoptedProductRule {
+  functions [CurateRecordHealthBatch]
+  args {
+    run_instruction "Keep stable user-adopted product rules."
+    batch_id "health_user_rule"
+    records_json #"
+      [
+        {
+          "record_id": "rec_user_rule",
+          "kind": "constraint",
+          "title": "Graph must show learned context when records exist",
+          "body": "When canonical context records exist, the dashboard graph must render learned context nodes and explain any missing projection state instead of showing a blank view.",
+          "status": "active",
+          "created_at": "2026-04-01T00:00:00+00:00",
+          "updated_at": "2026-04-01T00:00:00+00:00"
+        }
+      ]
+    "#
+  }
+  @@assert({{ "ARCHIVE" not in (this.actions|map(attribute="action_type")|join(" ")) }})
+  @@assert({{ "REVISE" not in (this.actions|map(attribute="action_type")|join(" ")) }})
+}

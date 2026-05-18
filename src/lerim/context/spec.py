@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
+import json
 from typing import Any
 
 
@@ -224,6 +225,31 @@ def _normalize_optional_text(value: Any) -> str | None:
     return text or None
 
 
+def _normalize_reference_list(value: Any) -> str | None:
+    """Normalize optional evidence references into compact JSON text."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            items = [text]
+        else:
+            items = parsed if isinstance(parsed, list) else [parsed]
+    elif isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        items = [value]
+
+    normalized = [str(item).strip() for item in items if str(item).strip()]
+    if not normalized:
+        return None
+    return json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+
+
 def normalize_record_kind(value: Any) -> str:
     """Normalize one record kind candidate."""
     return str(value or "").strip().lower()
@@ -322,6 +348,8 @@ def normalize_record_payload(
     user_intent: Any,
     what_happened: Any,
     outcomes: Any,
+    source_event_refs: Any = None,
+    evidence_refs: Any = None,
 ) -> dict[str, Any]:
     """Normalize and validate one record payload against the shared spec."""
     kind_text = normalize_record_kind(kind)
@@ -360,6 +388,8 @@ def normalize_record_payload(
         "user_intent": _normalize_optional_text(user_intent),
         "what_happened": _normalize_optional_text(what_happened),
         "outcomes": _normalize_optional_text(outcomes),
+        "source_event_refs": _normalize_reference_list(source_event_refs),
+        "evidence_refs": _normalize_reference_list(evidence_refs),
     }
     if payload["status"] == "archived" and not payload["valid_until"]:
         payload["valid_until"] = payload["updated_at"]

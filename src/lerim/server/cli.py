@@ -45,6 +45,8 @@ from lerim.server.docker_runtime import (
     is_docker_container_running,
 )
 from lerim.server.daemon import (
+    DAEMON_LOCK_BUSY_RETRY_SECONDS,
+    EXIT_LOCK_BUSY,
     run_curate_once,
     run_ingest_once,
     run_context_brief_daily,
@@ -77,6 +79,22 @@ _LEGACY_COMMAND_ALIASES = {
     "working-memory": "context-brief",
 }
 _LEGACY_COMMAND_REMOVAL_VERSION = "v0.3.0"
+
+
+def _daemon_last_run_after_attempt(
+    *,
+    finished_at: float,
+    interval_seconds: float,
+    exit_code: int,
+) -> float:
+    """Return the daemon timer anchor after one scheduled operation attempt."""
+    if exit_code != EXIT_LOCK_BUSY:
+        return finished_at
+    retry_after = min(
+        max(DAEMON_LOCK_BUSY_RETRY_SECONDS, 1.0),
+        max(float(interval_seconds), 1.0),
+    )
+    return finished_at - float(interval_seconds) + retry_after
 
 
 def _emit(message: object = "", *, file: Any | None = None) -> None:
@@ -407,9 +425,14 @@ def _cmd_context_brief(args: argparse.Namespace) -> int:
             _emit(json.dumps(result, indent=2, ensure_ascii=True))
         else:
             if result.get("status") == "skipped":
-                _emit(f"Context Brief skipped for {project.name}: {result.get('skip_reason')}")
+                _emit(
+                    f"Context Brief skipped for {project.name}: {result.get('skip_reason')}"
+                )
             elif result.get("status") == "failed":
-                _emit(f"Context Brief failed for {project.name}: {result.get('error')}", file=sys.stderr)
+                _emit(
+                    f"Context Brief failed for {project.name}: {result.get('error')}",
+                    file=sys.stderr,
+                )
                 return 1
             else:
                 _emit(f"Context Brief generated for {project.name}.")
@@ -546,7 +569,9 @@ def _render_answer_trace(debug: dict[str, Any]) -> list[str]:
                 )
                 continue
             if part_kind in {"count", "list", "search"}:
-                content = part.get("content") if isinstance(part.get("content"), dict) else {}
+                content = (
+                    part.get("content") if isinstance(part.get("content"), dict) else {}
+                )
                 result_count = content.get("result_count", "?")
                 lines.append(f"  [retrieval] {part_kind} results={result_count}")
                 continue
@@ -1029,10 +1054,11 @@ def _cmd_init(args: argparse.Namespace) -> int:
     _emit("  ║       Welcome to Lerim            ║")
     _emit("  ╚═══════════════════════════════════╝")
 
-    # Step 1: Detect coding agents
-    _emit("\n── Coding Agents ──────────────────────────────────")
+    # Step 1: Detect supported local trace sources.
+    _emit("\n── Supported Trace Sources ────────────────────────")
     _emit("")
-    _emit("  Which coding agents do you use?")
+    _emit("  Which supported coding-agent trace sources should Lerim watch?")
+    _emit("  Custom trace folders can be added later with `lerim project add <folder> --type custom`.")
     _emit("")
 
     detected = detect_agents()
@@ -1200,6 +1226,16 @@ def _print_memory_reset_preview(payload: dict[str, Any]) -> None:
     _emit("It will delete:")
     for key, value in (payload.get("deleted") or {}).items():
         _emit(f"- {key}: {value}")
+    cloud_reset = payload.get("cloud_reset") or {}
+    if cloud_reset.get("configured"):
+        if cloud_reset.get("error"):
+            _emit(f"Cloud dashboard reset failed: {cloud_reset.get('message')}")
+        elif cloud_reset.get("dry_run"):
+            _emit("Cloud dashboard data will also be reset.")
+        else:
+            _emit("Cloud dashboard reset:")
+            for key, value in (cloud_reset.get("deleted") or {}).items():
+                _emit(f"- {key}: {value}")
     kept = ", ".join(str(item) for item in payload.get("kept") or [])
     if kept:
         _emit(f"It will keep: {kept}.")
@@ -1216,6 +1252,16 @@ def _print_memory_reset_result(payload: dict[str, Any]) -> None:
         _emit(f'Reset Lerim memory for project "{payload.get("project")}".')
     for key, value in (payload.get("deleted") or {}).items():
         _emit(f"- {key}: {value}")
+    cloud_reset = payload.get("cloud_reset") or {}
+    if cloud_reset.get("configured"):
+        if cloud_reset.get("error"):
+            _emit(f"Cloud dashboard reset failed: {cloud_reset.get('message')}")
+        elif cloud_reset.get("dry_run"):
+            _emit("Cloud dashboard data will also be reset.")
+        else:
+            _emit("Cloud dashboard reset:")
+            for key, value in (cloud_reset.get("deleted") or {}).items():
+                _emit(f"- {key}: {value}")
     kept = ", ".join(str(item) for item in payload.get("kept") or [])
     if kept:
         _emit(f"Kept: {kept}.")
@@ -1229,7 +1275,9 @@ def _cmd_up(args: argparse.Namespace) -> int:
     _emit(
         f"Starting Lerim with {len(config.projects)} projects and {len(config.agents)} agents..."
     )
-    build_local = bool(getattr(args, "build", False)) or current_compose_uses_local_build()
+    build_local = (
+        bool(getattr(args, "build", False)) or current_compose_uses_local_build()
+    )
     result = api_up(build_local=build_local)
     if result.get("error"):
         _emit(result["error"], file=sys.stderr)
@@ -1418,6 +1466,21 @@ def _cmd_logs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ship_to_cloud_once(config: Any, logger: Any) -> None:
+    if not config.cloud_token:
+        return
+    try:
+        import asyncio
+
+        from lerim.cloud.shipper import ship_once
+
+        results = asyncio.run(ship_once(config))
+        if results:
+            logger.info("cloud ship: {}", results)
+    except Exception as exc:
+        logger.warning("cloud ship error: {}", exc)
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     """Start HTTP API + daemon loop in one process (web UI is Lerim Cloud)."""
     import signal
@@ -1474,6 +1537,8 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                 reaped_at_startup,
             )
 
+        _ship_to_cloud_once(config, logger)
+
         while not stop_event.is_set():
             now = time.monotonic()
 
@@ -1486,7 +1551,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                         parse_duration_to_seconds=parse_duration_to_seconds,
                     )
                     with ollama_lifecycle(config):
-                        _code, summary = run_ingest_once(
+                        code, summary = run_ingest_once(
                             run_id=None,
                             agent_filter=None,
                             no_extract=False,
@@ -1505,21 +1570,31 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                         summary.skipped_sessions,
                         summary.failed_sessions,
                     )
+                    last_ingest = _daemon_last_run_after_attempt(
+                        finished_at=time.monotonic(),
+                        interval_seconds=ingest_interval,
+                        exit_code=code,
+                    )
                 except Exception as exc:
                     logger.warning("daemon ingest error: {}", exc)
-                last_ingest = time.monotonic()
+                    last_ingest = time.monotonic()
 
             if now - last_curate >= curate_interval:
                 try:
                     with ollama_lifecycle(config):
-                        _code, details = run_curate_once(
+                        code, details = run_curate_once(
                             dry_run=False,
                             trigger="daemon",
                         )
                     logger.info("daemon curate done — {}", details)
+                    last_curate = _daemon_last_run_after_attempt(
+                        finished_at=time.monotonic(),
+                        interval_seconds=curate_interval,
+                        exit_code=code,
+                    )
                 except Exception as exc:
                     logger.warning("daemon curate error: {}", exc)
-                last_curate = time.monotonic()
+                    last_curate = time.monotonic()
 
             if now - last_context_brief >= context_brief_interval:
                 try:
@@ -1530,17 +1605,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                     logger.warning("daemon context-brief error: {}", exc)
                 last_context_brief = time.monotonic()
 
-            # Ship to cloud (best-effort)
-            if config.cloud_token:
-                try:
-                    from lerim.cloud.shipper import ship_once
-                    import asyncio
-
-                    results = asyncio.run(ship_once(config))
-                    if results:
-                        logger.info("cloud ship: {}", results)
-                except Exception as exc:
-                    logger.warning("cloud ship error: {}", exc)
+            _ship_to_cloud_once(config, logger)
 
             queue_health = queue_health_snapshot()
             if (
@@ -1560,8 +1625,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
             next_context_brief = last_context_brief + context_brief_interval
             sleep_for = max(
                 1.0,
-                min(next_ingest, next_curate, next_context_brief)
-                - time.monotonic(),
+                min(next_ingest, next_curate, next_context_brief) - time.monotonic(),
             )
             stop_event.wait(sleep_for)
 
@@ -1980,14 +2044,18 @@ def build_parser() -> argparse.ArgumentParser:
             "Example: lerim answer 'What auth pattern do we use?'"
         ),
     )
-    answer_alias.add_argument("question", help="Your question (use quotes if it contains spaces).")
+    answer_alias.add_argument(
+        "question", help="Your question (use quotes if it contains spaces)."
+    )
     answer_alias.add_argument(
         "--scope",
         choices=["all", "project"],
         default="all",
         help="Read scope: all projects (default) or one project.",
     )
-    answer_alias.add_argument("--project", help="Project name/path when --scope=project.")
+    answer_alias.add_argument(
+        "--project", help="Project name/path when --scope=project."
+    )
     answer_alias.add_argument(
         "--verbose",
         action="store_true",

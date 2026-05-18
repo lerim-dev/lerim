@@ -114,6 +114,8 @@ class DurableRecordDraft(BaseModel):
     why: typing.Optional[str] = None
     alternatives: typing.Optional[str] = None
     consequences: typing.Optional[str] = None
+    source_event_refs: typing.List[str] = Field(description='Trace line refs that directly support this durable record, for example line:12.')
+    evidence_refs: typing.List[str] = Field(description='Short evidence refs or quotes that directly support this durable record.')
 
 class DurableRecordUpdateDraft(BaseModel):
     record_id: typing.Optional[str] = Field(default=None, description='Exact existing record_id from the existing record manifest.')
@@ -128,6 +130,8 @@ class DurableRecordUpdateDraft(BaseModel):
     alternatives: typing.Optional[str] = None
     consequences: typing.Optional[str] = None
     change_reason: typing.Optional[str] = None
+    source_event_refs: typing.List[str] = Field(description='Trace line refs that directly support this update, for example line:12.')
+    evidence_refs: typing.List[str] = Field(description='Short evidence refs or quotes that directly support this update.')
 
 class EpisodeDraft(BaseModel):
     title: typing.Optional[str] = Field(default=None, description='Optional short title for the current-session episode. Runtime derives one if omitted.')
@@ -136,6 +140,8 @@ class EpisodeDraft(BaseModel):
     user_intent: typing.Optional[str] = Field(default=None, description='What the user wanted in this source session. Runtime derives a generic value if omitted.')
     what_happened: typing.Optional[str] = Field(default=None, description='What the session actually did. Runtime derives a generic value if omitted.')
     outcomes: typing.Optional[str] = Field(default=None, description='Optional concise outcome.')
+    source_event_refs: typing.List[str] = Field(description='Trace line refs that support this episode, for example line:12.')
+    evidence_refs: typing.List[str] = Field(description='Short evidence refs or quotes that support this episode.')
 
 class SignalFilterResult(BaseModel):
     kept_durable_findings: typing.List["SourceWindowFinding"] = Field(description='Durable findings that passed the final reuse and dedupe filter.')

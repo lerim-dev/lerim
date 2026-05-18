@@ -76,6 +76,11 @@ function CurateContextCluster(
     - Do not rewrite a healthy record for cosmetic wording.
     - Durable records should state reusable context directly, not narrate the review or conversation that produced it.
     - Revise process-centered durable records when title/body make the review, audit, exploration, discussion, or investigation the subject and only later mention the reusable claim.
+    - Archive or revise records whose only subject is a one-time audit, QA review, subagent review, bug hunt, repository cleanup pass, eval run, or dashboard check result. Keep only a stable product rule, customer-facing invariant, user preference, or source-of-truth rule when the record clearly states one.
+    - For advisory findings, that stable rule must be user-authored: the user accepted, corrected, or adopted the advisory conclusion as standing future context. Assistant, spawned-agent, reviewer, QA, eval, scorecard, or dashboard-check text cannot elevate itself into durable context.
+    - Do not keep a durable record merely because a reviewer found a bug, mismatch, failed check, noisy result, or possible improvement in one source session.
+    - Historical/current-status snapshots about live config, dead code inventory, runtime logs, MLflow observability, tests, branches, dashboards, or UI state are not healthy durable facts by themselves. Archive them unless the record states a stable user-authored rule, source-of-truth pointer, or future-work requirement that remains useful without trusting the old inspection result.
+    - Records that treat retired names from a rename/migration as current agent names, command names, doc paths, route names, phase names, or observability operations are unhealthy. Revise them to the canonical boundary or archive them. Retired names may remain only in an explicit compatibility-alias record.
     - Do not revise concise compared-and-chose summaries when the title/body already state the chosen outcome and the decision/why fields carry the reusable guidance cleanly.
 
     Revision patch rules:
@@ -117,12 +122,17 @@ function CurateRecordHealthBatch(
     - routine or low-value episodes that should be archived
     - useful but verbose episodes that should be compacted
     - durable records that read like session reports instead of reusable context
+    - durable records that preserve one-time review, QA, eval, bug-hunt, cleanup, or dashboard-check findings instead of a reusable product rule
     - clearly obsolete low-value durable records when no replacement is present in this batch
 
     Hard health rules:
     - A durable record is not healthy when title/body make the review, discussion, audit, exploration, or investigation the main subject and only later mention the reusable fact/decision. Revise it; this is not cosmetic churn.
     - Good typed fields do not rescue process-centered title/body when the title/body read like a review report, audit report, exploration recap, or investigation recap.
     - Returning no action for a report-shaped durable record is incorrect when title/body center the process instead of the reusable claim.
+    - One-time review findings, eval misses, bug-hunt notes, dashboard-check findings, and subagent assessments are not healthy durable records unless they state a stable product rule, customer-facing invariant, user preference, or source-of-truth rule.
+    - For advisory findings, the stable rule must come from a user-authored acceptance, correction, or decision. Do not treat assistant, spawned-agent, reviewer, QA, eval, scorecard, or dashboard-check language as self-elevating.
+    - Historical/current-status snapshots about live config, dead code inventory, runtime logs, MLflow observability, tests, branches, dashboards, or UI state are not healthy durable facts by themselves. Archive them unless the record states a stable user-authored rule, source-of-truth pointer, or future-work requirement that remains useful without trusting the old inspection result.
+    - A record is not healthy if it lists pre-migration names, old doc paths, old routes, old phase names, or old observability operation labels as current facts after the source established a canonical rename. Keep legacy names only when the record's durable point is compatibility aliasing.
     - A concise durable decision can remain healthy when decision and why fields state the reusable guidance directly and the title/body briefly summarize the comparison plus chosen outcome. Do not rewrite that record unless the process framing obscures the decision or adds noisy execution chatter.
     - Preserve meaningful episodes that explain a real incident, user intent, diagnostic path, or outcome that would help a future session understand why the durable context matters. Do not archive an episode merely because a related durable record exists in the batch.
     - Archive episodes only when they are routine checks, status confirmations, or operational noise with no reusable story beyond the durable records.

@@ -10,7 +10,7 @@ filesystem, and subprocess calls.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import sqlite3
@@ -295,7 +295,9 @@ def test_api_answer_includes_debug_when_verbose(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(api_mod, "_resolve_selected_projects", lambda **kw: [])
 
     class _FakeRuntime:
-        def answer(self, question, project_ids=None, repo_root=None, include_debug=False):
+        def answer(
+            self, question, project_ids=None, repo_root=None, include_debug=False
+        ):
             assert question == "how many records"
             assert include_debug is True
             return (
@@ -443,9 +445,7 @@ def test_api_curate_includes_queue_health_warning(monkeypatch, tmp_path) -> None
     """Curate API response surfaces degraded queue warning hints."""
     cfg = make_config(tmp_path)
     monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
-    monkeypatch.setattr(
-        api_mod, "run_curate_once", lambda **kw: (0, {"projects": {}})
-    )
+    monkeypatch.setattr(api_mod, "run_curate_once", lambda **kw: (0, {"projects": {}}))
     monkeypatch.setattr(api_mod, "ollama_lifecycle", _noop_lifecycle)
     monkeypatch.setattr(
         api_mod,
@@ -499,11 +499,12 @@ def test_api_status_returns_expected_keys(
     assert result["sessions_indexed_count"] == 5
     assert result["queue"] == {"pending": 0, "done": 3}
     assert result["ingest_window_days"] == cfg.ingest_window_days
-    assert result["schedule"]["ingest"]["interval_minutes"] == cfg.ingest_interval_minutes
+    assert (
+        result["schedule"]["ingest"]["interval_minutes"] == cfg.ingest_interval_minutes
+    )
     assert result["schedule"]["ingest"]["seconds_until_next"] == 0
     assert (
-        result["schedule"]["curate"]["interval_minutes"]
-        == cfg.curate_interval_minutes
+        result["schedule"]["curate"]["interval_minutes"] == cfg.curate_interval_minutes
     )
     assert result["schedule"]["curate"]["seconds_until_next"] == 0
     assert "queue_health" in result
@@ -679,6 +680,29 @@ def test_api_status_reports_active_writer_lock_as_running(
     assert result["schedule"]["ingest"]["running"] is False
 
 
+def test_schedule_item_retries_lock_busy_quickly() -> None:
+    """Lock-busy status should not advertise the full daemon interval."""
+    completed_at = datetime(2026, 5, 17, 12, 0, 0, tzinfo=timezone.utc)
+    item = api_mod._schedule_item(
+        latest={
+            "status": "lock_busy",
+            "started_at": "2026-05-17T11:59:59+00:00",
+            "completed_at": completed_at.isoformat(),
+        },
+        interval_minutes=50,
+        now=completed_at + timedelta(seconds=5),
+    )
+
+    assert item["last_status"] == "lock_busy"
+    assert item["seconds_until_next"] == 5
+    assert (
+        item["next_due_at"]
+        == (
+            completed_at + timedelta(seconds=api_mod.DAEMON_LOCK_BUSY_RETRY_SECONDS)
+        ).isoformat()
+    )
+
+
 def test_api_status_preserves_bad_project_selection_error(
     monkeypatch, tmp_path
 ) -> None:
@@ -804,6 +828,16 @@ def test_api_memory_reset_dry_run_does_not_register_project(
     cfg = replace(make_config(tmp_path), projects={"proj-a": str(project_path)})
     monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
     monkeypatch.setattr(catalog_mod, "get_config", lambda: cfg)
+    monkeypatch.setattr(
+        api_mod,
+        "reset_cloud_data",
+        lambda config, *, dry_run: {
+            "configured": True,
+            "dry_run": dry_run,
+            "error": False,
+            "deleted": {"records": 2, "graph_nodes": 0},
+        },
+    )
 
     result = api_memory_reset(project="proj-a", dry_run=True)
 
@@ -901,6 +935,16 @@ def test_api_memory_reset_all_clears_memory_and_cloud_state(
     )
     monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
     monkeypatch.setattr(catalog_mod, "get_config", lambda: cfg)
+    monkeypatch.setattr(
+        api_mod,
+        "reset_cloud_data",
+        lambda config, *, dry_run: {
+            "configured": True,
+            "dry_run": dry_run,
+            "error": False,
+            "deleted": {"records": 2, "sessions": 2, "graph_nodes": 0},
+        },
+    )
     _seed_memory_reset_project(tmp_path, cfg, "proj-a", project_a)
     _seed_memory_reset_project(tmp_path, cfg, "proj-b", project_b)
     catalog_mod.record_service_run(
@@ -928,6 +972,8 @@ def test_api_memory_reset_all_clears_memory_and_cloud_state(
     assert result["deleted"]["session_jobs"] == 2
     assert result["deleted"]["service_runs"] == 1
     assert result["deleted"]["cloud_shipper_state"] == 1
+    assert result["cloud_reset"]["configured"] is True
+    assert result["cloud_reset"]["deleted"]["records"] == 2
     assert not cloud_state.exists()
     assert not legacy_memory_dir.exists()
     store = ContextStore(cfg.context_db_path)
@@ -938,9 +984,7 @@ def test_api_memory_reset_all_clears_memory_and_cloud_state(
     assert sum(catalog_mod.count_session_jobs_by_status().values()) == 0
 
 
-def test_api_memory_reset_cleanup_failure_is_best_effort(
-    monkeypatch, tmp_path
-) -> None:
+def test_api_memory_reset_cleanup_failure_is_best_effort(monkeypatch, tmp_path) -> None:
     cfg = make_config(tmp_path)
     monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
     monkeypatch.setattr(catalog_mod, "get_config", lambda: cfg)
@@ -988,6 +1032,35 @@ def test_api_memory_reset_refuses_busy_writer_lock(monkeypatch, tmp_path) -> Non
 
     assert result["error"] is True
     assert "Cannot reset memory" in result["message"]
+
+
+def test_api_memory_reset_reports_cloud_failure(
+    monkeypatch, tmp_path, mock_embeddings
+) -> None:
+    """All-project reset should surface cloud reset failures without aborting local reset."""
+    project_a = tmp_path / "proj-a"
+    project_a.mkdir()
+    cfg = replace(make_config(tmp_path), projects={"proj-a": str(project_a)})
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    monkeypatch.setattr(catalog_mod, "get_config", lambda: cfg)
+    _seed_memory_reset_project(tmp_path, cfg, "proj-a", project_a)
+    monkeypatch.setattr(
+        api_mod,
+        "reset_cloud_data",
+        lambda config, *, dry_run: {
+            "configured": True,
+            "dry_run": dry_run,
+            "error": True,
+            "message": "cloud reset failed",
+        },
+    )
+
+    result = api_memory_reset(all_projects=True)
+
+    assert result["error"] is False
+    assert result["deleted"]["records"] == 1
+    assert result["cloud_reset"]["error"] is True
+    assert "cloud dashboard reset failed" in result["notes"][0]
 
 
 def test_api_project_list_empty(monkeypatch, tmp_path) -> None:
@@ -1181,7 +1254,9 @@ def test_api_project_remove_success(monkeypatch, tmp_path) -> None:
     )
     monkeypatch.setattr(api_mod, "get_user_config_path", lambda: config_file)
     written: list[dict] = []
-    monkeypatch.setattr(api_mod, "_write_config_full", lambda data: written.append(data))
+    monkeypatch.setattr(
+        api_mod, "_write_config_full", lambda data: written.append(data)
+    )
 
     result = api_project_remove("myproject")
     assert result["removed"] is True

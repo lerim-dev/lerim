@@ -837,6 +837,23 @@ class TestCreateRecord:
         )
         assert rec["kind"] == "fact"
 
+    def test_create_record_preserves_source_evidence_refs(self, mock_seeded):
+        store, pid = mock_seeded
+        rec = store.create_record(
+            project_id=pid,
+            session_id="sess_test",
+            kind="fact",
+            title="Custom traces are user cleaned",
+            body="Custom-agent traces are cleaned before Lerim ingests them.",
+            source_event_refs=["line:12", "line:18"],
+            evidence_refs=["Customer-provided cleaned trace"],
+        )
+
+        assert rec["source_event_refs"] == '["line:12","line:18"]'
+        assert rec["evidence_refs"] == '["Customer-provided cleaned trace"]'
+        assert rec["versions"][0]["source_event_refs"] == '["line:12","line:18"]'
+        assert rec["versions"][0]["evidence_refs"] == '["Customer-provided cleaned trace"]'
+
     def test_create_reference(self, mock_seeded):
         store, pid = mock_seeded
         rec = store.create_record(

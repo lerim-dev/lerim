@@ -94,6 +94,23 @@ cluster, reviews records not already targeted by a cluster action for
 single-record health issues, then applies validated archive, revise, and
 supersede operations through the context store.
 
+### Record lifecycle
+
+Consolidation should preserve history while keeping active context clean:
+
+- **revise** keeps the same record identity but writes a new version when the
+  durable point is still valid and only needs clearer wording or fields
+- **supersede** links an older record to the stronger replacement and closes the
+  old record's validity window with `valid_until`
+- **archive** keeps the record as history but removes it from normal active
+  retrieval
+
+Old decisions should not disappear just because they are old. Age affects
+attention, not truth: active retrieval should favor current, confirmed, and
+query-relevant records, while still allowing historical lookup through explicit
+archive/version access. If a newer decision contradicts an older one, the older
+record should be superseded rather than silently rewritten into the new truth.
+
 Context graph linking runs after curation. It loads active durable records,
 builds semantic candidate pairs, proposes sparse relationships, reviews those
 links, assigns persisted semantic clusters, and writes the graph projection for

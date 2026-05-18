@@ -13,6 +13,7 @@ class FakeBamlRuntime:
     def __init__(self) -> None:
         """Track the filtered summary passed into synthesis."""
         self.synthesis_input = ""
+        self.synthesis_episode_summary = ""
 
     def ObserveSourceWindow(self, **_kwargs):
         """Return one strong candidate and one source-local candidate."""
@@ -64,8 +65,11 @@ class FakeBamlRuntime:
     def SynthesizeContextRecords(self, **kwargs):
         """Assert synthesis sees the filtered candidates only."""
         self.synthesis_input = kwargs["durable_findings_summary"]
+        self.synthesis_episode_summary = kwargs["episode_summary"]
         assert "general trace filtering" in self.synthesis_input
         assert "local command output" not in self.synthesis_input
+        assert "local command output" not in self.synthesis_episode_summary
+        assert "local command transcript" not in self.synthesis_episode_summary
         return {
             "completion_summary": "Extraction completed.",
             "episode": {
@@ -117,6 +121,69 @@ class FakeBamlRuntime:
         }
 
 
+class NoDurableFakeBamlRuntime:
+    """BAML double for no-signal sessions with discarded source details."""
+
+    def ObserveSourceWindow(self, **_kwargs):
+        """Return only implementation and discarded details."""
+        return {
+            "episode_update": "The user marked browser console CSS selectors as temporary debugging.",
+            "durable_findings": [],
+            "implementation_findings": [
+                {
+                    "theme": "temporary browser debugging",
+                    "level": "implementation",
+                    "note": "Browser console selector names were temporary source-local evidence.",
+                }
+            ],
+            "discarded_noise": ["browser console CSS selectors"],
+        }
+
+    def FilterDurableSignal(self, **kwargs):
+        """Assert filtering can see noise, but keeps no durable signal."""
+        assert "browser console CSS selectors" in kwargs["implementation_summary"]
+        return {
+            "kept_durable_findings": [],
+            "rejected_findings": [],
+            "filtering_summary": "No reusable durable signal.",
+        }
+
+    def SynthesizeContextRecords(self, **kwargs):
+        """Synthesis should not receive source-local artifact names."""
+        assert "CSS" not in kwargs["episode_summary"]
+        assert "browser console" not in kwargs["episode_summary"]
+        return {
+            "completion_summary": "No reusable context found.",
+            "episode": {
+                "title": "No reusable context",
+                "body": "The source session did not contain reusable project context.",
+                "status": "archived",
+                "user_intent": "Ingest the source session.",
+                "what_happened": "The trace was scanned and no reusable durable context was found.",
+                "outcomes": "No durable records were created.",
+            },
+            "durable_records": [],
+            "record_updates": [],
+        }
+
+    def ReviewSynthesizedContextRecords(self, **kwargs):
+        """Review should also receive no durable signal."""
+        assert kwargs["durable_findings_summary"] == "(none)"
+        return {
+            "completion_summary": "No reusable context found.",
+            "episode": {
+                "title": "No reusable context",
+                "body": "The source session did not contain reusable project context.",
+                "status": "archived",
+                "user_intent": "Ingest the source session.",
+                "what_happened": "The trace was scanned and no reusable durable context was found.",
+                "outcomes": "No durable records were created.",
+            },
+            "durable_records": [],
+            "record_updates": [],
+        }
+
+
 def test_extract_graph_filters_candidates_before_synthesis(tmp_path, monkeypatch):
     """The graph applies an explicit signal-filter phase before record synthesis."""
     fake_runtime = FakeBamlRuntime()
@@ -141,7 +208,7 @@ def test_extract_graph_filters_candidates_before_synthesis(tmp_path, monkeypatch
         max_llm_calls=4,
     )
 
-    assert result.completion_summary == "Extraction completed."
+    assert result.completion_summary == "Trace ingestion completed: 1 durable record created."
     assert [event.action for event in details.events] == [
         "resolve_scope",
         "read_window",
@@ -164,3 +231,47 @@ def test_extract_graph_filters_candidates_before_synthesis(tmp_path, monkeypatch
         limit=10,
     )["rows"]
     assert sorted(row["kind"] for row in rows) == ["decision", "episode"]
+
+
+def test_extract_graph_keeps_discarded_details_out_of_synthesis(tmp_path, monkeypatch):
+    """No-signal synthesis receives a generic episode summary instead of noise."""
+    monkeypatch.setattr(
+        "lerim.agents.trace_ingestion.graph.build_baml_client_for_role",
+        lambda **_kwargs: NoDurableFakeBamlRuntime(),
+    )
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text(
+        '{"role":"user","content":"temporary browser debugging"}\n',
+        encoding="utf-8",
+    )
+    project_identity = resolve_project_identity(tmp_path)
+    result, details = run_trace_ingestion(
+        context_db_path=tmp_path / "context.sqlite3",
+        project_identity=project_identity,
+        session_id="session-no-signal",
+        trace_path=trace_path,
+        config=make_config(tmp_path / ".lerim"),
+        return_details=True,
+        max_llm_calls=4,
+    )
+
+    assert result.completion_summary == "Trace ingestion completed: no reusable durable context found."
+    assert details.events[3].content == "kept=0 rejected=0"
+    store = ContextStore(tmp_path / "context.sqlite3")
+    rows = store.query(
+        entity="records",
+        mode="list",
+        project_ids=[project_identity.project_id],
+        include_archived=True,
+        limit=10,
+    )["rows"]
+    assert len(rows) == 1
+    episode = rows[0]
+    assert episode["kind"] == "episode"
+    assert episode["status"] == "archived"
+    combined = " ".join(
+        str(episode.get(field) or "")
+        for field in ("title", "body", "user_intent", "what_happened", "outcomes")
+    )
+    assert "CSS" not in combined
+    assert "browser console" not in combined

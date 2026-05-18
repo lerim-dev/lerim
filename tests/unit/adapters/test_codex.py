@@ -505,7 +505,7 @@ def test_compact_trace_reasoning_dropped():
 
 
 def test_compact_trace_multiple_lines():
-    """compact_trace processes multiple JSONL lines: drops non-conversation, keeps canonical."""
+    """compact_trace prefers the visible event stream when it is available."""
     lines = [
         json.dumps({"type": "turn_context", "payload": {}}),
         json.dumps({"type": "session_meta", "payload": {"id": "s1", "base_instructions": "long"}}),
@@ -518,9 +518,35 @@ def test_compact_trace_multiple_lines():
     ]
     result = compact_trace("\n".join(lines) + "\n")
     parsed = [json.loads(line) for line in result.strip().split("\n")]
-    # turn_context/session_meta are dropped; structured event and response messages remain.
-    assert len(parsed) == 2
+    assert len(parsed) == 1
     assert parsed[0]["type"] == "user"
     assert parsed[0]["message"]["content"] == "hi"
-    assert parsed[1]["type"] == "user"
-    assert parsed[1]["message"]["content"] == "hello"
+
+
+def test_compact_trace_visible_stream_drops_internal_tool_scaffold():
+    """Visible Codex events suppress duplicate response and tool-call internals."""
+    lines = [
+        json.dumps({"type": "event_msg", "payload": {"type": "user_message", "message": "real request"}}),
+        json.dumps({"type": "event_msg", "payload": {"type": "agent_message", "message": "real reply"}}),
+        json.dumps(
+            {
+                "type": "response_item",
+                "payload": {"type": "message", "role": "user", "content": "duplicate request"},
+            }
+        ),
+        json.dumps(
+            {
+                "type": "response_item",
+                "payload": {"type": "function_call", "name": "read_file", "arguments": '{"path": "x"}'},
+            }
+        ),
+        json.dumps(
+            {
+                "type": "response_item",
+                "payload": {"type": "function_call_output", "output": "x" * 1000},
+            }
+        ),
+    ]
+    result = compact_trace("\n".join(lines) + "\n")
+    parsed = [json.loads(line) for line in result.strip().split("\n")]
+    assert [row["message"]["content"] for row in parsed] == ["real request", "real reply"]

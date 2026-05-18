@@ -235,7 +235,7 @@ def build_trace_ingestion_graph(
         result, retry_observations, attempts = _call_baml_with_retries(
             lambda: baml_runtime.SynthesizeContextRecords(
                 run_instruction=run_instruction,
-                episode_summary=_episode_summary(state),
+                episode_summary=_synthesis_episode_summary(state),
                 durable_findings_summary=_filtered_durable_findings_summary(state),
                 existing_record_manifest=existing_record_manifest or "(none)",
             ),
@@ -469,6 +469,21 @@ def _episode_summary(state: TraceIngestionGraphState) -> str:
     """Render compact rolling episode summary."""
     updates = [item for item in state.get("episode_updates", []) if item]
     return "\n".join(f"- {item}" for item in updates) or "(none yet)"
+
+
+def _synthesis_episode_summary(state: TraceIngestionGraphState) -> str:
+    """Render a final episode summary without carrying discarded details forward."""
+    if state.get("filtered_durable_findings"):
+        return (
+            "Reusable source-session context was identified in the filtered durable "
+            "findings. Use DURABLE FINDINGS as the source of truth for saved details."
+        )
+    if state.get("implementation_findings") or state.get("discarded_noise"):
+        return (
+            "No reusable durable context was found; source-session details were "
+            "implementation evidence or discarded noise."
+        )
+    return _episode_summary(state)
 
 
 def _findings_summary(state: TraceIngestionGraphState) -> str:

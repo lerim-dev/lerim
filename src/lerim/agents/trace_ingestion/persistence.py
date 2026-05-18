@@ -143,7 +143,6 @@ def persist_synthesized_extraction(
 ) -> tuple[list[dict[str, Any]], bool, str]:
     """Persist synthesized episode and durable records through ContextStore."""
     payload = _model_payload(synthesized)
-    completion_summary = str(payload.get("completion_summary") or "").strip()
     durable_records = [
         record
         for record in (
@@ -160,10 +159,14 @@ def persist_synthesized_extraction(
         )
         if update is not None
     ]
+    completion_summary = _completion_summary(
+        durable_record_count=len(durable_records),
+        record_update_count=len(record_updates),
+    )
     episode = _prepare_episode(
         payload.get("episode") or {},
         completion_summary,
-        has_durable_records=bool(durable_records or record_updates),
+        archive_when_durable_signal=bool(durable_records or record_updates),
     )
 
     observations: list[dict[str, Any]] = []
@@ -291,8 +294,6 @@ def persist_synthesized_extraction(
 
     episode_count = count_current_session_episodes(ctx)
     done = episode_count == 1
-    if not completion_summary:
-        completion_summary = "Trace ingestion completed."
     final_observation = PersistenceObservation(
         action="final_result",
         ok=done,
@@ -349,6 +350,20 @@ def _duplicate_episode_observation(
     )
 
 
+def _completion_summary(*, durable_record_count: int, record_update_count: int) -> str:
+    """Return a deterministic ingestion summary from write intent counts."""
+    parts: list[str] = []
+    if durable_record_count:
+        label = "record" if durable_record_count == 1 else "records"
+        parts.append(f"{durable_record_count} durable {label} created")
+    if record_update_count:
+        label = "record" if record_update_count == 1 else "records"
+        parts.append(f"{record_update_count} {label} updated")
+    if not parts:
+        return "Trace ingestion completed: no reusable durable context found."
+    return "Trace ingestion completed: " + ", ".join(parts) + "."
+
+
 def observation_to_state(observation: PersistenceObservation) -> dict[str, Any]:
     """Convert a persistence observation into serializable graph state."""
     return {
@@ -365,13 +380,15 @@ def _prepare_episode(
     value: Any,
     completion_summary: str,
     *,
-    has_durable_records: bool,
+    archive_when_durable_signal: bool = False,
 ) -> dict[str, Any]:
     """Normalize a synthesized episode draft into a canonical record payload."""
     episode = _model_payload(value)
     status = _status_value(episode.get("status"))
-    if not status:
-        status = "active" if has_durable_records else "archived"
+    if archive_when_durable_signal:
+        status = "archived"
+    elif not status:
+        status = "archived"
     if not str(episode.get("title") or "").strip():
         episode["title"] = _episode_title_from_payload(episode, completion_summary)
     if not str(episode.get("user_intent") or "").strip():
@@ -411,6 +428,8 @@ def _prepare_episode(
             episode.get("outcomes"),
             MAX_EPISODE_OUTCOMES_CHARS,
         ),
+        "source_event_refs": _reference_list(episode.get("source_event_refs")),
+        "evidence_refs": _reference_list(episode.get("evidence_refs")),
     }
 
 
@@ -448,6 +467,8 @@ def _prepare_durable_record(value: Any) -> dict[str, Any] | None:
         "user_intent": None,
         "what_happened": None,
         "outcomes": None,
+        "source_event_refs": _reference_list(record.get("source_event_refs")),
+        "evidence_refs": _reference_list(record.get("evidence_refs")),
     }
 
 
@@ -476,6 +497,20 @@ def _model_payload(value: Any) -> dict[str, Any]:
     return _coerce_value(
         json.loads(json.dumps(value, default=lambda item: item.__dict__))
     )
+
+
+def _reference_list(value: Any) -> list[str] | None:
+    """Return a compact list of source/evidence references."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else None
+    if isinstance(value, (list, tuple, set)):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        return items or None
+    text = str(value).strip()
+    return [text] if text else None
 
 
 def _coerce_value(value: Any) -> Any:

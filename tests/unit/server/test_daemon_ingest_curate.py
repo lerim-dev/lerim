@@ -6,6 +6,7 @@ from pathlib import Path
 
 from lerim.server import daemon
 from lerim.server.daemon import log_activity
+from lerim.server.cli import _daemon_last_run_after_attempt
 from lerim.config.settings import reload_config
 from lerim.sessions import catalog
 from tests.helpers import make_config, write_test_config
@@ -60,7 +61,10 @@ def test_ingest_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> None:
     assert summary.extracted_sessions == 1
     assert summary.run_ids == ["run-ingest-1"]
     assert latest is not None
-    assert latest["details"]["events"][0]["mlflow_client_request_id"] == "ingest-test-runtime"
+    assert (
+        latest["details"]["events"][0]["mlflow_client_request_id"]
+        == "ingest-test-runtime"
+    )
     assert latest["details"]["events"][0]["run_folder"].endswith("ingest-test-runtime")
     assert "vectors_updated" not in latest["details"]
     assert "vectors_error" not in latest["details"]
@@ -297,47 +301,76 @@ def test_config_has_separate_interval_fields(tmp_path) -> None:
 
 
 def test_daemon_ingest_runs_more_often_than_curate(tmp_path) -> None:
-	"""With ingest interval < curate interval, ingest fires more often.
+    """With ingest interval < curate interval, ingest fires more often.
 
-	The daemon loop (now inside ``_cmd_serve``) uses
-	``ingest_interval_minutes`` and ``curate_interval_minutes`` from
-	Config to schedule independent timers.  This test simulates the
-	same scheduling logic to verify the invariant without needing the
-	full serve infrastructure.
-	"""
-	import dataclasses
+    The daemon loop (now inside ``_cmd_serve``) uses
+    ``ingest_interval_minutes`` and ``curate_interval_minutes`` from
+    Config to schedule independent timers.  This test simulates the
+    same scheduling logic to verify the invariant without needing the
+    full serve infrastructure.
+    """
+    import dataclasses
 
-	cfg = dataclasses.replace(
-		make_config(tmp_path),
-		ingest_interval_minutes=1,
-		curate_interval_minutes=5,
-	)
+    cfg = dataclasses.replace(
+        make_config(tmp_path),
+        ingest_interval_minutes=1,
+        curate_interval_minutes=5,
+    )
 
-	ingest_interval = cfg.ingest_interval_minutes * 60
-	curate_interval = cfg.curate_interval_minutes * 60
+    ingest_interval = cfg.ingest_interval_minutes * 60
+    curate_interval = cfg.curate_interval_minutes * 60
 
-	# Simulate 20 minutes of wall-clock time
-	clock = 0.0
-	last_ingest = -ingest_interval  # fires immediately on first tick
-	last_curate = -curate_interval  # fires immediately on first tick
-	ingest_count = 0
-	curate_count = 0
+    # Simulate 20 minutes of wall-clock time
+    clock = 0.0
+    last_ingest = -ingest_interval  # fires immediately on first tick
+    last_curate = -curate_interval  # fires immediately on first tick
+    ingest_count = 0
+    curate_count = 0
 
-	while clock < 20 * 60:
-		if clock - last_ingest >= ingest_interval:
-			ingest_count += 1
-			last_ingest = clock
-		if clock - last_curate >= curate_interval:
-			curate_count += 1
-			last_curate = clock
-		# Advance by the smallest next-due interval
-		next_ingest = last_ingest + ingest_interval
-		next_curate = last_curate + curate_interval
-		clock = max(clock + 1, min(next_ingest, next_curate))
+    while clock < 20 * 60:
+        if clock - last_ingest >= ingest_interval:
+            ingest_count += 1
+            last_ingest = clock
+        if clock - last_curate >= curate_interval:
+            curate_count += 1
+            last_curate = clock
+        # Advance by the smallest next-due interval
+        next_ingest = last_ingest + ingest_interval
+        next_curate = last_curate + curate_interval
+        clock = max(clock + 1, min(next_ingest, next_curate))
 
-	assert ingest_count > curate_count, (
-		f"ingest ({ingest_count}) should run more often than curate ({curate_count})"
-	)
+    assert ingest_count > curate_count, (
+        f"ingest ({ingest_count}) should run more often than curate ({curate_count})"
+    )
+
+
+def test_daemon_retries_lock_busy_before_full_interval() -> None:
+    """A lock collision should retry soon instead of hiding graph work for minutes."""
+    finished_at = 1_000.0
+    interval_seconds = 3_000.0
+
+    last_run = _daemon_last_run_after_attempt(
+        finished_at=finished_at,
+        interval_seconds=interval_seconds,
+        exit_code=daemon.EXIT_LOCK_BUSY,
+    )
+
+    next_due = last_run + interval_seconds
+    assert next_due == finished_at + 10.0
+
+
+def test_daemon_success_keeps_full_interval() -> None:
+    """Successful scheduled work should keep the configured daemon cadence."""
+    finished_at = 1_000.0
+    interval_seconds = 3_000.0
+
+    last_run = _daemon_last_run_after_attempt(
+        finished_at=finished_at,
+        interval_seconds=interval_seconds,
+        exit_code=daemon.EXIT_OK,
+    )
+
+    assert last_run + interval_seconds == finished_at + interval_seconds
 
 
 def test_log_activity_appends_line(tmp_path, monkeypatch) -> None:
