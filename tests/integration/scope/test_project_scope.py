@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from lerim.agents.trace_ingestion import TraceIngestionEvent, TraceIngestionResult, TraceIngestionRunDetails
+from lerim.agents.trace_ingestion import (
+    TraceIngestionEvent,
+    TraceIngestionResult,
+    TraceIngestionRunDetails,
+)
 from lerim.agents.context_curator import run_context_curator
 from lerim.server.api import api_query
 from lerim.server.runtime import LerimRuntime
@@ -18,7 +22,7 @@ from tests.integration.scope.helpers import (
 )
 
 
-def _extract_details(kwargs, *, summary: str) -> TraceIngestionRunDetails:
+def _trace_ingestion_details(kwargs, *, summary: str) -> TraceIngestionRunDetails:
     """Build graph-style ingestion details for runtime test doubles."""
     return TraceIngestionRunDetails(
         events=[
@@ -153,7 +157,9 @@ def _seed_curate_scope_records(env: ScopeCaseEnv) -> str:
 @pytest.mark.agent
 def test_answer_project_scope_ignores_other_projects(live_config, tmp_path) -> None:
     """Project-scoped answer should not pull facts from a different project."""
-    expectation = load_scope_expectation("answer_project_scope_ignores_other_projects")["expected"]
+    expectation = load_scope_expectation("answer_project_scope_ignores_other_projects")[
+        "expected"
+    ]
     env = build_scope_case_env(live_config=live_config, tmp_path=tmp_path)
     _seed_answer_scope_records(env)
     runtime = LerimRuntime(default_cwd=str(env.project_a_root), config=env.config)
@@ -177,7 +183,9 @@ def test_answer_project_scope_ignores_other_projects(live_config, tmp_path) -> N
 @pytest.mark.agent
 def test_answer_all_scope_can_combine_projects(live_config, tmp_path) -> None:
     """All-project answer should be able to synthesize across both projects."""
-    expectation = load_scope_expectation("answer_all_scope_can_combine_projects")["expected"]
+    expectation = load_scope_expectation("answer_all_scope_can_combine_projects")[
+        "expected"
+    ]
     env = build_scope_case_env(live_config=live_config, tmp_path=tmp_path)
     _seed_answer_scope_records(env)
     runtime = LerimRuntime(default_cwd=str(env.project_a_root), config=env.config)
@@ -199,7 +207,9 @@ def test_answer_all_scope_can_combine_projects(live_config, tmp_path) -> None:
 @pytest.mark.agent
 def test_curate_project_a_only_mutates_project_a(live_config, tmp_path) -> None:
     """Curate should only write versions inside the selected project scope."""
-    expectation = load_scope_expectation("curate_project_a_only_mutates_project_a")["expected"]
+    expectation = load_scope_expectation("curate_project_a_only_mutates_project_a")[
+        "expected"
+    ]
     env = build_scope_case_env(live_config=live_config, tmp_path=tmp_path)
     beta_record_id = _seed_curate_scope_records(env)
     seed_scope_session(
@@ -241,7 +251,9 @@ def test_curate_project_a_only_mutates_project_a(live_config, tmp_path) -> None:
     )
 
     assert result.completion_summary.strip()
-    assert changed_rows, "curate should make at least one scoped repair in project alpha"
+    assert changed_rows, (
+        "curate should make at least one scoped repair in project alpha"
+    )
     assert all(row["project_id"] == env.identity_a.project_id for row in changed_rows)
     assert beta_record is not None
     assert len(beta_record["versions"]) == 1
@@ -257,7 +269,9 @@ def test_query_scope_matches_answer_scope_rules(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Deterministic query scope selection should mirror answer scope selection."""
-    expectation = load_scope_expectation("query_scope_matches_answer_scope_rules")["expected"]
+    expectation = load_scope_expectation("query_scope_matches_answer_scope_rules")[
+        "expected"
+    ]
     env = build_scope_case_env(live_config=live_config, tmp_path=tmp_path)
     _seed_answer_scope_records(env)
     monkeypatch.setattr("lerim.server.api.get_config", lambda: env.config)
@@ -291,59 +305,67 @@ def test_query_scope_matches_answer_scope_rules(
 
 
 @pytest.mark.integration
-def test_scope_extract_project_a_does_not_touch_project_b(
+def test_trace_ingestion_project_a_does_not_touch_project_b(
     live_config,
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Project-scoped ingest/extract should mutate only the selected project."""
-    expectation = load_scope_expectation("scope_extract_project_a_does_not_touch_project_b")["expected"]
+    """Project-scoped trace ingestion should mutate only the selected project."""
+    expectation = load_scope_expectation(
+        "trace_ingestion_project_a_does_not_touch_project_b"
+    )["expected"]
     env = build_scope_case_env(live_config=live_config, tmp_path=tmp_path)
     seed_scope_session(
         env,
         project_identity=env.identity_b,
-        session_id="extract-beta-seed",
+        session_id="trace-ingestion-beta-seed",
         repo_root=env.project_b_root,
     )
     beta_record_id = seed_scope_record(
         env,
         project_identity=env.identity_b,
-        session_id="extract-beta-seed",
+        session_id="trace-ingestion-beta-seed",
         kind="fact",
         title="Beta control fact",
         body="Beta control fact should remain untouched.",
     )["record_id"]
     runtime = LerimRuntime(default_cwd=str(env.project_a_root), config=env.config)
-    trace_path = env.project_a_root / "scope-extract-trace.jsonl"
-    trace_path.write_text('{"role":"user","content":"scope extract test"}\n', encoding="utf-8")
+    trace_path = env.project_a_root / "scope-trace-ingestion-trace.jsonl"
+    trace_path.write_text(
+        '{"role":"user","content":"scope trace ingestion test"}\n', encoding="utf-8"
+    )
 
     def _fake_run_trace_ingestion(**kwargs):
         env.store.create_record(
             project_id=kwargs["project_identity"].project_id,
             session_id=kwargs["session_id"],
             kind="fact",
-            title="Alpha extracted fact",
-            body="Alpha extracted fact should land only in alpha.",
-            change_reason="scope_extract_create",
+            title="Alpha trace-ingested fact",
+            body="Alpha trace-ingested fact should land only in alpha.",
+            change_reason="scope_trace_ingestion_create",
         )
         env.store.create_record(
             project_id=kwargs["project_identity"].project_id,
             session_id=kwargs["session_id"],
             kind="decision",
-            title="Alpha extracted decision",
-            body="Alpha extracted decision about scoped ingest behavior.",
+            title="Alpha trace-ingested decision",
+            body="Alpha trace-ingested decision about scoped ingest behavior.",
             decision="Keep scoped ingest writes inside alpha only.",
-            why="Project-scoped extraction should not mutate beta records.",
-            change_reason="scope_extract_update",
+            why="Project-scoped trace ingestion should not mutate beta records.",
+            change_reason="scope_trace_ingestion_update",
         )
         return (
-            TraceIngestionResult(completion_summary="scope extract complete"),
-            _extract_details(kwargs, summary="scope extract complete"),
+            TraceIngestionResult(completion_summary="scope trace ingestion complete"),
+            _trace_ingestion_details(kwargs, summary="scope trace ingestion complete"),
         )
 
-    monkeypatch.setattr("lerim.server.runtime.run_trace_ingestion", _fake_run_trace_ingestion)
+    monkeypatch.setattr(
+        "lerim.server.runtime.run_trace_ingestion", _fake_run_trace_ingestion
+    )
 
-    result = runtime.ingest(trace_path=trace_path, session_id="extract-alpha-run")
+    result = runtime.ingest(
+        trace_path=trace_path, session_id="trace-ingestion-alpha-run"
+    )
     assert result["project_id"] == env.identity_a.project_id
 
     with env.store.connect() as conn:
@@ -357,7 +379,7 @@ def test_scope_extract_project_a_does_not_touch_project_b(
                 WHERE rv.changed_by_session_id = ?
                 ORDER BY rv.changed_at ASC, rv.version_no ASC
                 """,
-                ("extract-alpha-run",),
+                ("trace-ingestion-alpha-run",),
             ).fetchall()
         ]
 
@@ -367,7 +389,11 @@ def test_scope_extract_project_a_does_not_touch_project_b(
         include_versions=True,
     )
 
-    assert len(changed_rows) == expectation["records_created_in_alpha"] + expectation["records_updated_in_alpha"]
+    assert (
+        len(changed_rows)
+        == expectation["records_created_in_alpha"]
+        + expectation["records_updated_in_alpha"]
+    )
     assert all(row["project_id"] == env.identity_a.project_id for row in changed_rows)
     assert beta_record is not None
     assert len(beta_record["versions"]) == expectation["beta_version_count"]

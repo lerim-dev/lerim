@@ -12,6 +12,9 @@ from lerim.config.tracing import configure_tracing
 def _make_config(*, enabled: bool):
 	cfg = MagicMock()
 	cfg.mlflow_enabled = enabled
+	cfg.mlflow_tracking_uri = ""
+	cfg.mlflow_experiment = "lerim"
+	cfg.mlflow_required = False
 	cfg.global_data_dir = MagicMock()
 	cfg.global_data_dir.__truediv__.return_value = "/tmp/mlflow.db"
 	return cfg
@@ -35,12 +38,57 @@ def test_tracing_enabled_sets_experiment_and_autologs(
 
 @patch("lerim.config.tracing.mlflow")
 @patch("lerim.config.tracing._ensure_mlflow_schema")
+def test_tracing_uses_configured_tracking_uri_without_sqlite_schema(
+	mock_ensure_schema: MagicMock, mock_mlflow: MagicMock
+) -> None:
+	cfg = _make_config(enabled=True)
+	cfg.mlflow_tracking_uri = "http://127.0.0.1:5050"
+	cfg.mlflow_experiment = "lerim"
+
+	configure_tracing(cfg)
+
+	mock_ensure_schema.assert_not_called()
+	mock_mlflow.set_tracking_uri.assert_called_once_with("http://127.0.0.1:5050")
+	mock_mlflow.set_experiment.assert_called_once_with("lerim")
+
+
+@patch("lerim.config.tracing.mlflow")
+def test_tracing_required_raises_without_tracking_uri(mock_mlflow: MagicMock) -> None:
+	cfg = _make_config(enabled=True)
+	cfg.mlflow_required = True
+
+	try:
+		configure_tracing(cfg)
+	except RuntimeError as exc:
+		assert "MLFLOW_TRACKING_URI is not configured" in str(exc)
+	else:
+		raise AssertionError("Expected required MLflow to raise without tracking URI")
+	mock_mlflow.set_experiment.assert_not_called()
+
+
+@patch("lerim.config.tracing.mlflow")
+@patch("lerim.config.tracing._ensure_mlflow_schema")
 def test_tracing_init_error_disables_tracing_without_crashing(
 	mock_ensure_schema: MagicMock, mock_mlflow: MagicMock
 ) -> None:
 	mock_ensure_schema.side_effect = RuntimeError("schema mismatch")
 	configure_tracing(_make_config(enabled=True))
 	mock_mlflow.set_experiment.assert_not_called()
+
+
+@patch("lerim.config.tracing.mlflow")
+def test_tracing_required_raises_when_remote_unavailable(mock_mlflow: MagicMock) -> None:
+	cfg = _make_config(enabled=True)
+	cfg.mlflow_tracking_uri = "http://127.0.0.1:5050"
+	cfg.mlflow_required = True
+	mock_mlflow.set_experiment.side_effect = RuntimeError("connection refused")
+
+	try:
+		configure_tracing(cfg)
+	except RuntimeError as exc:
+		assert "MLflow is required but unavailable" in str(exc)
+	else:
+		raise AssertionError("Expected required MLflow to raise when unavailable")
 
 
 @patch("lerim.config.tracing.mlflow")

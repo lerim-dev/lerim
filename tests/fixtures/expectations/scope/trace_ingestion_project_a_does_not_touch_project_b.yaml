@@ -1,4 +1,4 @@
-case: scope_extract_project_a_does_not_touch_project_b
+case: trace_ingestion_project_a_does_not_touch_project_b
 expected:
   changed_project: "alpha"
   untouched_project: "beta"

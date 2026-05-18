@@ -13,7 +13,7 @@ Groups:
   lint          Run ruff linter
   unit          Unit tests (no LLM calls)
   smoke         Smoke tests (quick LLM round-trips)
-  integration   Integration tests (real LLM pipelines)
+  integration   Integration tests (runtime/API/DB/provider boundaries)
   e2e           End-to-end tests (full ingest/curate flows)
   quality       Compile check + pip check
   all           Run all groups in order

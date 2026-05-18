@@ -28,7 +28,9 @@ def load_runtime_expectation(case_name: str) -> dict[str, object]:
     return load_yaml_expectation(RUNTIME_EXPECTATIONS_DIR, case_name)
 
 
-def build_runtime_case_context(*, monkeypatch, live_config, live_repo_root: Path) -> RuntimeCaseContext:
+def build_runtime_case_context(
+    *, monkeypatch, live_config, live_repo_root: Path
+) -> RuntimeCaseContext:
     """Build runtime + store context with provider validation disabled for tests."""
     monkeypatch.setattr(
         "lerim.config.providers.validate_provider_for_role",
@@ -53,8 +55,18 @@ def write_ingest_trace(repo_root: Path, *, name: str = "runtime-trace.jsonl") ->
     trace_path.write_text(
         "\n".join(
             [
-                json.dumps({"role": "user", "content": "Investigate the runtime issue and keep only durable context."}),
-                json.dumps({"role": "assistant", "content": "I will inspect, patch, and write the durable result."}),
+                json.dumps(
+                    {
+                        "role": "user",
+                        "content": "Investigate the runtime issue and keep only durable context.",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "role": "assistant",
+                        "content": "I will inspect, patch, and write the durable result.",
+                    }
+                ),
             ]
         )
         + "\n",

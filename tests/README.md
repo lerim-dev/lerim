@@ -4,12 +4,18 @@
 
 The maintained test surface is DB-first.
 
+`integration` and `llm` are separate markers:
+
+- `integration` means the test crosses a real runtime/API/database/filesystem boundary and is gated by `LERIM_INTEGRATION`.
+- `llm` means the test makes a real provider/model call.
+- `agent` is only a filter for live agent-flow tests; folder names still carry the domain ownership.
+
 What we test:
 
 - unit tests for config, adapters, store, CLI, API, daemon, runtime, and generated Context Brief
 - smoke tests for quick real-LLM trace-ingestion sanity
 - integration tests for real trace ingestion, context curation, context answering, context briefs, cloud ingest state, and multi-project scope flows
-- integration tests for runtime orchestration behavior like workspace artifact layout, answer debug trace ordering, and mutation count reporting
+- integration tests for runtime/API/DB boundaries like workspace artifact layout, queue processing, custom project ingestion, memory reset, and cloud sync state
 - e2e surface tests for CLI/API rendering and deterministic query behavior
 - deterministic query tests preserve the difference between unscoped queries and empty project selections
 
@@ -27,34 +33,66 @@ uv run tests/run_tests.sh smoke
 uv run tests/run_tests.sh integration
 ```
 
+## Debug Entry Points
+
+Each LLM-backed agent folder can include `test_debug_entrypoint.py`: one focused
+case that is easy to run from VS Code with F5. These files live beside the
+behavior tests for the same agent. Use the matching `Agent: ... Real LLM` launch
+configuration, or open one of these files and run `Pytest: Current File`.
+
+These tests run real BAML/LangGraph code, real SQLite writes, and real provider
+calls, but they isolate state in temporary directories. They do not read or
+mutate your normal `~/.lerim/context.sqlite3`. Provider/API-key settings must be
+available through environment variables or an explicit `LERIM_CONFIG`; pytest
+does not load the project `.env` for these runs.
+
+```bash
+LERIM_INTEGRATION=1 uv run pytest tests/integration/trace_ingestion/test_debug_entrypoint.py -q -s
+LERIM_INTEGRATION=1 uv run pytest tests/integration/context_curator/test_debug_entrypoint.py -q -s
+LERIM_INTEGRATION=1 uv run pytest tests/integration/context_graph/test_debug_entrypoint.py -q -s
+LERIM_INTEGRATION=1 uv run pytest tests/integration/context_answerer/test_debug_entrypoint.py -q -s
+LERIM_INTEGRATION=1 uv run pytest tests/integration/context_brief/test_debug_entrypoint.py -q -s
+```
+
+For Context Brief runs, inspect the generated `agent_trace.json` in the test's
+temporary workspace path printed by pytest/debugger state if you need to follow
+the runtime graph after the F5 session pauses.
+
 ## Case-based integration suites
 
-The new live integration suites are behavior-first.
+Integration suites are behavior-first. Some use real providers and are also
+marked `llm`; others exercise runtime, API, queue, cloud, or database boundaries
+with deterministic test doubles for the provider call.
 
 Shape:
 
 - one folder per cluster under `tests/integration/`, for example:
   - `tests/integration/trace_ingestion/`
   - `tests/integration/context_curator/`
-  - `tests/integration/answer/`
-  - `tests/integration/agents/`
+  - `tests/integration/context_graph/`
+  - `tests/integration/context_answerer/`
+  - `tests/integration/context_brief/`
   - `tests/integration/runtime/`
+  - `tests/integration/project_ingestion/`
   - `tests/integration/scope/`
   - `tests/integration/cloud/`
   - `tests/integration/queue/`
+  - `tests/integration/memory/`
 - one or more behavior-grouped test files inside each cluster folder
+- behavior files use names like `test_retrieval.py`, `test_project_scope.py`, or `test_orchestration.py`; do not add generic `test_cases.py` files
 - one `helpers.py` per cluster when that cluster needs a runner/harness
-- one expectation YAML per case under `tests/fixtures/expectations/<cluster>/`
+- one expectation YAML per case under `tests/fixtures/expectations/<contract>/`; most contracts match cluster names, while context-answerer cases use the established `answer` contract folder
 - trace fixtures under `tests/fixtures/traces/trace_ingestion/` only when the agent truly works from a trace
 
 Design rule:
 
 - `trace_ingestion` cases are trace-driven
-- `answer` and `context_curator` cases are mostly seeded-state-driven
+- `context_answerer` and `context_curator` cases are mostly seeded-state-driven
+- `test_debug_entrypoint.py` keeps one real-LLM debugger entry point in each LLM-backed agent folder
 - scope/runtime/cloud/queue clusters use the smallest real setup that exercises that behavior
 - runtime cases cover generated Context Brief artifact layout, current-copy behavior, skip behavior, and empty-state generation
 
-Some extract pressure cases generate a long trace dynamically instead of checking in a giant fixture. That is intentional. Use a generated trace when the test is about context pressure or pruning, not about exact transcript wording.
+Some trace-ingestion pressure cases generate a long trace dynamically instead of checking in a giant fixture. That is intentional. Use a generated trace when the test is about context pressure or pruning, not about exact transcript wording.
 
 ## Stability rule
 
@@ -91,7 +129,7 @@ Rules:
 - daemon tests cover transient session-job heartbeat write failures
 - session catalog tests cover process-local active-job leases that avoid false stale queue health during transient heartbeat write failures
 - daemon ingest tests cover one-at-a-time job claiming to avoid false stale-running queue state
-- config tests cover provider capability validation, provider-specific model normalization, strict config parsing, and SDK log-noise filters
+- config tests cover provider capability validation, provider-specific model normalization, strict config parsing, MLflow env/tracing configuration, and SDK log-noise filters
 - Context Brief tests cover cwd project resolution, freshness counts, markdown citations, CLI local reads, and artifact writes without live LLM calls
 
 ## Testing rules
@@ -100,7 +138,7 @@ Rules:
 2. **Database operations get direct store tests.** Never test `ContextStore` methods only through agent tools.
 3. **Validation paths are first-class.** Every `ValueError`, graph-visible model retry, and guard condition needs a dedicated test.
 4. **One test file per source module.** Never split one module's tests across multiple files.
-5. **Three layers: unit (no LLM/network, temp DB), integration (real LLM, real DB, `@pytest.mark.llm`), smoke (quick sanity).**
+5. **Three layers: unit (no LLM/network, temp DB), integration (real runtime/API/DB/provider boundary, gated by `LERIM_INTEGRATION`, with `@pytest.mark.llm` when a test calls a provider), smoke (quick real-LLM sanity).**
 6. **Mock external deps, not internal modules.** Use temp SQLite DBs instead of mocking ContextStore.
 7. **When adding a new tool:** test happy path, validation failure, guard failure, edge case.
 8. **When adding a store method:** test happy path, each validation error, idempotency, canonical side effects, and best-effort derived index refresh (FTS/embedding).

@@ -148,7 +148,11 @@ def run_curate_case(
         include_archived=True,
     )["rows"]
     records = [
-        store.fetch_record(str(row["record_id"]), project_ids=[identity.project_id], include_versions=True)
+        store.fetch_record(
+            str(row["record_id"]),
+            project_ids=[identity.project_id],
+            include_versions=True,
+        )
         for row in rows
     ]
     with store.connect() as conn:
@@ -164,9 +168,13 @@ def run_curate_case(
                 (curate_session_id,),
             ).fetchall()
         ]
-    changed_record_ids = list(dict.fromkeys(str(row["record_id"]) for row in version_rows))
+    changed_record_ids = list(
+        dict.fromkeys(str(row["record_id"]) for row in version_rows)
+    )
     changed_records = [
-        store.fetch_record(record_id, project_ids=[identity.project_id], include_versions=True)
+        store.fetch_record(
+            record_id, project_ids=[identity.project_id], include_versions=True
+        )
         for record_id in changed_record_ids
     ]
 

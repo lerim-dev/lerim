@@ -31,9 +31,7 @@ IGNORED_FTS_SHADOW_TABLES = {
     "records_fts_docsize",
     "records_fts_idx",
 }
-IGNORED_VEC_SHADOW_PREFIXES = (
-    "record_embeddings_",
-)
+IGNORED_VEC_SHADOW_PREFIXES = ("record_embeddings_",)
 FORBIDDEN_CONTEXT_TABLES = {
     "evidence",
     "record_links",
@@ -42,7 +40,7 @@ FORBIDDEN_CONTEXT_TABLES = {
 FRAMEWORK_TOOL_NAMES = {
     "final_result",
 }
-EXTRACT_EVENT_NAMES = frozenset(
+TRACE_INGESTION_EVENT_NAMES = frozenset(
     {
         "resolve_scope",
         "read_window",
@@ -105,7 +103,9 @@ def require_live_agent_config() -> Config:
     provider = config.agent_role.provider.strip().lower()
     api_key_attr = _API_KEY_ATTRS.get(provider)
     if api_key_attr and not getattr(config, api_key_attr):
-        pytest.skip(f"live agent provider {provider!r} is selected but {api_key_attr} is missing")
+        pytest.skip(
+            f"live agent provider {provider!r} is selected but {api_key_attr} is missing"
+        )
     return config
 
 
@@ -144,8 +144,8 @@ def dump_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [dict(message) for message in messages]
 
 
-def extract_tool_names(payload: list[dict[str, Any]]) -> list[str]:
-    """Extract event/function/action names from a serialized trace payload."""
+def serialized_event_names(payload: list[dict[str, Any]]) -> list[str]:
+    """Return event/function/action names from a serialized trace payload."""
     names: list[str] = []
 
     def walk(value: Any) -> None:
@@ -173,7 +173,7 @@ def extract_tool_names(payload: list[dict[str, Any]]) -> list[str]:
 def read_agent_trace_tool_names(agent_trace_path: Path) -> list[str]:
     """Read one on-disk agent trace and return its event/function/action names."""
     payload = json.loads(agent_trace_path.read_text(encoding="utf-8"))
-    return extract_tool_names(payload)
+    return serialized_event_names(payload)
 
 
 def connect_context_db(db_path: Path) -> sqlite3.Connection:
@@ -208,9 +208,15 @@ def audit_context_db(db_path: Path) -> dict[str, Any]:
     with connect_context_db(db_path) as conn:
         metrics = {
             "user_tables": user_tables,
-            "record_count": int(conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]),
-            "version_count": int(conn.execute("SELECT COUNT(*) FROM record_versions").fetchone()[0]),
-            "embedding_count": int(conn.execute("SELECT COUNT(*) FROM record_embeddings").fetchone()[0]),
+            "record_count": int(
+                conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+            ),
+            "version_count": int(
+                conn.execute("SELECT COUNT(*) FROM record_versions").fetchone()[0]
+            ),
+            "embedding_count": int(
+                conn.execute("SELECT COUNT(*) FROM record_embeddings").fetchone()[0]
+            ),
             "embedding_models": sorted(
                 str(row[0])
                 for row in conn.execute(
@@ -218,12 +224,18 @@ def audit_context_db(db_path: Path) -> dict[str, Any]:
                 ).fetchall()
                 if row[0]
             ),
-            "fts_count": int(conn.execute("SELECT COUNT(*) FROM records_fts").fetchone()[0]),
+            "fts_count": int(
+                conn.execute("SELECT COUNT(*) FROM records_fts").fetchone()[0]
+            ),
             "blank_titles": int(
-                conn.execute("SELECT COUNT(*) FROM records WHERE length(trim(title)) = 0").fetchone()[0]
+                conn.execute(
+                    "SELECT COUNT(*) FROM records WHERE length(trim(title)) = 0"
+                ).fetchone()[0]
             ),
             "blank_bodies": int(
-                conn.execute("SELECT COUNT(*) FROM records WHERE length(trim(body)) = 0").fetchone()[0]
+                conn.execute(
+                    "SELECT COUNT(*) FROM records WHERE length(trim(body)) = 0"
+                ).fetchone()[0]
             ),
             "bad_decisions": _missing_required_field_count(
                 conn,

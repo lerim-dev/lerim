@@ -7,11 +7,9 @@ import pytest
 import lerim.context.spec as spec
 from lerim.context.spec import (
     ALLOWED_CHANGE_KINDS,
-    ALLOWED_FINDING_LEVELS,
     ALLOWED_KINDS,
     ALLOWED_STATUSES,
     DURABLE_RECORD_KINDS,
-    FindingLevel,
     MAX_RECORD_TITLE_CHARS,
     RecordChangeKind,
     RecordKind,
@@ -56,7 +54,6 @@ def test_allowed_value_tuples_follow_domain_enums():
     assert ALLOWED_KINDS == tuple(kind.value for kind in RecordKind)
     assert ALLOWED_STATUSES == tuple(status.value for status in RecordStatus)
     assert ALLOWED_CHANGE_KINDS == tuple(kind.value for kind in RecordChangeKind)
-    assert ALLOWED_FINDING_LEVELS == tuple(level.value for level in FindingLevel)
 
 
 def test_format_durable_record_kinds_is_human_readable():

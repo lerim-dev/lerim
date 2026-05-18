@@ -1,13 +1,16 @@
-"""Targeted real-LLM integration cases for the extract agent."""
+"""Targeted real-LLM integration cases for the trace-ingestion agent."""
 
 from __future__ import annotations
 
 import pytest
 
-from tests.integration.trace_ingestion.helpers import load_extract_expectation, run_extract_case
+from tests.integration.trace_ingestion.helpers import (
+    load_trace_ingestion_expectation,
+    run_trace_ingestion_case,
+)
 from tests.live_helpers import (
-    EXTRACT_EVENT_NAMES,
     FRAMEWORK_TOOL_NAMES,
+    TRACE_INGESTION_EVENT_NAMES,
     assert_clean_context_schema,
     assert_quality_metrics,
     audit_context_db,
@@ -18,13 +21,15 @@ from tests.live_helpers import (
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_updates_existing_record_instead_of_creating_duplicate(
+def test_trace_ingestion_updates_existing_record_instead_of_creating_duplicate(
     live_config,
     live_repo_root,
 ) -> None:
-    """Extract should revise one seeded durable record instead of duplicating it."""
-    expectation = load_extract_expectation("duplicate_existing_record")["expected"]
-    outcome = run_extract_case(
+    """Trace ingestion should revise one seeded durable record instead of duplicating it."""
+    expectation = load_trace_ingestion_expectation("duplicate_existing_record")[
+        "expected"
+    ]
+    outcome = run_trace_ingestion_case(
         case_name="duplicate_existing_record",
         live_config=live_config,
         live_repo_root=live_repo_root,
@@ -44,7 +49,7 @@ def test_extract_updates_existing_record_instead_of_creating_duplicate(
     )
 
     tool_names = outcome.tool_names
-    assert set(tool_names).issubset(EXTRACT_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
+    assert set(tool_names).issubset(TRACE_INGESTION_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -67,9 +72,15 @@ def test_extract_updates_existing_record_instead_of_creating_duplicate(
     assert len(changed_durable_records) == expectation["changed_record_count"]
     assert len(changed_decisions) == expectation["changed_decision_count"]
 
-    updated_decision = next(record for record in changed_decisions if record["record_id"] == "rec_existing_storage_split")
+    updated_decision = next(
+        record
+        for record in changed_decisions
+        if record["record_id"] == "rec_existing_storage_split"
+    )
     assert len(updated_decision["versions"]) >= 2
-    latest_change_kinds = {str(version["change_kind"]) for version in updated_decision["versions"][:2]}
+    latest_change_kinds = {
+        str(version["change_kind"]) for version in updated_decision["versions"][:2]
+    }
     assert "update" in latest_change_kinds
 
     updated_text = " ".join(
@@ -78,7 +89,10 @@ def test_extract_updates_existing_record_instead_of_creating_duplicate(
     ).lower()
     for token in expectation["updated_decision_text_must_include_all"]:
         assert token in updated_text
-    assert any(token in updated_text for token in expectation["updated_decision_text_must_include_any"])
+    assert any(
+        token in updated_text
+        for token in expectation["updated_decision_text_must_include_any"]
+    )
     for token in expectation["updated_decision_text_must_not_include"]:
         assert token not in updated_text
 
@@ -101,23 +115,26 @@ def test_extract_updates_existing_record_instead_of_creating_duplicate(
     assert_clean_context_schema(live_config.context_db_path)
     assert_quality_metrics(audit_context_db(live_config.context_db_path))
 
+
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_routine_operational_trace_creates_no_durable_record(
+def test_trace_ingestion_routine_operational_trace_creates_no_durable_record(
     live_config,
     live_repo_root,
 ) -> None:
     """Routine operational cleanup should produce only an archived episode."""
-    expectation = load_extract_expectation("routine_operational_no_durable_record")["expected"]
-    outcome = run_extract_case(
+    expectation = load_trace_ingestion_expectation(
+        "routine_operational_no_durable_record"
+    )["expected"]
+    outcome = run_trace_ingestion_case(
         case_name="routine_operational_no_durable_record",
         live_config=live_config,
         live_repo_root=live_repo_root,
     )
 
     tool_names = outcome.tool_names
-    assert set(tool_names).issubset(EXTRACT_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
+    assert set(tool_names).issubset(TRACE_INGESTION_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -141,7 +158,9 @@ def test_extract_routine_operational_trace_creates_no_durable_record(
         str(episode.get(field) or "")
         for field in ("title", "body", "user_intent", "what_happened", "outcomes")
     ).lower()
-    assert any(token in episode_text for token in expectation["episode_text_must_include_any"])
+    assert any(
+        token in episode_text for token in expectation["episode_text_must_include_any"]
+    )
 
     with connect_context_db(live_config.context_db_path) as conn:
         record_ids = [str(row["record_id"]) for row in rows]
@@ -171,23 +190,26 @@ def test_extract_routine_operational_trace_creates_no_durable_record(
     assert_clean_context_schema(live_config.context_db_path)
     assert_quality_metrics(audit_context_db(live_config.context_db_path))
 
+
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_borderline_non_durable_incident_abstains_from_record(
+def test_trace_ingestion_borderline_non_durable_incident_abstains_from_record(
     live_config,
     live_repo_root,
 ) -> None:
     """A one-off branch artifact should stay in the episode instead of becoming a durable record."""
-    expectation = load_extract_expectation("borderline_non_durable_incident")["expected"]
-    outcome = run_extract_case(
+    expectation = load_trace_ingestion_expectation("borderline_non_durable_incident")[
+        "expected"
+    ]
+    outcome = run_trace_ingestion_case(
         case_name="borderline_non_durable_incident",
         live_config=live_config,
         live_repo_root=live_repo_root,
     )
 
     tool_names = outcome.tool_names
-    assert set(tool_names).issubset(EXTRACT_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
+    assert set(tool_names).issubset(TRACE_INGESTION_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -210,7 +232,9 @@ def test_extract_borderline_non_durable_incident_abstains_from_record(
         str(episode.get(field) or "")
         for field in ("title", "body", "user_intent", "what_happened", "outcomes")
     ).lower()
-    assert any(token in episode_text for token in expectation["episode_text_must_include_any"])
+    assert any(
+        token in episode_text for token in expectation["episode_text_must_include_any"]
+    )
 
     with connect_context_db(live_config.context_db_path) as conn:
         record_ids = [str(row["record_id"]) for row in rows]
@@ -244,13 +268,15 @@ def test_extract_borderline_non_durable_incident_abstains_from_record(
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_similar_but_new_decision_creates_new_record(
+def test_trace_ingestion_similar_but_new_decision_creates_new_record(
     live_config,
     live_repo_root,
 ) -> None:
     """A semantically nearby existing record should not block creation of a genuinely new decision."""
-    expectation = load_extract_expectation("similar_but_new_decision")["expected"]
-    outcome = run_extract_case(
+    expectation = load_trace_ingestion_expectation("similar_but_new_decision")[
+        "expected"
+    ]
+    outcome = run_trace_ingestion_case(
         case_name="similar_but_new_decision",
         live_config=live_config,
         live_repo_root=live_repo_root,
@@ -267,7 +293,7 @@ def test_extract_similar_but_new_decision_creates_new_record(
     )
 
     tool_names = outcome.tool_names
-    assert set(tool_names).issubset(EXTRACT_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
+    assert set(tool_names).issubset(TRACE_INGESTION_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
@@ -282,13 +308,19 @@ def test_extract_similar_but_new_decision_creates_new_record(
     assert len(created_durable_rows) == expectation["created_durable_count"]
     assert len(decision_rows) == expectation["decision_count"]
 
-    decision = next(record for record in outcome.records if record["kind"] == "decision")
+    decision = next(
+        record for record in outcome.records if record["kind"] == "decision"
+    )
     decision_text = " ".join(
-        str(decision.get(field) or "") for field in ("title", "body", "decision", "why", "consequences")
+        str(decision.get(field) or "")
+        for field in ("title", "body", "decision", "why", "consequences")
     ).lower()
     for token in expectation["decision_text_must_include_all"]:
         assert token in decision_text
-    assert any(token in decision_text for token in expectation["decision_text_must_include_any"])
+    assert any(
+        token in decision_text
+        for token in expectation["decision_text_must_include_any"]
+    )
     for token in expectation["decision_text_must_not_include"]:
         assert token not in decision_text
 
@@ -296,13 +328,15 @@ def test_extract_similar_but_new_decision_creates_new_record(
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_ambiguous_search_hits_update_only_true_target(
+def test_trace_ingestion_ambiguous_search_hits_update_only_true_target(
     live_config,
     live_repo_root,
 ) -> None:
-    """When multiple nearby records exist, extract should update only the true target."""
-    expectation = load_extract_expectation("ambiguous_search_hits_correct_update_target")["expected"]
-    outcome = run_extract_case(
+    """When multiple nearby records exist, trace ingestion should update only the true target."""
+    expectation = load_trace_ingestion_expectation(
+        "ambiguous_search_hits_correct_update_target"
+    )["expected"]
+    outcome = run_trace_ingestion_case(
         case_name="ambiguous_search_hits_correct_update_target",
         live_config=live_config,
         live_repo_root=live_repo_root,
@@ -327,22 +361,32 @@ def test_extract_ambiguous_search_hits_update_only_true_target(
     )
 
     tool_names = outcome.tool_names
-    assert set(tool_names).issubset(EXTRACT_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
+    assert set(tool_names).issubset(TRACE_INGESTION_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
         assert tool_name not in tool_names
 
     assert len(outcome.rows) == expectation["episode_count"]
-    changed_durable_records = [record for record in outcome.changed_records if record["kind"] != "episode"]
+    changed_durable_records = [
+        record for record in outcome.changed_records if record["kind"] != "episode"
+    ]
     assert len(changed_durable_records) == expectation["changed_record_count"]
-    updated = next(record for record in changed_durable_records if record["record_id"] == expectation["updated_record_id"])
+    updated = next(
+        record
+        for record in changed_durable_records
+        if record["record_id"] == expectation["updated_record_id"]
+    )
     updated_text = " ".join(
-        str(updated.get(field) or "") for field in ("title", "body", "decision", "why", "consequences")
+        str(updated.get(field) or "")
+        for field in ("title", "body", "decision", "why", "consequences")
     ).lower()
     for token in expectation["updated_decision_text_must_include_all"]:
         assert token in updated_text
-    assert any(token in updated_text for token in expectation["updated_decision_text_must_include_any"])
+    assert any(
+        token in updated_text
+        for token in expectation["updated_decision_text_must_include_any"]
+    )
     for token in expectation["updated_decision_text_must_not_include"]:
         assert token not in updated_text
     changed_record_ids = {str(row["record_id"]) for row in outcome.changed_version_rows}

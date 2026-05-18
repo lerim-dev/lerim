@@ -22,19 +22,18 @@ class FakeBamlRuntime:
             "durable_findings": [
                 {
                     "theme": "general source filtering",
-                    "level": "decision",
+                    "kind": "decision",
                     "note": "Extraction should filter durable signal before synthesis.",
                 },
                 {
                     "theme": "local command output",
-                    "level": "fact",
+                    "kind": "fact",
                     "note": "A one-run command produced a local output.",
                 },
             ],
             "implementation_findings": [
                 {
                     "theme": "command output",
-                    "level": "implementation",
                     "note": "The command output is local evidence only.",
                 }
             ],
@@ -48,14 +47,14 @@ class FakeBamlRuntime:
             "kept_durable_findings": [
                 {
                     "theme": "general trace filtering",
-                    "level": "decision",
+                    "kind": "decision",
                     "note": "Extraction should filter durable signal before synthesis.",
                 }
             ],
             "rejected_findings": [
                 {
                     "theme": "local command output",
-                    "level": "fact",
+                    "kind": "fact",
                     "note": "A one-run command produced a local output.",
                 }
             ],
@@ -132,7 +131,6 @@ class NoDurableFakeBamlRuntime:
             "implementation_findings": [
                 {
                     "theme": "temporary browser debugging",
-                    "level": "implementation",
                     "note": "Browser console selector names were temporary source-local evidence.",
                 }
             ],

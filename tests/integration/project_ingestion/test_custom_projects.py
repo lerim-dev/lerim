@@ -1,4 +1,4 @@
-"""Integration tests for custom trace-folder ingestion."""
+"""Integration tests for custom project-folder ingestion."""
 
 from __future__ import annotations
 

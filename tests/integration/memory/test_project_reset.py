@@ -15,13 +15,17 @@ from tests.helpers import write_test_config
 
 
 class _FakeEmbeddingProvider:
+    """Deterministic embedding provider for memory reset integration coverage."""
+
     embedding_dims = 384
     model_id = "memory-reset-test"
 
     def embed_document(self, _text: str) -> list[float]:
+        """Return a stable document embedding."""
         return [0.1] * self.embedding_dims
 
     def embed_query(self, _text: str) -> list[float]:
+        """Return a stable query embedding."""
         return [0.1] * self.embedding_dims
 
 
@@ -30,9 +34,12 @@ def test_project_memory_reset_dry_run_then_reset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Project memory reset should preview and then delete project-scoped state."""
     provider = _FakeEmbeddingProvider()
     monkeypatch.setattr("lerim.context.store.get_embedding_provider", lambda: provider)
-    monkeypatch.setattr("lerim.context.embedding.get_embedding_provider", lambda: provider)
+    monkeypatch.setattr(
+        "lerim.context.embedding.get_embedding_provider", lambda: provider
+    )
 
     repo_root = tmp_path / "memory-project"
     repo_root.mkdir()

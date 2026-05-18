@@ -191,12 +191,21 @@ def test_compose_enables_mlflow_when_configured(tmp_path, monkeypatch) -> None:
     """Docker server should inherit persistent MLflow tracing config."""
     from dataclasses import replace
 
-    cfg = replace(make_config(tmp_path), mlflow_enabled=True)
+    cfg = replace(
+        make_config(tmp_path),
+        mlflow_enabled=True,
+        mlflow_tracking_uri="http://127.0.0.1:5050",
+        mlflow_experiment="lerim",
+        mlflow_required=True,
+    )
     monkeypatch.setattr("lerim.server.docker_runtime.reload_config", lambda: cfg)
 
     content = _generate_compose_yml(build_local=False)
 
     assert "LERIM_MLFLOW=true" in content
+    assert "MLFLOW_TRACKING_URI=http://host.docker.internal:5050" in content
+    assert "LERIM_MLFLOW_EXPERIMENT=lerim" in content
+    assert "LERIM_MLFLOW_REQUIRED=1" in content
 
 
 def test_compose_mounts_global_state_agents_and_project_roots(

@@ -1,13 +1,16 @@
-"""Targeted real-LLM integration cases for the extract agent."""
+"""Targeted real-LLM integration cases for the trace-ingestion agent."""
 
 from __future__ import annotations
 
 import pytest
 
-from tests.integration.trace_ingestion.helpers import load_extract_expectation, run_extract_case
+from tests.integration.trace_ingestion.helpers import (
+    load_trace_ingestion_expectation,
+    run_trace_ingestion_case,
+)
 from tests.live_helpers import (
-    EXTRACT_EVENT_NAMES,
     FRAMEWORK_TOOL_NAMES,
+    TRACE_INGESTION_EVENT_NAMES,
     assert_clean_context_schema,
     assert_quality_metrics,
     audit_context_db,
@@ -18,29 +21,28 @@ from tests.live_helpers import (
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_long_trace_requires_note_before_writing(
+def test_trace_ingestion_long_trace_requires_note_before_writing(
     live_config,
     live_repo_root,
 ) -> None:
     """Long traces should trigger multi-read extraction with scan_window compression."""
-    expectation = load_extract_expectation("long_trace_requires_note")["expected"]
-    outcome = run_extract_case(
+    expectation = load_trace_ingestion_expectation("long_trace_requires_note")[
+        "expected"
+    ]
+    outcome = run_trace_ingestion_case(
         case_name="long_trace_requires_note",
         live_config=live_config,
         live_repo_root=live_repo_root,
     )
 
     tool_names = outcome.tool_names
-    assert set(tool_names).issubset(EXTRACT_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
+    assert set(tool_names).issubset(TRACE_INGESTION_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
         assert tool_name not in tool_names
     assert tool_names.count("read_window") >= expectation["read_window_count_at_least"]
-    assert (
-        tool_names.count("scan_window")
-        >= expectation["scan_window_count_at_least"]
-    )
+    assert tool_names.count("scan_window") >= expectation["scan_window_count_at_least"]
 
     rows = outcome.rows
     episode_rows = [row for row in rows if row["kind"] == "episode"]
@@ -100,29 +102,28 @@ def test_extract_long_trace_requires_note_before_writing(
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_very_long_trace_uses_windows(
+def test_trace_ingestion_very_long_trace_uses_windows(
     live_config,
     live_repo_root,
 ) -> None:
     """Very long traces should stay compressed while preserving the extracted signal."""
-    expectation = load_extract_expectation("very_long_trace_uses_windows")["expected"]
-    outcome = run_extract_case(
+    expectation = load_trace_ingestion_expectation("very_long_trace_uses_windows")[
+        "expected"
+    ]
+    outcome = run_trace_ingestion_case(
         case_name="very_long_trace_uses_windows",
         live_config=live_config,
         live_repo_root=live_repo_root,
     )
 
     tool_names = outcome.tool_names
-    assert set(tool_names).issubset(EXTRACT_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
+    assert set(tool_names).issubset(TRACE_INGESTION_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     for tool_name in expectation["must_not_use_tools"]:
         assert tool_name not in tool_names
     assert tool_names.count("read_window") >= expectation["read_window_count_at_least"]
-    assert (
-        tool_names.count("scan_window")
-        >= expectation["scan_window_count_at_least"]
-    )
+    assert tool_names.count("scan_window") >= expectation["scan_window_count_at_least"]
     rows = outcome.rows
     episode_rows = [row for row in rows if row["kind"] == "episode"]
     durable_rows = [row for row in rows if row["kind"] != "episode"]
@@ -161,22 +162,22 @@ def test_extract_very_long_trace_uses_windows(
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
-def test_extract_late_disambiguation_at_end_of_trace(
+def test_trace_ingestion_late_disambiguation_at_end_of_trace(
     live_config,
     live_repo_root,
 ) -> None:
     """The final clarifying chunk should win over earlier lures in a long trace."""
-    expectation = load_extract_expectation("late_disambiguation_at_end_of_trace")[
-        "expected"
-    ]
-    outcome = run_extract_case(
+    expectation = load_trace_ingestion_expectation(
+        "late_disambiguation_at_end_of_trace"
+    )["expected"]
+    outcome = run_trace_ingestion_case(
         case_name="late_disambiguation_at_end_of_trace",
         live_config=live_config,
         live_repo_root=live_repo_root,
     )
 
     tool_names = outcome.tool_names
-    assert set(tool_names).issubset(EXTRACT_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
+    assert set(tool_names).issubset(TRACE_INGESTION_EVENT_NAMES | FRAMEWORK_TOOL_NAMES)
     for tool_name in expectation["must_use_tools"]:
         assert tool_name in tool_names
     assert tool_names.count("read_window") >= expectation["min_read_window_calls"]

@@ -1,36 +1,41 @@
-"""Targeted real-LLM integration cases for the context answerer."""
+"""Real-LLM retrieval behavior for the context answerer."""
 
 from __future__ import annotations
 
 import pytest
 
-from tests.integration.answer.helpers import (
+from tests.integration.context_answerer.helpers import (
     load_answer_expectation,
     run_answer_case,
 )
 
 
-pytestmark = [pytest.mark.integration, pytest.mark.llm, pytest.mark.agent]
-
-
 def _normalize(text: str) -> str:
+    """Normalize answer text for behavior-level assertions."""
     return text.lower().replace("\u2013", "-").replace("\u2014", "-")
 
 
 def _event_functions(messages: list[dict[str, object]]) -> list[str]:
+    """Return the serialized BAML function names in event order."""
     return [str(item.get("function") or "") for item in messages]
 
 
 def _retrieval_actions(messages: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Return retrieval action events from a serialized answer trace."""
     return [item for item in messages if item.get("kind") == "retrieval"]
 
 
+@pytest.mark.integration
+@pytest.mark.llm
+@pytest.mark.agent
 def test_context_answerer_count_question_uses_exact_count(
     live_config,
     live_repo_root,
 ) -> None:
     """Count questions should use the count retrieval action."""
-    expectation = load_answer_expectation("count_question_uses_count_context")["expected"]
+    expectation = load_answer_expectation("count_question_uses_count_context")[
+        "expected"
+    ]
     outcome = run_answer_case(
         case_name="count_question_uses_count_context",
         live_config=live_config,
@@ -57,12 +62,17 @@ def test_context_answerer_count_question_uses_exact_count(
     assert any(token in answer for token in expectation["answer_must_include_any"])
 
 
+@pytest.mark.integration
+@pytest.mark.llm
+@pytest.mark.agent
 def test_context_answerer_semantic_topic_uses_search_or_list_support(
     live_config,
     live_repo_root,
 ) -> None:
     """Topic questions should retrieve supporting records before answering."""
-    expectation = load_answer_expectation("semantic_topic_uses_search_then_fetch")["expected"]
+    expectation = load_answer_expectation("semantic_topic_uses_search_then_fetch")[
+        "expected"
+    ]
     outcome = run_answer_case(
         case_name="semantic_topic_uses_search_then_fetch",
         live_config=live_config,
@@ -82,12 +92,17 @@ def test_context_answerer_semantic_topic_uses_search_or_list_support(
         assert token in answer
 
 
+@pytest.mark.integration
+@pytest.mark.llm
+@pytest.mark.agent
 def test_context_answerer_can_compare_current_and_historical_records(
     live_config,
     live_repo_root,
 ) -> None:
     """Current-vs-historical questions should surface both seeded truths."""
-    expectation = load_answer_expectation("current_truth_vs_historical_truth")["expected"]
+    expectation = load_answer_expectation("current_truth_vs_historical_truth")[
+        "expected"
+    ]
     outcome = run_answer_case(
         case_name="current_truth_vs_historical_truth",
         live_config=live_config,

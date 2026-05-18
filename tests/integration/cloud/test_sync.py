@@ -67,7 +67,9 @@ def stable_git_roots(monkeypatch: pytest.MonkeyPatch) -> None:
     def _identity_git_root(repo_path: Path | None = None) -> Path:
         return Path(repo_path or ".").expanduser().resolve()
 
-    monkeypatch.setattr("lerim.context.project_identity.git_root_for", _identity_git_root)
+    monkeypatch.setattr(
+        "lerim.context.project_identity.git_root_for", _identity_git_root
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -143,7 +145,9 @@ def test_pull_records_updates_existing_record_and_appends_version(
     stable_git_roots: None,
 ) -> None:
     """Pull should update an existing record in place and add a new version row."""
-    expectation = load_cloud_expectation("pull_records_updates_existing_record_and_appends_version")["expected"]
+    expectation = load_cloud_expectation(
+        "pull_records_updates_existing_record_and_appends_version"
+    )["expected"]
     project_root = tmp_path / "projects" / "alpha"
     project_root.mkdir(parents=True)
     config = _make_cloud_config(tmp_path, projects={"alpha": project_root})
@@ -188,7 +192,9 @@ def test_pull_records_updates_existing_record_and_appends_version(
     assert pulled == 1
     assert state.records_pulled_at == "2026-04-20T11:00:00Z"
 
-    record = store.fetch_record("cloud-existing", project_ids=[project_id], include_versions=True)
+    record = store.fetch_record(
+        "cloud-existing", project_ids=[project_id], include_versions=True
+    )
     assert record is not None
     assert record["kind"] == expectation["kind"]
     assert record["title"] == "Prefer typed sync contracts"
@@ -210,12 +216,16 @@ def test_pull_records_preserves_named_project_scope(
     stable_git_roots: None,
 ) -> None:
     """Pull should write the record into the project named by the cloud payload."""
-    expectation = load_cloud_expectation("pull_records_preserves_named_project_scope")["expected"]
+    expectation = load_cloud_expectation("pull_records_preserves_named_project_scope")[
+        "expected"
+    ]
     alpha_root = tmp_path / "projects" / "alpha"
     beta_root = tmp_path / "projects" / "beta"
     alpha_root.mkdir(parents=True)
     beta_root.mkdir(parents=True)
-    config = _make_cloud_config(tmp_path, projects={"alpha": alpha_root, "beta": beta_root})
+    config = _make_cloud_config(
+        tmp_path, projects={"alpha": alpha_root, "beta": beta_root}
+    )
     state = _ShipperState()
 
     monkeypatch.setattr(
@@ -347,7 +357,9 @@ def test_pull_records_does_not_overwrite_newer_local_record(
 
     assert pulled == 0
     assert state.records_pulled_at == "2026-04-20T12:30:00Z"
-    record = store.fetch_record("newer-local", project_ids=[project_id], include_versions=True)
+    record = store.fetch_record(
+        "newer-local", project_ids=[project_id], include_versions=True
+    )
     assert record is not None
     assert record["title"] == "Local title"
     assert record["body"] == "Local body"
@@ -363,7 +375,9 @@ def test_ship_and_pull_round_trip_core_fields(
     stable_git_roots: None,
 ) -> None:
     """Ship and pull should preserve one record's core sync fields across DBs."""
-    expectation = load_cloud_expectation("ship_and_pull_round_trip_core_fields")["expected"]
+    expectation = load_cloud_expectation("ship_and_pull_round_trip_core_fields")[
+        "expected"
+    ]
     source_root = tmp_path / "source"
     source_root.mkdir()
     project_root = tmp_path / "projects" / "alpha"
@@ -391,7 +405,9 @@ def test_ship_and_pull_round_trip_core_fields(
 
     captured_payloads: list[dict[str, Any]] = []
 
-    async def _capture_post(endpoint: str, path: str, token: str, payload: dict[str, Any]) -> bool:
+    async def _capture_post(
+        endpoint: str, path: str, token: str, payload: dict[str, Any]
+    ) -> bool:
         captured_payloads.append(payload)
         return True
 
@@ -421,7 +437,9 @@ def test_ship_and_pull_round_trip_core_fields(
         lambda *args, **kwargs: {"records": [cloud_record]},
     )
 
-    pulled = asyncio.run(_pull_records("https://api.test", "tok-test", target_config, target_state))
+    pulled = asyncio.run(
+        _pull_records("https://api.test", "tok-test", target_config, target_state)
+    )
 
     assert pulled == 1
     assert target_state.records_pulled_at == cloud_record["cloud_edited_at"]

@@ -11,13 +11,13 @@ from lerim.agents.context_answerer import ContextAnswerResult, run_context_answe
 from lerim.context import ContextStore, resolve_project_identity
 from tests.conftest import ANSWER_EXPECTATIONS_DIR
 from tests.integration.common_helpers import (
-    extract_tool_calls,
-    extract_tool_returns,
     load_yaml_expectation,
+    retrieval_tool_calls,
+    retrieval_tool_returns,
     retry_on_overload,
     seed_session,
 )
-from tests.live_helpers import dump_messages, extract_tool_names
+from tests.live_helpers import dump_messages, serialized_event_names
 
 
 @dataclass
@@ -144,9 +144,18 @@ def run_answer_case(
             title=str(seed["title"]),
             body=str(seed["body"]),
             status=str(seed.get("status") or "active"),
-            valid_from=_resolve_relative_timestamp(str(seed.get("valid_from") or "").strip()) or None,
-            valid_until=_resolve_relative_timestamp(str(seed.get("valid_until") or "").strip()) or None,
-            superseded_by_record_id=str(seed.get("superseded_by_record_id") or "").strip() or None,
+            valid_from=_resolve_relative_timestamp(
+                str(seed.get("valid_from") or "").strip()
+            )
+            or None,
+            valid_until=_resolve_relative_timestamp(
+                str(seed.get("valid_until") or "").strip()
+            )
+            or None,
+            superseded_by_record_id=str(
+                seed.get("superseded_by_record_id") or ""
+            ).strip()
+            or None,
             decision=str(seed.get("decision") or "").strip() or None,
             why=str(seed.get("why") or "").strip() or None,
             alternatives=str(seed.get("alternatives") or "").strip() or None,
@@ -160,8 +169,14 @@ def run_answer_case(
         _apply_seed_timestamps(
             store,
             record_id=str(record["record_id"]),
-            created_at=_resolve_relative_timestamp(str(seed.get("created_at") or "").strip()) or None,
-            updated_at=_resolve_relative_timestamp(str(seed.get("updated_at") or "").strip()) or None,
+            created_at=_resolve_relative_timestamp(
+                str(seed.get("created_at") or "").strip()
+            )
+            or None,
+            updated_at=_resolve_relative_timestamp(
+                str(seed.get("updated_at") or "").strip()
+            )
+            or None,
         )
 
     result, messages = retry_on_overload(
@@ -179,9 +194,9 @@ def run_answer_case(
     payload = dump_messages(messages)
     return AnswerCaseOutcome(
         result=result,
-        tool_names=extract_tool_names(payload),
-        tool_calls=extract_tool_calls(payload),
-        tool_returns=extract_tool_returns(payload),
+        tool_names=serialized_event_names(payload),
+        tool_calls=retrieval_tool_calls(payload),
+        tool_returns=retrieval_tool_returns(payload),
         messages=payload,
         project_id=identity.project_id,
     )

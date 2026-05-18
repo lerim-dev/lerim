@@ -303,6 +303,35 @@ def test_mlflow_env_override_takes_precedence_over_config(tmp_path, monkeypatch)
     assert cfg.mlflow_enabled is False
 
 
+def test_mlflow_settings_are_loaded_from_user_env_file(tmp_path, monkeypatch):
+    """MLflow tracking settings can live in the active Lerim .env file."""
+    explicit = tmp_path / "observability.toml"
+    explicit.write_text(
+        f'[data]\ndir = "{tmp_path}"\n\n'
+        "[observability]\nmlflow_enabled = false\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text(
+        "LERIM_MLFLOW=true\n"
+        "MLFLOW_TRACKING_URI=http://127.0.0.1:5050\n"
+        "LERIM_MLFLOW_EXPERIMENT=lerim\n"
+        "LERIM_MLFLOW_REQUIRED=1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LERIM_CONFIG", str(explicit))
+    monkeypatch.delenv("LERIM_MLFLOW", raising=False)
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.delenv("LERIM_MLFLOW_EXPERIMENT", raising=False)
+    monkeypatch.delenv("LERIM_MLFLOW_REQUIRED", raising=False)
+
+    cfg = reload_config()
+
+    assert cfg.mlflow_enabled is True
+    assert cfg.mlflow_tracking_uri == "http://127.0.0.1:5050"
+    assert cfg.mlflow_experiment == "lerim"
+    assert cfg.mlflow_required is True
+
+
 def test_observability_mlflow_enabled_rejects_quoted_boolean(tmp_path, monkeypatch):
     """Observability booleans must be native TOML booleans."""
     explicit = tmp_path / "bad_observability.toml"

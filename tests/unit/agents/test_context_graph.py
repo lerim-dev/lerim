@@ -10,10 +10,8 @@ import pytest
 
 from lerim.agents.context_graph import run_context_graph
 from lerim.agents.context_graph.clustering import build_cluster_assignments
-from lerim.agents.context_graph.graph import (
-    _call_baml_with_retries,
-    _validate_links_for_records,
-)
+from lerim.agents.baml_helpers import call_baml_with_retries
+from lerim.agents.context_graph.graph import _validate_links_for_records
 from lerim.agents.context_graph.inventory import (
     build_semantic_candidates,
     load_graph_records,
@@ -225,12 +223,14 @@ class TestContextGraphValidation:
 
     def test_retry_exhaustion_raises_instead_of_persisting_invalid_output(self):
         with pytest.raises(RuntimeError, match="invalid link_records output"):
-            _call_baml_with_retries(
+            call_baml_with_retries(
                 lambda _instruction: {"links": []},
                 stage="link_records",
                 progress=False,
+                progress_label="context-graph",
                 run_instruction="test",
                 validate_result=lambda _result: "bad graph output",
+                validation_retry_target="complete corrected link plan",
             )
 
 

@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from tests.integration.context_curator.helpers import load_curate_expectation, run_curate_case
+from tests.integration.context_curator.helpers import (
+    load_curate_expectation,
+    run_curate_case,
+)
 from tests.live_helpers import (
     FRAMEWORK_TOOL_NAMES,
     CONTEXT_CURATOR_EVENT_NAMES,
@@ -24,7 +27,9 @@ def test_curate_duplicate_durable_records_superseded(
     live_repo_root,
 ) -> None:
     """Curate should keep the stronger duplicate active and supersede the weaker one."""
-    expectation = load_curate_expectation("duplicate_durable_records_superseded")["expected"]
+    expectation = load_curate_expectation("duplicate_durable_records_superseded")[
+        "expected"
+    ]
     outcome = run_curate_case(
         case_name="duplicate_durable_records_superseded",
         live_config=live_config,
@@ -65,9 +70,19 @@ def test_curate_duplicate_durable_records_superseded(
         assert event_name not in event_names
 
     assert outcome.result.completion_summary.strip()
-    weak = next(record for record in outcome.records if record["record_id"] == "rec_storage_boundary_weak")
-    strong = next(record for record in outcome.records if record["record_id"] == "rec_storage_boundary_strong")
-    changed_record_ids = {str(record["record_id"]) for record in outcome.changed_records}
+    weak = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_storage_boundary_weak"
+    )
+    strong = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_storage_boundary_strong"
+    )
+    changed_record_ids = {
+        str(record["record_id"]) for record in outcome.changed_records
+    }
     assert weak["record_id"] in changed_record_ids
     assert weak["superseded_by_record_id"] == strong["record_id"]
     assert weak["valid_until"]
@@ -88,6 +103,7 @@ def test_curate_duplicate_durable_records_superseded(
     assert_clean_context_schema(live_config.context_db_path)
     assert_quality_metrics(audit_context_db(live_config.context_db_path))
 
+
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
@@ -96,7 +112,9 @@ def test_curate_fresh_duplicate_should_not_be_archived(
     live_repo_root,
 ) -> None:
     """Curate should supersede fresh duplicate durable records instead of archiving them."""
-    expectation = load_curate_expectation("fresh_duplicate_should_not_be_archived")["expected"]
+    expectation = load_curate_expectation("fresh_duplicate_should_not_be_archived")[
+        "expected"
+    ]
     outcome = run_curate_case(
         case_name="fresh_duplicate_should_not_be_archived",
         live_config=live_config,
@@ -133,13 +151,23 @@ def test_curate_fresh_duplicate_should_not_be_archived(
     for event_name in expectation["must_not_use_events"]:
         assert event_name not in event_names
 
-    weak = next(record for record in outcome.records if record["record_id"] == "rec_retry_budget_weak")
-    strong = next(record for record in outcome.records if record["record_id"] == "rec_retry_budget_strong")
+    weak = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_retry_budget_weak"
+    )
+    strong = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_retry_budget_strong"
+    )
     assert outcome.result.completion_summary.strip()
     assert weak["superseded_by_record_id"] == strong["record_id"]
     assert weak["status"] == "active"
     assert strong["status"] == "active"
-    latest_change_kinds = {str(version["change_kind"]) for version in weak["versions"][:2]}
+    latest_change_kinds = {
+        str(version["change_kind"]) for version in weak["versions"][:2]
+    }
     assert "supersede" in latest_change_kinds
 
     with connect_context_db(live_config.context_db_path) as conn:
@@ -154,6 +182,7 @@ def test_curate_fresh_duplicate_should_not_be_archived(
     assert_clean_context_schema(live_config.context_db_path)
     assert_quality_metrics(audit_context_db(live_config.context_db_path))
 
+
 @pytest.mark.integration
 @pytest.mark.llm
 @pytest.mark.agent
@@ -162,7 +191,9 @@ def test_curate_obsolete_fact_replaced_by_new_truth(
     live_repo_root,
 ) -> None:
     """Curate should supersede older truth when a newer active fact replaces it."""
-    expectation = load_curate_expectation("obsolete_fact_replaced_by_new_truth")["expected"]
+    expectation = load_curate_expectation("obsolete_fact_replaced_by_new_truth")[
+        "expected"
+    ]
     outcome = run_curate_case(
         case_name="obsolete_fact_replaced_by_new_truth",
         live_config=live_config,
@@ -197,12 +228,22 @@ def test_curate_obsolete_fact_replaced_by_new_truth(
     for event_name in expectation["must_not_use_events"]:
         assert event_name not in event_names
 
-    old_record = next(record for record in outcome.records if record["record_id"] == "rec_old_lease_truth")
-    new_record = next(record for record in outcome.records if record["record_id"] == "rec_new_lease_truth")
+    old_record = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_old_lease_truth"
+    )
+    new_record = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_new_lease_truth"
+    )
     assert outcome.result.completion_summary.strip()
     assert old_record["superseded_by_record_id"] == new_record["record_id"]
     assert old_record["valid_until"]
-    latest_change_kinds = {str(version["change_kind"]) for version in old_record["versions"][:2]}
+    latest_change_kinds = {
+        str(version["change_kind"]) for version in old_record["versions"][:2]
+    }
     assert "supersede" in latest_change_kinds
 
     with connect_context_db(live_config.context_db_path) as conn:
@@ -226,7 +267,9 @@ def test_curate_old_capability_gap_superseded_by_newer_support(
     live_repo_root,
 ) -> None:
     """Curate should retire older missing-capability claims when newer records contradict them."""
-    expectation = load_curate_expectation("old_capability_gap_superseded_by_newer_support")["expected"]
+    expectation = load_curate_expectation(
+        "old_capability_gap_superseded_by_newer_support"
+    )["expected"]
     outcome = run_curate_case(
         case_name="old_capability_gap_superseded_by_newer_support",
         live_config=live_config,
@@ -262,18 +305,29 @@ def test_curate_old_capability_gap_superseded_by_newer_support(
     for event_name in expectation["must_not_use_events"]:
         assert event_name not in event_names
 
-    old_record = next(record for record in outcome.records if record["record_id"] == "rec_old_replay_gap")
-    new_record = next(record for record in outcome.records if record["record_id"] == "rec_new_replay_support")
+    old_record = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_old_replay_gap"
+    )
+    new_record = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_new_replay_support"
+    )
     assert outcome.result.completion_summary.strip()
     assert old_record["superseded_by_record_id"] == new_record["record_id"]
     assert old_record["valid_until"]
     assert new_record["status"] == "active"
     assert new_record["superseded_by_record_id"] in (None, "")
 
-    latest_change_kinds = {str(version["change_kind"]) for version in old_record["versions"][:2]}
+    latest_change_kinds = {
+        str(version["change_kind"]) for version in old_record["versions"][:2]
+    }
     assert "supersede" in latest_change_kinds
     assert_clean_context_schema(live_config.context_db_path)
     assert_quality_metrics(audit_context_db(live_config.context_db_path))
+
 
 @pytest.mark.integration
 @pytest.mark.llm
@@ -283,7 +337,9 @@ def test_curate_no_change_when_store_is_already_clean(
     live_repo_root,
 ) -> None:
     """Curate should leave a healthy active store unchanged."""
-    expectation = load_curate_expectation("no_change_when_store_is_already_clean")["expected"]
+    expectation = load_curate_expectation("no_change_when_store_is_already_clean")[
+        "expected"
+    ]
     outcome = run_curate_case(
         case_name="no_change_when_store_is_already_clean",
         live_config=live_config,
@@ -329,8 +385,14 @@ def test_curate_no_change_when_store_is_already_clean(
     for title in expectation["preserved_titles"]:
         assert title in titles
 
-    clean_decision = next(record for record in outcome.records if record["record_id"] == "rec_clean_decision")
-    clean_fact = next(record for record in outcome.records if record["record_id"] == "rec_clean_fact")
+    clean_decision = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_clean_decision"
+    )
+    clean_fact = next(
+        record for record in outcome.records if record["record_id"] == "rec_clean_fact"
+    )
     assert clean_decision["status"] == "active"
     assert clean_fact["status"] == "active"
     assert clean_decision["superseded_by_record_id"] in (None, "")
@@ -350,7 +412,9 @@ def test_curate_healthy_fresh_record_is_true_noop(
     live_repo_root,
 ) -> None:
     """A fresh healthy durable record should not be rewritten just for style."""
-    expectation = load_curate_expectation("healthy_fresh_record_is_true_noop")["expected"]
+    expectation = load_curate_expectation("healthy_fresh_record_is_true_noop")[
+        "expected"
+    ]
     outcome = run_curate_case(
         case_name="healthy_fresh_record_is_true_noop",
         live_config=live_config,
@@ -373,7 +437,11 @@ def test_curate_healthy_fresh_record_is_true_noop(
         assert event_name in event_names
     for event_name in expectation["must_not_use_events"]:
         assert event_name not in event_names
-    record = next(record for record in outcome.records if record["record_id"] == "rec_fresh_clean_decision")
+    record = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_fresh_clean_decision"
+    )
     assert outcome.changed_version_rows == []
     assert len(record["versions"]) == 1
     assert record["status"] == "active"
@@ -388,7 +456,9 @@ def test_curate_obsolete_low_value_durable_archived(
     live_repo_root,
 ) -> None:
     """An old low-value non-episode durable row can be archived directly."""
-    expectation = load_curate_expectation("obsolete_low_value_durable_archived")["expected"]
+    expectation = load_curate_expectation("obsolete_low_value_durable_archived")[
+        "expected"
+    ]
     outcome = run_curate_case(
         case_name="obsolete_low_value_durable_archived",
         live_config=live_config,
@@ -418,7 +488,11 @@ def test_curate_obsolete_low_value_durable_archived(
     for event_name in expectation["must_not_use_events"]:
         assert event_name not in event_names
 
-    record = next(record for record in outcome.records if record["record_id"] == "rec_obsolete_reference")
+    record = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_obsolete_reference"
+    )
     assert record["status"] == "archived"
     assert record["valid_until"]
     assert record["superseded_by_record_id"] in (None, "")
@@ -432,7 +506,9 @@ def test_curate_semantic_duplicate_found_via_search(
     live_repo_root,
 ) -> None:
     """Hidden semantic duplicates should be found via search and resolved with supersede."""
-    expectation = load_curate_expectation("semantic_duplicate_found_via_search")["expected"]
+    expectation = load_curate_expectation("semantic_duplicate_found_via_search")[
+        "expected"
+    ]
     seed_records = [
         {
             "record_id": "rec_retry_handoff_weak",
@@ -508,13 +584,19 @@ def test_curate_semantic_duplicate_found_via_search(
     for event_name in expectation["must_not_use_events"]:
         assert event_name not in event_names
 
-    weak = next(record for record in outcome.records if record["record_id"] == "rec_retry_handoff_weak")
+    weak = next(
+        record
+        for record in outcome.records
+        if record["record_id"] == "rec_retry_handoff_weak"
+    )
     assert weak["superseded_by_record_id"] == "rec_retry_budget_strong"
     changed_record_ids = {str(row["record_id"]) for row in outcome.changed_version_rows}
     assert changed_record_ids == {"rec_retry_handoff_weak"}
 
     change_sets: dict[str, set[str]] = {}
     for row in outcome.changed_version_rows:
-        change_sets.setdefault(str(row["record_id"]), set()).add(str(row["change_kind"]))
+        change_sets.setdefault(str(row["record_id"]), set()).add(
+            str(row["change_kind"])
+        )
     for change_set in change_sets.values():
         assert "archive" not in change_set

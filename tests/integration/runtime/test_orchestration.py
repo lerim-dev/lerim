@@ -7,8 +7,14 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from lerim.agents.context_answerer import ContextAnswerResult
-from lerim.agents.trace_ingestion import TraceIngestionEvent, TraceIngestionResult, TraceIngestionRunDetails
+from lerim.agents.trace_ingestion import (
+    TraceIngestionEvent,
+    TraceIngestionResult,
+    TraceIngestionRunDetails,
+)
 from lerim.agents.context_curator import ContextCuratorEvent, ContextCuratorRunDetails
 from lerim.context import ContextStore
 from lerim.context_brief import (
@@ -26,6 +32,9 @@ from tests.integration.runtime.helpers import (
 )
 
 
+pytestmark = pytest.mark.integration
+
+
 def _assert_run_folder_layout(
     run_folder: Path, workspace_root: Path, operation: str
 ) -> None:
@@ -41,8 +50,8 @@ def _assert_run_folder_layout(
     assert len(day.name) == 2 and day.name.isdigit()
 
 
-def _extract_details(kwargs, *, summary: str) -> TraceIngestionRunDetails:
-    """Build graph-style extraction details for ingest runtime test doubles."""
+def _trace_ingestion_details(kwargs, *, summary: str) -> TraceIngestionRunDetails:
+    """Build graph-style trace-ingestion details for runtime test doubles."""
     return TraceIngestionRunDetails(
         events=[
             TraceIngestionEvent(
@@ -103,11 +112,13 @@ def test_ingest_artifact_paths_are_stable_per_flow(
         "lerim.server.runtime.run_trace_ingestion",
         lambda **kwargs: (
             TraceIngestionResult(completion_summary="ingest complete"),
-            _extract_details(kwargs, summary="ingest complete"),
+            _trace_ingestion_details(kwargs, summary="ingest complete"),
         ),
     )
 
-    result = ctx.runtime.ingest(trace_path=trace_path, session_id="ingest-artifacts-case")
+    result = ctx.runtime.ingest(
+        trace_path=trace_path, session_id="ingest-artifacts-case"
+    )
 
     run_folder = Path(result["run_folder"])
     workspace_root = live_config.global_data_dir / "workspace"
@@ -210,6 +221,7 @@ def test_curate_change_counts_reflect_real_mutations(
         outcomes="No durable context.",
         change_reason="seed_episode",
     )
+
     def _fake_run_context_curator(**kwargs):
         session_id = kwargs["session_id"]
         store = ctx.store
@@ -241,7 +253,9 @@ def test_curate_change_counts_reflect_real_mutations(
             _curate_details(kwargs, summary="curate complete"),
         )
 
-    monkeypatch.setattr("lerim.server.runtime.run_context_curator", _fake_run_context_curator)
+    monkeypatch.setattr(
+        "lerim.server.runtime.run_context_curator", _fake_run_context_curator
+    )
 
     result = ctx.runtime.curate(
         repo_root=live_repo_root, session_id="runtime-curate-case"
@@ -300,10 +314,12 @@ def test_ingest_retries_transient_error_and_then_writes_artifacts(
             raise RuntimeError("temporary upstream failure")
         return (
             TraceIngestionResult(completion_summary="ingest recovered"),
-            _extract_details(kwargs, summary="ingest recovered"),
+            _trace_ingestion_details(kwargs, summary="ingest recovered"),
         )
 
-    monkeypatch.setattr("lerim.server.runtime.run_trace_ingestion", _flaky_run_trace_ingestion)
+    monkeypatch.setattr(
+        "lerim.server.runtime.run_trace_ingestion", _flaky_run_trace_ingestion
+    )
 
     result = ctx.runtime.ingest(trace_path=trace_path, session_id="ingest-retry-case")
 
@@ -347,7 +363,7 @@ def test_runtime_ingest_then_curate_then_answer_with_real_artifacts(
         )
         return (
             TraceIngestionResult(completion_summary="ingest wrote initial fact"),
-            _extract_details(kwargs, summary="ingest wrote initial fact"),
+            _trace_ingestion_details(kwargs, summary="ingest wrote initial fact"),
         )
 
     def _fake_run_context_curator(**kwargs):
@@ -399,9 +415,15 @@ def test_runtime_ingest_then_curate_then_answer_with_real_artifacts(
             build_ordered_answer_messages(),
         )
 
-    monkeypatch.setattr("lerim.server.runtime.run_trace_ingestion", _fake_run_trace_ingestion)
-    monkeypatch.setattr("lerim.server.runtime.run_context_curator", _fake_run_context_curator)
-    monkeypatch.setattr("lerim.server.runtime.run_context_answerer", _fake_run_context_answerer)
+    monkeypatch.setattr(
+        "lerim.server.runtime.run_trace_ingestion", _fake_run_trace_ingestion
+    )
+    monkeypatch.setattr(
+        "lerim.server.runtime.run_context_curator", _fake_run_context_curator
+    )
+    monkeypatch.setattr(
+        "lerim.server.runtime.run_context_answerer", _fake_run_context_answerer
+    )
 
     ingest_result = ctx.runtime.ingest(
         trace_path=trace_path, session_id="runtime-ingest-chain"
@@ -535,7 +557,9 @@ def test_context_brief_refresh_writes_dated_and_current_artifacts(
     assert manifest["operation"] == "context-brief"
     assert manifest["status"] == "succeeded"
     assert manifest["current_file"] == str(paths.current_file)
-    assert sorted(manifest["included_record_ids"]) == sorted(result["included_record_ids"])
+    assert sorted(manifest["included_record_ids"]) == sorted(
+        result["included_record_ids"]
+    )
     current_markdown = paths.current_file.read_text(encoding="utf-8")
     for record_id in result["included_record_ids"]:
         assert record_id in current_markdown

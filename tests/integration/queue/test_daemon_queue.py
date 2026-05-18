@@ -60,7 +60,9 @@ def queue_case_env(tmp_path, monkeypatch) -> QueueCaseEnv:
     reload_config()
 
 
-def _index_session(case_env: QueueCaseEnv, *, run_id: str, summary: str = "integration queue session") -> str:
+def _index_session(
+    case_env: QueueCaseEnv, *, run_id: str, summary: str = "integration queue session"
+) -> str:
     """Insert one indexed session row and return its session-path string."""
     session_path = case_env.repo_root / "sessions" / f"{run_id}.jsonl"
     session_path.parent.mkdir(parents=True, exist_ok=True)
@@ -126,23 +128,37 @@ def _patch_fake_runtime(
     curate_queue = list(curate_behaviors or [])
 
     class FakeRuntime:
-        def __init__(self, default_cwd: str | None = None, config: Any | None = None) -> None:
+        def __init__(
+            self, default_cwd: str | None = None, config: Any | None = None
+        ) -> None:
             self.default_cwd = default_cwd
             self.config = config
 
         def ingest(self, session_path: Path, **kwargs: Any) -> dict[str, Any]:
-            calls["ingest"].append({"default_cwd": self.default_cwd, "session_path": str(session_path), **kwargs})
-            behavior = ingest_queue.pop(0) if ingest_queue else {
-                "records_created": 1,
-                "records_updated": 0,
-                "records_archived": 0,
-                "cost_usd": 0.0,
-            }
+            calls["ingest"].append(
+                {
+                    "default_cwd": self.default_cwd,
+                    "session_path": str(session_path),
+                    **kwargs,
+                }
+            )
+            behavior = (
+                ingest_queue.pop(0)
+                if ingest_queue
+                else {
+                    "records_created": 1,
+                    "records_updated": 0,
+                    "records_archived": 0,
+                    "cost_usd": 0.0,
+                }
+            )
             if isinstance(behavior, Exception):
                 raise behavior
             return dict(behavior)
 
-        def curate(self, repo_root: Path | None = None, session_id: str | None = None) -> dict[str, Any]:
+        def curate(
+            self, repo_root: Path | None = None, session_id: str | None = None
+        ) -> dict[str, Any]:
             calls["curate"].append(
                 {
                     "default_cwd": self.default_cwd,
@@ -150,12 +166,16 @@ def _patch_fake_runtime(
                     "session_id": session_id,
                 }
             )
-            behavior = curate_queue.pop(0) if curate_queue else {
-                "records_created": 0,
-                "records_updated": 0,
-                "records_archived": 0,
-                "cost_usd": 0.0,
-            }
+            behavior = (
+                curate_queue.pop(0)
+                if curate_queue
+                else {
+                    "records_created": 0,
+                    "records_updated": 0,
+                    "records_archived": 0,
+                    "cost_usd": 0.0,
+                }
+            )
             if isinstance(behavior, Exception):
                 raise behavior
             return dict(behavior)
@@ -165,11 +185,15 @@ def _patch_fake_runtime(
 
 
 @pytest.mark.integration
-def test_pending_session_completes(queue_case_env: QueueCaseEnv, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pending_session_completes(
+    queue_case_env: QueueCaseEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """One targeted run_id should enqueue, claim, and complete successfully."""
     expectation = load_queue_expectation("pending_session_completes")["expected"]
     run_id = "run-pending-completes"
-    session_path = _index_session(queue_case_env, run_id=run_id, summary="pending session ready for extraction")
+    session_path = _index_session(
+        queue_case_env, run_id=run_id, summary="pending session ready for extraction"
+    )
     calls = _patch_fake_runtime(monkeypatch)
 
     code, summary = daemon.run_ingest_once(
@@ -207,9 +231,15 @@ def test_failed_job_retry_path_completes_on_second_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A failed available job should retry and complete on the next ingest run."""
-    expectation = load_queue_expectation("failed_job_retry_path_completes_on_second_run")["expected"]
+    expectation = load_queue_expectation(
+        "failed_job_retry_path_completes_on_second_run"
+    )["expected"]
     run_id = "run-retry-after-failure"
-    _index_session(queue_case_env, run_id=run_id, summary="session that should fail once then retry")
+    _index_session(
+        queue_case_env,
+        run_id=run_id,
+        summary="session that should fail once then retry",
+    )
     queued = catalog.enqueue_session_job(
         run_id,
         agent_type="codex",
@@ -226,7 +256,12 @@ def test_failed_job_retry_path_completes_on_second_run(
         monkeypatch,
         ingest_behaviors=[
             RuntimeError("transient extraction failure"),
-            {"records_created": 1, "records_updated": 0, "records_archived": 0, "cost_usd": 0.0},
+            {
+                "records_created": 1,
+                "records_updated": 0,
+                "records_archived": 0,
+                "cost_usd": 0.0,
+            },
         ],
     )
 
@@ -244,7 +279,9 @@ def test_failed_job_retry_path_completes_on_second_run(
     assert first_code == daemon.EXIT_FATAL
     assert first_summary.failed_sessions == 1
     assert first_summary.extracted_sessions == 0
-    assert first_job["status"] == catalog.JOB_STATUS_FAILED == expectation["first_status"]
+    assert (
+        first_job["status"] == catalog.JOB_STATUS_FAILED == expectation["first_status"]
+    )
     assert int(first_job["attempts"] or 0) == 1
 
     _set_job_fields(
@@ -268,7 +305,9 @@ def test_failed_job_retry_path_completes_on_second_run(
     assert second_code == daemon.EXIT_OK
     assert second_summary.extracted_sessions == 1
     assert second_summary.failed_sessions == 0
-    assert second_job["status"] == catalog.JOB_STATUS_DONE == expectation["second_status"]
+    assert (
+        second_job["status"] == catalog.JOB_STATUS_DONE == expectation["second_status"]
+    )
     assert int(second_job["attempts"] or 0) == int(expectation["attempts"])
     assert len(calls["ingest"]) == 2
 
@@ -323,19 +362,33 @@ def test_skip_leaves_other_jobs_untouched(
 
     assert result["skipped"] is True
     assert target["status"] == catalog.JOB_STATUS_DONE == expectation["skipped_status"]
-    assert other_dead["status"] == catalog.JOB_STATUS_DEAD_LETTER == expectation["untouched_dead_status"]
-    assert pending["status"] == catalog.JOB_STATUS_PENDING == expectation["untouched_pending_status"]
+    assert (
+        other_dead["status"]
+        == catalog.JOB_STATUS_DEAD_LETTER
+        == expectation["untouched_dead_status"]
+    )
+    assert (
+        pending["status"]
+        == catalog.JOB_STATUS_PENDING
+        == expectation["untouched_pending_status"]
+    )
     assert result["queue"][catalog.JOB_STATUS_DEAD_LETTER] == 1
     assert result["queue"][catalog.JOB_STATUS_DONE] == 1
     assert result["queue"][catalog.JOB_STATUS_PENDING] == 1
 
 
 @pytest.mark.integration
-def test_degraded_queue_reports_cleanly_via_api_ingest(queue_case_env: QueueCaseEnv) -> None:
+def test_degraded_queue_reports_cleanly_via_api_ingest(
+    queue_case_env: QueueCaseEnv,
+) -> None:
     """API ingest should surface real degraded queue state and human advice."""
-    expectation = load_queue_expectation("degraded_queue_reports_cleanly_via_api_ingest")["expected"]
+    expectation = load_queue_expectation(
+        "degraded_queue_reports_cleanly_via_api_ingest"
+    )["expected"]
     run_id = "run-degraded-dead-letter"
-    _index_session(queue_case_env, run_id=run_id, summary="dead letter should degrade queue")
+    _index_session(
+        queue_case_env, run_id=run_id, summary="dead letter should degrade queue"
+    )
     queued = catalog.enqueue_session_job(
         run_id,
         agent_type="codex",
@@ -360,7 +413,9 @@ def test_degraded_queue_reports_cleanly_via_api_ingest(queue_case_env: QueueCase
 
     assert result["code"] == daemon.EXIT_OK
     assert result["queue_health"]["degraded"] is bool(expectation["degraded"])
-    assert result["queue_health"]["dead_letter_count"] == int(expectation["dead_letter_count"])
+    assert result["queue_health"]["dead_letter_count"] == int(
+        expectation["dead_letter_count"]
+    )
     assert "warning" in result
     assert "Queue degraded." in result["warning"]
     assert "queue --failed" in result["warning"]
@@ -372,7 +427,9 @@ def test_curate_once_dry_run_short_circuits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Dry-run should win over force and skip runtime work entirely."""
-    expectation = load_queue_expectation("curate_once_dry_run_short_circuits_even_with_force")["expected"]
+    expectation = load_queue_expectation(
+        "curate_once_dry_run_short_circuits_even_with_force"
+    )["expected"]
     calls = _patch_fake_runtime(monkeypatch)
 
     code, payload = daemon.run_curate_once(dry_run=True, trigger="manual")
@@ -393,9 +450,13 @@ def test_api_job_status_for_long_running_ingest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """API status should surface running ingest work and later the completed result."""
-    expectation = load_queue_expectation("api_job_status_for_long_running_ingest")["expected"]
+    expectation = load_queue_expectation("api_job_status_for_long_running_ingest")[
+        "expected"
+    ]
     run_id = "run-api-status-ingest"
-    _index_session(queue_case_env, run_id=run_id, summary="session that stays running briefly")
+    _index_session(
+        queue_case_env, run_id=run_id, summary="session that stays running briefly"
+    )
     queued = catalog.enqueue_session_job(
         run_id,
         agent_type="codex",
@@ -411,7 +472,9 @@ def test_api_job_status_for_long_running_ingest(
     release = Event()
 
     class BlockingRuntime:
-        def __init__(self, default_cwd: str | None = None, config: Any | None = None) -> None:
+        def __init__(
+            self, default_cwd: str | None = None, config: Any | None = None
+        ) -> None:
             self.default_cwd = default_cwd
             self.config = config
 
@@ -425,7 +488,9 @@ def test_api_job_status_for_long_running_ingest(
                 "cost_usd": 0.0,
             }
 
-        def curate(self, repo_root: Path | None = None, session_id: str | None = None) -> dict[str, Any]:
+        def curate(
+            self, repo_root: Path | None = None, session_id: str | None = None
+        ) -> dict[str, Any]:
             raise AssertionError("curate should not run in this case")
 
     monkeypatch.setattr(daemon, "LerimRuntime", BlockingRuntime)
@@ -444,8 +509,12 @@ def test_api_job_status_for_long_running_ingest(
     thread.start()
     assert started.wait(timeout=10)
 
-    running_status = api.api_status(scope="project", project=queue_case_env.repo_root.name)
-    assert running_status["recent_activity"][0]["status"] == expectation["running_status"]
+    running_status = api.api_status(
+        scope="project", project=queue_case_env.repo_root.name
+    )
+    assert (
+        running_status["recent_activity"][0]["status"] == expectation["running_status"]
+    )
     assert running_status["recent_activity"][0]["op_type"] == expectation["op_type"]
     assert int(running_status["queue"]["running"] or 0) == expectation["queue_running"]
 
@@ -454,7 +523,9 @@ def test_api_job_status_for_long_running_ingest(
     assert "payload" in result_box
     assert int(result_box["payload"]["code"]) == daemon.EXIT_OK
 
-    completed_status = api.api_status(scope="project", project=queue_case_env.repo_root.name)
+    completed_status = api.api_status(
+        scope="project", project=queue_case_env.repo_root.name
+    )
     latest_ingest = completed_status["latest_ingest"]
     assert latest_ingest is not None
     assert latest_ingest["status"] == expectation["completed_status"]

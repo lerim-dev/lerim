@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 import yaml
 
-from lerim.context import ContextStore
+from lerim.context import ContextStore, resolve_project_identity
 
 
 def load_yaml_expectation(directory: Path, case_name: str) -> dict[str, Any]:
@@ -56,8 +56,17 @@ def seed_session(
     )
 
 
-def extract_tool_calls(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Extract retrieval/action payloads from serialized BAML event history."""
+def store_and_identity(live_config, live_repo_root):
+    """Return an initialized store and registered project identity."""
+    store = ContextStore(live_config.context_db_path)
+    store.initialize()
+    identity = resolve_project_identity(live_repo_root)
+    store.register_project(identity)
+    return store, identity
+
+
+def retrieval_tool_calls(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return retrieval/action payloads from serialized BAML event history."""
     calls: list[dict[str, Any]] = []
 
     def walk(value: Any) -> None:
@@ -81,8 +90,8 @@ def extract_tool_calls(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return calls
 
 
-def extract_tool_returns(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Extract retrieval return summaries from serialized BAML event history."""
+def retrieval_tool_returns(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return retrieval result summaries from serialized BAML event history."""
     returns: list[dict[str, Any]] = []
 
     def walk(value: Any) -> None:

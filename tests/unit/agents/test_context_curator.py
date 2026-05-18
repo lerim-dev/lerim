@@ -6,10 +6,8 @@ import inspect
 from types import SimpleNamespace
 
 from lerim.agents.context_curator import ContextCuratorResult, ContextCuratorRunDetails, run_context_curator
-from lerim.agents.context_curator.graph import (
-    _call_baml_with_retries,
-    _validate_action_plan_for_records,
-)
+from lerim.agents.baml_helpers import call_baml_with_retries
+from lerim.agents.context_curator.graph import _validate_action_plan_for_records
 from lerim.agents.context_curator.inventory import (
     build_health_batches,
     build_similarity_clusters,
@@ -190,10 +188,11 @@ class TestContextCuratorGraphValidation:
                 ]
             }
 
-        result, observations, attempts = _call_baml_with_retries(
+        result, observations, attempts = call_baml_with_retries(
             fake_call,
             stage="review_health",
             progress=False,
+            progress_label="context-curator",
             run_instruction="Keep records compact.",
             validate_result=lambda result: _validate_action_plan_for_records(
                 result,
@@ -206,6 +205,7 @@ class TestContextCuratorGraphValidation:
                     }
                 ],
             ),
+            validation_retry_target="complete corrected action plan",
         )
 
         assert attempts == 2

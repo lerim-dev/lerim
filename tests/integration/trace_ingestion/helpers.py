@@ -1,4 +1,4 @@
-"""Shared runner helpers for targeted extract-agent integration cases."""
+"""Shared runner helpers for targeted trace-ingestion agent integration cases."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ from tests.integration.common_helpers import (
 
 
 @dataclass
-class ExtractCaseOutcome:
-    """Observed result for one extract integration case."""
+class TraceIngestionCaseOutcome:
+    """Observed result for one trace-ingestion integration case."""
 
     result: TraceIngestionResult
     tool_names: list[str]
@@ -31,8 +31,8 @@ class ExtractCaseOutcome:
     project_id: str
 
 
-def load_extract_expectation(case_name: str) -> dict[str, Any]:
-    """Load one YAML expectation file for an extract case."""
+def load_trace_ingestion_expectation(case_name: str) -> dict[str, Any]:
+    """Load one YAML expectation file for a trace-ingestion case."""
     return load_yaml_expectation(TRACE_INGESTION_EXPECTATIONS_DIR, case_name)
 
 
@@ -121,7 +121,8 @@ def _build_very_long_window_trace(trace_path: Path) -> None:
     )
 
     trace_path.write_text(
-        "\n".join(json.dumps(message, ensure_ascii=True) for message in messages) + "\n",
+        "\n".join(json.dumps(message, ensure_ascii=True) for message in messages)
+        + "\n",
         encoding="utf-8",
     )
 
@@ -133,7 +134,7 @@ def _build_late_disambiguation_trace(trace_path: Path) -> None:
             "role": "user",
             "content": (
                 "Figure out the durable lesson from this debugging session. "
-                    "Keep only one durable record if there is one."
+                "Keep only one durable record if there is one."
             ),
         },
         {
@@ -190,7 +191,8 @@ def _build_late_disambiguation_trace(trace_path: Path) -> None:
         ]
     )
     trace_path.write_text(
-        "\n".join(json.dumps(message, ensure_ascii=True) for message in messages) + "\n",
+        "\n".join(json.dumps(message, ensure_ascii=True) for message in messages)
+        + "\n",
         encoding="utf-8",
     )
 
@@ -208,18 +210,18 @@ def _resolve_trace_path(case_name: str, run_folder: Path) -> Path:
         generated = run_folder / f"{case_name}.jsonl"
         _build_late_disambiguation_trace(generated)
         return generated
-    raise FileNotFoundError(f"no extract trace fixture found for case {case_name!r}")
+    raise FileNotFoundError(f"no trace-ingestion fixture found for case {case_name!r}")
 
 
-def run_extract_case(
+def run_trace_ingestion_case(
     *,
     case_name: str,
     live_config,
     live_repo_root: Path,
     seed_records: list[dict[str, Any]] | None = None,
-) -> ExtractCaseOutcome:
-    """Run one named extract case against a fresh isolated live test DB."""
-    session_id = f"integration-extract-{case_name}"
+) -> TraceIngestionCaseOutcome:
+    """Run one named trace-ingestion case against a fresh isolated live test DB."""
+    session_id = f"integration-trace-ingestion-{case_name}"
     seed_session_id = f"integration-seed-{case_name}"
     run_folder = live_config.global_data_dir / "workspace" / "ingest" / session_id
     run_folder.mkdir(parents=True, exist_ok=True)
@@ -235,7 +237,7 @@ def run_extract_case(
             project_id=identity.project_id,
             session_id=seed_session_id,
             repo_root=live_repo_root,
-            agent_type="integration-extract",
+            agent_type="integration-trace-ingestion",
             source_trace_ref=str(trace_path),
         )
         for seed in seed_records:
@@ -250,7 +252,7 @@ def run_extract_case(
         project_id=identity.project_id,
         session_id=session_id,
         repo_root=live_repo_root,
-        agent_type="integration-extract",
+        agent_type="integration-trace-ingestion",
         source_trace_ref=str(trace_path),
     )
 
@@ -277,7 +279,11 @@ def run_extract_case(
         include_archived=True,
     )["rows"]
     records = [
-        store.fetch_record(str(row["record_id"]), project_ids=[identity.project_id], include_versions=True)
+        store.fetch_record(
+            str(row["record_id"]),
+            project_ids=[identity.project_id],
+            include_versions=True,
+        )
         for row in rows
     ]
     with store.connect() as conn:
@@ -293,14 +299,18 @@ def run_extract_case(
                 (session_id,),
             ).fetchall()
         ]
-    changed_record_ids = list(dict.fromkeys(str(row["record_id"]) for row in version_rows))
+    changed_record_ids = list(
+        dict.fromkeys(str(row["record_id"]) for row in version_rows)
+    )
     changed_records = [
-        store.fetch_record(record_id, project_ids=[identity.project_id], include_versions=True)
+        store.fetch_record(
+            record_id, project_ids=[identity.project_id], include_versions=True
+        )
         for record_id in changed_record_ids
     ]
 
     payload = [event.model_dump(mode="json") for event in details.events]
-    return ExtractCaseOutcome(
+    return TraceIngestionCaseOutcome(
         result=result,
         tool_names=[str(event.get("action") or "") for event in payload],
         tool_calls=payload,
