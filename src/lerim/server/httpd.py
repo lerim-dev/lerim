@@ -823,6 +823,32 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             body = read_body()
             if body is None:
                 return
+            allowed = {
+                "entity",
+                "mode",
+                "scope",
+                "project",
+                "kind",
+                "source_profile",
+                "status",
+                "source_session_id",
+                "created_since",
+                "created_until",
+                "updated_since",
+                "updated_until",
+                "valid_at",
+                "order_by",
+                "limit",
+                "offset",
+                "include_total",
+            }
+            unknown = sorted(key for key in body if key not in allowed)
+            if unknown:
+                self._error(
+                    HTTPStatus.BAD_REQUEST,
+                    f"Unsupported field(s): {', '.join(unknown)}",
+                )
+                return
             try:
                 limit = int(body.get("limit") or 20)
                 offset = int(body.get("offset") or 0)
@@ -835,6 +861,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 scope=str(body.get("scope") or "all"),
                 project=str(body.get("project") or "").strip() or None,
                 kind=str(body.get("kind") or "").strip() or None,
+                source_profile=str(body.get("source_profile") or "").strip() or None,
                 status=str(body.get("status") or "").strip() or None,
                 source_session_id=str(body.get("source_session_id") or "").strip() or None,
                 created_since=str(body.get("created_since") or "").strip() or None,

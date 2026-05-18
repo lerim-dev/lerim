@@ -65,6 +65,7 @@ include = ["lerim*"]
 lerim = [
     "agents/baml_src/*.baml",
     "config/default.toml",
+    "profiles/*.yaml",
     "skills/*.md",
     "server/lerim-seccomp.json",
 ]
@@ -73,11 +74,11 @@ lerim = [
 pythonpath = ["."]
 testpaths = ["tests/unit", "tests/smoke", "tests/integration", "tests/e2e"]
 markers = [
-    "integration: Tests that hit real external services",
+    "integration: Tests that exercise runtime, database, API, or provider boundaries and are gated by LERIM_INTEGRATION",
     "e2e: End-to-end tests that exercise full flows",
     "smoke: Quick LLM sanity checks (requires ollama)",
-    "agent: Agentic integration tests",
-    "llm: Non-agentic LLM integration tests",
+    "agent: LLM-backed agent flow tests",
+    "llm: Tests that make real LLM/provider calls",
     "openrouter: OpenRouter provider tests",
     "openai: OpenAI provider tests",
     "zai: ZAI provider tests",

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from lerim.agents.baml_helpers import call_baml_with_retries, model_payload
 from lerim.agents.baml_runtime import build_baml_client_for_role
 from lerim.agents.trace_ingestion.persistence import (
     PersistenceContext,
@@ -20,14 +21,7 @@ from lerim.agents.trace_ingestion.windowing import (
     window_char_budget,
 )
 from lerim.config.settings import Config
-
-MAX_BAML_MODEL_RETRIES = 3
-BAML_RECOVERABLE_ERROR_NAMES = {
-    "BamlClientFinishReasonError",
-    "BamlClientHttpError",
-    "BamlTimeoutError",
-    "BamlValidationError",
-}
+from lerim.profiles import format_signal_pack_context, normalize_signal_pack_id
 
 
 def run_trace_ingestion_graph(
@@ -95,6 +89,8 @@ def build_trace_ingestion_graph(
         api_key=api_key,
         temperature=temperature,
     )
+    source_profile_id = normalize_signal_pack_id(persistence_context.source_profile)
+    source_profile_context = format_signal_pack_context(source_profile_id)
 
     def resolve_scope(state: TraceIngestionGraphState) -> dict[str, Any]:
         """Emit the resolved source/scope boundary as an explicit graph phase."""
@@ -111,7 +107,7 @@ def build_trace_ingestion_graph(
                         "scope_id": scope.scope_id,
                         "scope_label": scope.label,
                         "source_name": persistence_context.source_name,
-                        "source_profile": persistence_context.source_profile,
+                        "source_profile": source_profile_id,
                     },
                     "done": False,
                     "completion_summary": "",
@@ -176,21 +172,23 @@ def build_trace_ingestion_graph(
             return {}
         if progress:
             print(f"  trace-ingestion observe {llm_calls + 1}/{max_llm_calls}", flush=True)
-        result, retry_observations, attempts = _call_baml_with_retries(
+        result, retry_observations, attempts = call_baml_with_retries(
             lambda: baml_runtime.ObserveSourceWindow(
                 run_instruction=run_instruction,
+                source_profile_context=source_profile_context,
                 prior_episode_summary=_episode_summary(state),
                 prior_findings_summary=_findings_summary(state),
                 source_window=str(window["text"]),
             ),
             stage="scan_window",
             progress=progress,
+            progress_label="trace-ingestion",
         )
-        payload = _model_payload(result)
+        payload = model_payload(result)
         episode_update = str(payload.get("episode_update") or "").strip()
-        durable = [_model_payload(item) for item in payload.get("durable_findings") or []]
+        durable = [model_payload(item) for item in payload.get("durable_findings") or []]
         implementation = [
-            _model_payload(item)
+            model_payload(item)
             for item in payload.get("implementation_findings") or []
         ]
         noise = [
@@ -201,6 +199,7 @@ def build_trace_ingestion_graph(
         return {
             "llm_calls": llm_calls + attempts,
             "episode_updates": [episode_update] if episode_update else [],
+            "episode_update_refs": _window_line_refs(window) if episode_update else [],
             "durable_findings": durable,
             "implementation_findings": implementation,
             "discarded_noise": noise,
@@ -232,17 +231,19 @@ def build_trace_ingestion_graph(
             )
         if progress:
             print(f"  trace-ingestion synthesize {llm_calls + 1}/{max_llm_calls}", flush=True)
-        result, retry_observations, attempts = _call_baml_with_retries(
+        result, retry_observations, attempts = call_baml_with_retries(
             lambda: baml_runtime.SynthesizeContextRecords(
                 run_instruction=run_instruction,
+                source_profile_context=source_profile_context,
                 episode_summary=_synthesis_episode_summary(state),
                 durable_findings_summary=_filtered_durable_findings_summary(state),
                 existing_record_manifest=existing_record_manifest or "(none)",
             ),
             stage="synthesize_records",
             progress=progress,
+            progress_label="trace-ingestion",
         )
-        payload = _model_payload(result)
+        payload = model_payload(result)
         durable_count = len(payload.get("durable_records") or [])
         update_count = len(payload.get("record_updates") or [])
         return {
@@ -273,10 +274,11 @@ def build_trace_ingestion_graph(
             )
         if progress:
             print(f"  trace-ingestion review {llm_calls + 1}/{max_llm_calls}", flush=True)
-        synthesized_payload = _model_payload(state.get("synthesized"))
-        result, retry_observations, attempts = _call_baml_with_retries(
+        synthesized_payload = model_payload(state.get("synthesized"))
+        result, retry_observations, attempts = call_baml_with_retries(
             lambda: baml_runtime.ReviewSynthesizedContextRecords(
                 run_instruction=run_instruction,
+                source_profile_context=source_profile_context,
                 durable_findings_summary=_filtered_durable_findings_summary(state),
                 existing_record_manifest=existing_record_manifest or "(none)",
                 synthesized_records_json=json.dumps(
@@ -287,22 +289,16 @@ def build_trace_ingestion_graph(
             ),
             stage="review_records",
             progress=progress,
+            progress_label="trace-ingestion",
         )
-        payload = _model_payload(result)
-        payload, cap_observation = _cap_durable_changes_to_filtered_signal(
-            payload,
-            kept_count=len(state.get("filtered_durable_findings") or []),
-        )
+        payload = model_payload(result)
         durable_count = len(payload.get("durable_records") or [])
         update_count = len(payload.get("record_updates") or [])
-        observations = [*retry_observations]
-        if cap_observation:
-            observations.append(cap_observation)
         return {
             "llm_calls": llm_calls + attempts,
             "synthesized": payload,
             "observations": [
-                *observations,
+                *retry_observations,
                 {
                     "action": "review_records",
                     "ok": True,
@@ -326,9 +322,10 @@ def build_trace_ingestion_graph(
             )
         if progress:
             print(f"  trace-ingestion filter {llm_calls + 1}/{max_llm_calls}", flush=True)
-        result, retry_observations, attempts = _call_baml_with_retries(
+        result, retry_observations, attempts = call_baml_with_retries(
             lambda: baml_runtime.FilterDurableSignal(
                 run_instruction=run_instruction,
+                source_profile_context=source_profile_context,
                 episode_summary=_episode_summary(state),
                 durable_findings_summary=_durable_findings_summary(state),
                 implementation_summary=_implementation_summary(state),
@@ -336,16 +333,11 @@ def build_trace_ingestion_graph(
             ),
             stage="filter_signals",
             progress=progress,
+            progress_label="trace-ingestion",
         )
-        payload = _model_payload(result)
-        kept = [
-            _model_payload(item)
-            for item in payload.get("kept_durable_findings") or []
-        ]
-        rejected = [
-            _model_payload(item)
-            for item in payload.get("rejected_findings") or []
-        ]
+        payload = model_payload(result)
+        kept = [model_payload(item) for item in payload.get("kept_durable_findings") or []]
+        rejected = [model_payload(item) for item in payload.get("rejected_findings") or []]
         summary = str(payload.get("filtering_summary") or "").strip()
         return {
             "llm_calls": llm_calls + attempts,
@@ -410,59 +402,13 @@ def build_trace_ingestion_graph(
     return graph.compile()
 
 
-def _call_baml_with_retries(
-    call: Callable[[], Any],
-    *,
-    stage: str,
-    progress: bool,
-) -> tuple[Any, list[dict[str, Any]], int]:
-    """Run one BAML call with graph-visible recoverable retries."""
-    observations: list[dict[str, Any]] = []
-    attempts = 0
-    while True:
-        attempts += 1
-        try:
-            return call(), observations, attempts
-        except Exception as exc:
-            if not _is_recoverable_baml_error(exc) or attempts > MAX_BAML_MODEL_RETRIES:
-                raise
-            if progress:
-                print(f"  trace-ingestion retry {stage} attempt={attempts}", flush=True)
-            observations.append(
-                {
-                    "action": "model_retry",
-                    "ok": False,
-                    "content": _model_retry_observation(exc),
-                    "args": {"stage": stage, "attempt": attempts},
-                    "done": False,
-                    "completion_summary": "",
-                }
-            )
-
-
-def _model_payload(value: Any) -> dict[str, Any]:
-    """Convert generated BAML objects into plain dictionaries."""
-    if hasattr(value, "model_dump"):
-        return _plain_value(value.model_dump(exclude_none=True))
-    if isinstance(value, dict):
-        return _plain_value(
-            {key: item for key, item in value.items() if item is not None}
-        )
-    if value is None:
-        return {}
-    return _plain_value(getattr(value, "__dict__", {}))
-
-
-def _plain_value(value: Any) -> Any:
-    """Convert enum-ish values recursively into JSON-like values."""
-    enum_value = getattr(value, "value", None)
-    if enum_value is not None:
-        return enum_value
-    if isinstance(value, dict):
-        return {key: _plain_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_plain_value(item) for item in value]
-    return value
+def _window_line_refs(window: dict[str, Any]) -> list[str]:
+    """Return one line reference for each line in a trace window."""
+    start_line = int(window.get("start_line") or 0)
+    end_line = int(window.get("end_line") or 0)
+    if start_line <= 0 or end_line < start_line:
+        return []
+    return [f"line:{line}" for line in range(start_line, end_line + 1)]
 
 
 def _episode_summary(state: TraceIngestionGraphState) -> str:
@@ -474,10 +420,7 @@ def _episode_summary(state: TraceIngestionGraphState) -> str:
 def _synthesis_episode_summary(state: TraceIngestionGraphState) -> str:
     """Render a final episode summary without carrying discarded details forward."""
     if state.get("filtered_durable_findings"):
-        return (
-            "Reusable source-session context was identified in the filtered durable "
-            "findings. Use DURABLE FINDINGS as the source of truth for saved details."
-        )
+        return _episode_summary(state)
     if state.get("implementation_findings") or state.get("discarded_noise"):
         return (
             "No reusable durable context was found; source-session details were "
@@ -516,44 +459,6 @@ def _filtered_durable_findings_summary(state: TraceIngestionGraphState) -> str:
     return rendered
 
 
-def _cap_durable_changes_to_filtered_signal(
-    payload: dict[str, Any],
-    *,
-    kept_count: int,
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Keep durable writes no broader than the filtered durable signal."""
-    if kept_count <= 0:
-        return payload, None
-    durable_records = list(payload.get("durable_records") or [])
-    record_updates = list(payload.get("record_updates") or [])
-    total_changes = len(durable_records) + len(record_updates)
-    if total_changes <= kept_count:
-        return payload, None
-
-    remaining = kept_count
-    capped_updates = record_updates[:remaining]
-    remaining -= len(capped_updates)
-    capped_records = durable_records[:remaining]
-    capped = dict(payload)
-    capped["record_updates"] = capped_updates
-    capped["durable_records"] = capped_records
-    return capped, {
-        "action": "cap_durable_changes",
-        "ok": True,
-        "content": (
-            f"kept_signal={kept_count} durable_changes={total_changes} "
-            f"capped_to={len(capped_updates) + len(capped_records)}"
-        ),
-        "args": {
-            "kept_signal_count": kept_count,
-            "original_durable_records": len(durable_records),
-            "original_record_updates": len(record_updates),
-        },
-        "done": False,
-        "completion_summary": "",
-    }
-
-
 def _implementation_summary(state: TraceIngestionGraphState) -> str:
     """Render implementation findings and discarded noise compactly."""
     parts: list[str] = []
@@ -568,31 +473,17 @@ def _implementation_summary(state: TraceIngestionGraphState) -> str:
 
 def _format_finding(finding: dict[str, Any]) -> str:
     """Render one scan finding as one compact bullet."""
-    level = str(finding.get("level") or "").strip()
+    kind = str(finding.get("kind") or "").strip()
+    card_type = str(finding.get("card_type") or "").strip()
     theme = str(finding.get("theme") or "").strip()
     note = str(finding.get("note") or "").strip()
     line = finding.get("line")
     quote = str(finding.get("quote") or "").strip()
-    prefix = f"- {level}: {theme}" if level or theme else "-"
+    type_suffix = f" [{card_type}]" if card_type else ""
+    prefix = f"- {kind}{type_suffix}: {theme}" if kind or theme else "-"
     details = note
     if line:
         details += f" (line {line})"
     if quote:
         details += f" Evidence: {quote}"
     return f"{prefix}: {details}".strip()
-
-
-def _is_recoverable_baml_error(exc: Exception) -> bool:
-    """Return whether a BAML model/parsing failure should be retried."""
-    return type(exc).__name__ in BAML_RECOVERABLE_ERROR_NAMES
-
-
-def _model_retry_observation(exc: Exception) -> str:
-    """Render a compact model failure note."""
-    message = str(exc).replace("\n", " ")[:1200]
-    return (
-        "The previous BAML model call did not produce a valid next action. "
-        "Retry and return exactly one JSON object matching the requested schema. "
-        "Do not include <think> tags, hidden reasoning, markdown, or prose before "
-        f"the JSON. Error: {type(exc).__name__}: {message}"
-    )

@@ -5,7 +5,8 @@ Layers (low to high priority):
 2. ~/.lerim/config.toml
 3. LERIM_CONFIG env path (optional explicit override)
 
-API keys are read from environment variables only.
+API keys and local runtime toggles are read from environment variables loaded
+from the Lerim project `.env`, the active `~/.lerim/.env`, and the shell.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ PACKAGE_DIR = Path(__file__).parent
 DEFAULT_CONFIG_PATH = PACKAGE_DIR / "default.toml"
 USER_CONFIG_PATH = Path.home() / ".lerim" / "config.toml"
 GLOBAL_DATA_DIR = Path.home() / ".lerim"
+PROJECT_ENV_PATH = PACKAGE_DIR.parents[2] / ".env"
 
 _LAST_CONFIG_SOURCES: list[dict[str, str]] = []
 _MISSING = object()
@@ -129,6 +131,19 @@ def _read_bool(
     return value
 
 
+def _read_env_bool(name: str, *, default: bool) -> bool:
+    """Read a boolean-like environment variable with a strict default."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    text = value.strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off", ""}:
+        return False
+    raise ValueError(f"{name} must be a boolean-like value")
+
+
 def _read_int(
     raw: dict[str, Any],
     key: str,
@@ -199,6 +214,20 @@ def get_global_data_dir_path() -> Path:
 def get_user_env_path() -> Path:
     """Return the effective ``.env`` path under the active global data dir."""
     return get_global_data_dir_path() / ".env"
+
+
+def get_project_env_path() -> Path:
+    """Return the source-checkout `.env` path for local development."""
+    return PROJECT_ENV_PATH
+
+
+def _load_env_files(global_data_dir: Path) -> None:
+    """Load local project and user env files without overriding the shell."""
+    if not os.getenv("PYTEST_CURRENT_TEST") and PROJECT_ENV_PATH.is_file():
+        load_dotenv(PROJECT_ENV_PATH, override=False)
+    user_env_path = global_data_dir / ".env"
+    if user_env_path.is_file():
+        load_dotenv(user_env_path, override=False)
 
 
 def get_trace_cache_dir(agent_name: str) -> Path:
@@ -297,6 +326,9 @@ class Config:
     agents: dict[str, str]
     projects: dict[str, str]
     project_types: dict[str, str]
+    mlflow_tracking_uri: str = ""
+    mlflow_experiment: str = "lerim"
+    mlflow_required: bool = False
 
     def public_dict(self) -> dict[str, Any]:
         """Return safe serialized config for CLI/dashboard visibility."""
@@ -315,6 +347,9 @@ class Config:
                 "model": self.agent_role.model,
             },
             "mlflow_enabled": self.mlflow_enabled,
+            "mlflow_tracking_uri": self.mlflow_tracking_uri,
+            "mlflow_experiment": self.mlflow_experiment,
+            "mlflow_required": self.mlflow_required,
             "auto_unload": self.auto_unload,
             "cloud_authenticated": self.cloud_token is not None,
             "connected_agents": sorted(self.agents),
@@ -518,9 +553,7 @@ def load_config() -> Config:
     roles = _ensure_dict(toml_data, "roles")
     semantic_search = _ensure_dict(toml_data, "semantic_search")
     global_data_dir = _read_optional_path(data, "dir", GLOBAL_DATA_DIR)
-    env_path = global_data_dir / ".env"
-    if env_path.is_file():
-        load_dotenv(env_path)
+    _load_env_files(global_data_dir)
     context_db_path = _read_optional_path(
         data,
         "context_db_path",
@@ -578,10 +611,9 @@ def load_config() -> Config:
         ingest_window_days=_require_int(server, "ingest_window_days", minimum=1),
         ingest_max_sessions=_require_int(server, "ingest_max_sessions", minimum=1),
         agent_role=agent_role,
-        mlflow_enabled=(
-            os.getenv("LERIM_MLFLOW", "").strip().lower() in ("1", "true", "yes", "on")
-            if os.getenv("LERIM_MLFLOW") is not None
-            else _read_bool(observability, "mlflow_enabled", default=False)
+        mlflow_enabled=_read_env_bool(
+            "LERIM_MLFLOW",
+            default=_read_bool(observability, "mlflow_enabled", default=False),
         ),
         openai_api_key=_to_non_empty_string(os.environ.get("OPENAI_API_KEY")) or None,
         zai_api_key=_to_non_empty_string(os.environ.get("ZAI_API_KEY")) or None,
@@ -606,6 +638,15 @@ def load_config() -> Config:
         agents=agents,
         projects=projects,
         project_types=project_types,
+        mlflow_tracking_uri=(
+            _to_non_empty_string(os.environ.get("LERIM_MLFLOW_TRACKING_URI"))
+            or _to_non_empty_string(os.environ.get("MLFLOW_TRACKING_URI"))
+        ),
+        mlflow_experiment=(
+            _to_non_empty_string(os.environ.get("LERIM_MLFLOW_EXPERIMENT"))
+            or "lerim"
+        ),
+        mlflow_required=_read_env_bool("LERIM_MLFLOW_REQUIRED", default=False),
     )
 
 

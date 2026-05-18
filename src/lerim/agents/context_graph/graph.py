@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from lerim.agents.baml_helpers import call_baml_with_retries, model_payload
 from lerim.agents.baml_runtime import build_baml_client_for_role
 from lerim.agents.context_graph.inventory import (
     build_semantic_candidates,
@@ -20,13 +21,6 @@ from lerim.agents.context_graph.state import ContextGraphGraphState
 from lerim.config.settings import Config
 from lerim.context import ProjectIdentity
 
-MAX_BAML_MODEL_RETRIES = 3
-BAML_RECOVERABLE_ERROR_NAMES = {
-    "BamlClientFinishReasonError",
-    "BamlClientHttpError",
-    "BamlTimeoutError",
-    "BamlValidationError",
-}
 SUPPORTED_RELATION_KINDS = {
     "supports",
     "refines",
@@ -192,7 +186,7 @@ def build_context_graph_graph(
             if progress:
                 print(f"  context-graph link cluster {cluster.get('cluster_id')}", flush=True)
             allowed_pairs = _allowed_pair_set(pairs)
-            result, retry_observations, attempts = _call_baml_with_retries(
+            result, retry_observations, attempts = call_baml_with_retries(
                 lambda instruction, cluster=cluster, pairs=pairs: get_baml_runtime().LinkContextRecords(
                     run_instruction=instruction,
                     cluster_id=str(cluster.get("cluster_id") or ""),
@@ -202,12 +196,16 @@ def build_context_graph_graph(
                 ),
                 stage="link_records",
                 progress=progress,
+                progress_label="context-graph",
                 run_instruction=run_instruction,
                 validate_result=lambda result, records_by_id=records_by_id: _validate_links_for_records(
                     result,
                     records_by_id=records_by_id,
                     allowed_pairs=allowed_pairs,
                 ),
+                make_observation=_observation,
+                semantic_retry_content=_semantic_retry_observation,
+                validation_retry_target="complete corrected link plan",
             )
             llm_calls += attempts
             cluster_links = _extract_links(result)
@@ -254,7 +252,7 @@ def build_context_graph_graph(
         if llm_calls >= max_llm_calls:
             raise RuntimeError(f"BAML context graph exceeded max_llm_calls={max_llm_calls}.")
         allowed_pairs = _allowed_pair_set(state.get("candidate_pairs") or [])
-        result, retry_observations, attempts = _call_baml_with_retries(
+        result, retry_observations, attempts = call_baml_with_retries(
             lambda instruction: get_baml_runtime().ReviewContextGraphLinks(
                 run_instruction=instruction,
                 records_json=format_records_json(state.get("records") or []),
@@ -262,12 +260,16 @@ def build_context_graph_graph(
             ),
             stage="review_links",
             progress=progress,
+            progress_label="context-graph",
             run_instruction=run_instruction,
             validate_result=lambda result: _validate_links_for_records(
                 result,
                 records_by_id=state.get("records_by_id") or {},
                 allowed_pairs=allowed_pairs,
             ),
+            make_observation=_observation,
+            semantic_retry_content=_semantic_retry_observation,
+            validation_retry_target="complete corrected link plan",
         )
         reviewed_links = _dedupe_links(_extract_links(result))
         if progress:
@@ -342,59 +344,6 @@ def _run_instruction() -> str:
     )
 
 
-def _call_baml_with_retries(
-    call: Callable[[str], Any],
-    *,
-    stage: str,
-    progress: bool,
-    run_instruction: str,
-    validate_result: Callable[[Any], str | None] | None = None,
-) -> tuple[Any, list[dict[str, Any]], int]:
-    """Run one BAML call with graph-visible recoverable retries."""
-    observations: list[dict[str, Any]] = []
-    attempts = 0
-    validation_feedback = ""
-    while True:
-        attempts += 1
-        try:
-            result = call(_instruction_with_validation_feedback(run_instruction, validation_feedback))
-        except Exception as exc:
-            if not _is_recoverable_baml_error(exc) or attempts > MAX_BAML_MODEL_RETRIES:
-                raise
-            if progress:
-                print(f"  context-graph retry {stage} attempt={attempts}", flush=True)
-            observations.append(
-                _observation(
-                    "model_retry",
-                    False,
-                    _model_retry_observation(exc),
-                    {"stage": stage, "attempt": attempts},
-                )
-            )
-            continue
-        if validate_result is None:
-            return result, observations, attempts
-        validation_error = validate_result(result)
-        if not validation_error:
-            return result, observations, attempts
-        observations.append(
-            _observation(
-                "model_retry",
-                False,
-                _semantic_retry_observation(validation_error),
-                {"stage": stage, "attempt": attempts},
-            )
-        )
-        if attempts > MAX_BAML_MODEL_RETRIES:
-            raise RuntimeError(
-                f"BAML context graph returned invalid {stage} output after "
-                f"{MAX_BAML_MODEL_RETRIES} retries: {validation_error}"
-            )
-        validation_feedback = validation_error
-        if progress:
-            print(f"  context-graph retry {stage} attempt={attempts}", flush=True)
-
-
 def _validate_links_for_records(
     result: Any,
     *,
@@ -454,8 +403,8 @@ def _allowed_pair_set(pairs: list[dict[str, Any]]) -> set[tuple[str, str]]:
 def _extract_links(result: Any) -> list[dict[str, Any]]:
     """Extract normalized link dictionaries from generated BAML output."""
     links: list[dict[str, Any]] = []
-    for raw_link in _model_payload(result).get("links") or []:
-        link = _model_payload(raw_link)
+    for raw_link in model_payload(result).get("links") or []:
+        link = model_payload(raw_link)
         relation_kind = _clean_relation_kind(link.get("relation_kind"))
         links.append(
             {
@@ -492,54 +441,11 @@ def _dedupe_links(links: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(best.values())
 
 
-def _model_payload(value: Any) -> dict[str, Any]:
-    """Convert generated BAML objects into plain dictionaries."""
-    if hasattr(value, "model_dump"):
-        return _plain_value(value.model_dump(exclude_none=True))
-    if isinstance(value, dict):
-        return _plain_value({key: item for key, item in value.items() if item is not None})
-    if value is None:
-        return {}
-    return _plain_value(getattr(value, "__dict__", {}))
-
-
-def _plain_value(value: Any) -> Any:
-    """Convert enums and generated model values into JSON-like values."""
-    if hasattr(value, "value"):
-        return value.value
-    if isinstance(value, dict):
-        return {key: _plain_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_plain_value(item) for item in value]
-    return value
-
-
 def _clean_relation_kind(value: Any) -> str:
     """Normalize generated enum/string relation kinds."""
     enum_value = getattr(value, "value", None)
     text = str(enum_value if enum_value is not None else value or "").strip().lower()
     return text or "related"
-
-
-def _instruction_with_validation_feedback(run_instruction: str, validation_feedback: str) -> str:
-    """Add compact retry feedback to the BAML run instruction."""
-    if not validation_feedback:
-        return run_instruction
-    return (
-        f"{run_instruction}\n\n"
-        "Previous structured output was unsafe or incomplete. "
-        f"Fix this validation error and return a complete corrected link plan: {validation_feedback}"
-    )
-
-
-def _is_recoverable_baml_error(exc: Exception) -> bool:
-    """Return whether BAML should be retried for this exception type."""
-    return type(exc).__name__ in BAML_RECOVERABLE_ERROR_NAMES
-
-
-def _model_retry_observation(exc: Exception) -> str:
-    """Return compact retry text for model/runtime errors."""
-    return f"{type(exc).__name__}: {str(exc)[:500]}"
 
 
 def _semantic_retry_observation(validation_error: str) -> str:

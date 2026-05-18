@@ -6,6 +6,7 @@ import os
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 from lerim import __version__
 from lerim.adapters.registry import get_connected_platform_paths
@@ -32,6 +33,17 @@ _API_KEY_ENV_NAMES = (
     "OPENROUTER_API_KEY",
     "ZAI_API_KEY",
 )
+
+
+def _container_tracking_uri(uri: str) -> str:
+    """Rewrite localhost MLflow URLs so Lerim containers can reach the host."""
+    parsed = urlparse(uri)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        return uri
+    netloc = "host.docker.internal"
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
 
 
 def docker_available() -> bool:
@@ -143,6 +155,12 @@ def _generate_compose_yml(build_local: bool = False) -> str:
     # keeps generated compose output honest about observability being enabled.
     if config.mlflow_enabled:
         env_lines.append("      - LERIM_MLFLOW=true")
+    if config.mlflow_tracking_uri:
+        env_lines.append(f"      - MLFLOW_TRACKING_URI={_container_tracking_uri(config.mlflow_tracking_uri)}")
+    if config.mlflow_experiment:
+        env_lines.append(f"      - LERIM_MLFLOW_EXPERIMENT={config.mlflow_experiment}")
+    if config.mlflow_required:
+        env_lines.append("      - LERIM_MLFLOW_REQUIRED=1")
     if build_local:
         pkg_root = _find_package_root()
         if pkg_root is None:

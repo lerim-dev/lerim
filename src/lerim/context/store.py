@@ -31,6 +31,12 @@ from lerim.context.query_spec import (
 import lerim.context.retrieval as retrieval
 from lerim.context.spec import (
     ALLOWED_CHANGE_KINDS,
+    ALLOWED_APPROVAL_STATUSES,
+    ALLOWED_CARD_TYPES,
+    ALLOWED_LIFECYCLE_STATUSES,
+    normalize_approval_status,
+    normalize_card_type,
+    normalize_lifecycle_status,
     normalize_record_payload,
     record_search_text,
 )
@@ -38,18 +44,19 @@ from lerim.context.spec import (
 if TYPE_CHECKING:
     from lerim.context.retrieval import SearchHit
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 LOGGER = logging.getLogger(__name__)
 TIMESTAMP_COLUMNS = {
     "scopes": ("created_at", "updated_at"),
     "projects": ("created_at", "updated_at"),
     "sessions": ("started_at", "created_at"),
-    "records": ("created_at", "updated_at", "valid_from", "valid_until"),
+    "records": ("created_at", "updated_at", "valid_from", "valid_until", "last_used_at"),
     "record_versions": (
         "created_at",
         "updated_at",
         "valid_from",
         "valid_until",
+        "last_used_at",
         "changed_at",
     ),
     "context_nodes": ("created_at", "updated_at"),
@@ -133,6 +140,20 @@ def _normalize_optional_text(value: Any) -> str | None:
     """Normalize optional text fields to stripped strings or None."""
     text = str(value or "").strip()
     return text or None
+
+
+def _normalize_optional_float(value: Any) -> float | None:
+    """Normalize optional numeric fields."""
+    if value is None or value == "":
+        return None
+    return float(value)
+
+
+def _normalize_nonnegative_int(value: Any) -> int:
+    """Normalize count-like metadata fields."""
+    if value is None or value == "":
+        return 0
+    return max(0, int(value))
 
 
 def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
@@ -233,6 +254,15 @@ class ContextStore:
                     scope_label TEXT,
                     source_name TEXT,
                     source_profile TEXT,
+                    card_type TEXT,
+                    lifecycle_status TEXT NOT NULL DEFAULT 'active',
+                    approval_status TEXT NOT NULL DEFAULT 'approved',
+                    confidence REAL,
+                    evidence_count INTEGER NOT NULL DEFAULT 0,
+                    used_count INTEGER NOT NULL DEFAULT 0,
+                    last_used_at TEXT,
+                    review_notes TEXT,
+                    superseded_by TEXT,
                     kind TEXT NOT NULL,
                     title TEXT NOT NULL,
                     body TEXT NOT NULL,
@@ -268,6 +298,15 @@ class ContextStore:
                     scope_label TEXT,
                     source_name TEXT,
                     source_profile TEXT,
+                    card_type TEXT,
+                    lifecycle_status TEXT NOT NULL DEFAULT 'active',
+                    approval_status TEXT NOT NULL DEFAULT 'approved',
+                    confidence REAL,
+                    evidence_count INTEGER NOT NULL DEFAULT 0,
+                    used_count INTEGER NOT NULL DEFAULT 0,
+                    last_used_at TEXT,
+                    review_notes TEXT,
+                    superseded_by TEXT,
                     record_id TEXT NOT NULL,
                     version_no INTEGER NOT NULL,
                     kind TEXT NOT NULL,
@@ -360,7 +399,7 @@ class ContextStore:
                 """
             )
             self._migrate_scope_schema(conn)
-            self._ensure_record_evidence_schema(conn)
+            self._ensure_record_metadata_schema(conn)
             self._ensure_secondary_indexes(conn)
             self._validate_schema(conn)
             conn.execute(
@@ -435,6 +474,8 @@ class ContextStore:
             CREATE INDEX IF NOT EXISTS idx_records_project_id ON records(project_id);
             CREATE INDEX IF NOT EXISTS idx_records_scope ON records(scope_type, scope_id);
             CREATE INDEX IF NOT EXISTS idx_records_kind ON records(kind);
+            CREATE INDEX IF NOT EXISTS idx_records_card_type ON records(card_type);
+            CREATE INDEX IF NOT EXISTS idx_records_lifecycle_status ON records(lifecycle_status);
             CREATE INDEX IF NOT EXISTS idx_records_status ON records(status);
             CREATE INDEX IF NOT EXISTS idx_records_created_at ON records(created_at);
             CREATE INDEX IF NOT EXISTS idx_records_updated_at ON records(updated_at);
@@ -561,8 +602,19 @@ class ContextStore:
         rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
         return {str(row["name"]) for row in rows}
 
-    def _ensure_record_evidence_schema(self, conn: sqlite3.Connection) -> None:
-        """Add source evidence columns to existing record tables."""
+    def _ensure_record_metadata_schema(self, conn: sqlite3.Connection) -> None:
+        """Add context-card metadata columns to existing record tables."""
+        metadata_columns = {
+            "card_type": "TEXT",
+            "lifecycle_status": "TEXT NOT NULL DEFAULT 'active'",
+            "approval_status": "TEXT NOT NULL DEFAULT 'approved'",
+            "confidence": "REAL",
+            "evidence_count": "INTEGER NOT NULL DEFAULT 0",
+            "used_count": "INTEGER NOT NULL DEFAULT 0",
+            "last_used_at": "TEXT",
+            "review_notes": "TEXT",
+            "superseded_by": "TEXT",
+        }
         for table_name in ("records", "record_versions"):
             columns = self._table_columns(conn, table_name)
             if not columns:
@@ -571,6 +623,11 @@ class ContextStore:
                 conn.execute(f"ALTER TABLE {table_name} ADD COLUMN source_event_refs TEXT")
             if "evidence_refs" not in columns:
                 conn.execute(f"ALTER TABLE {table_name} ADD COLUMN evidence_refs TEXT")
+            for column_name, column_spec in metadata_columns.items():
+                if column_name not in columns:
+                    conn.execute(
+                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_spec}"
+                    )
 
     def _column_expr(self, columns: set[str], name: str, default_sql: str) -> str:
         """Return a SELECT expression for an existing column or SQL default."""
@@ -702,6 +759,15 @@ class ContextStore:
                 scope_label TEXT,
                 source_name TEXT,
                 source_profile TEXT,
+                card_type TEXT,
+                lifecycle_status TEXT NOT NULL DEFAULT 'active',
+                approval_status TEXT NOT NULL DEFAULT 'approved',
+                confidence REAL,
+                evidence_count INTEGER NOT NULL DEFAULT 0,
+                used_count INTEGER NOT NULL DEFAULT 0,
+                last_used_at TEXT,
+                review_notes TEXT,
+                superseded_by TEXT,
                 kind TEXT NOT NULL,
                 title TEXT NOT NULL,
                 body TEXT NOT NULL,
@@ -735,20 +801,33 @@ class ContextStore:
         scope_label = self._column_expr(columns, "scope_label", "COALESCE(project_id, record_id)")
         source_name = self._column_expr(columns, "source_name", "NULL")
         source_profile = self._column_expr(columns, "source_profile", "NULL")
+        card_type = self._column_expr(columns, "card_type", "NULL")
+        lifecycle_status = self._column_expr(columns, "lifecycle_status", "'active'")
+        approval_status = self._column_expr(columns, "approval_status", "'approved'")
+        confidence = self._column_expr(columns, "confidence", "NULL")
+        evidence_count = self._column_expr(columns, "evidence_count", "0")
+        used_count = self._column_expr(columns, "used_count", "0")
+        last_used_at = self._column_expr(columns, "last_used_at", "NULL")
+        review_notes = self._column_expr(columns, "review_notes", "NULL")
+        superseded_by = self._column_expr(columns, "superseded_by", "superseded_by_record_id")
         source_event_refs = self._column_expr(columns, "source_event_refs", "NULL")
         evidence_refs = self._column_expr(columns, "evidence_refs", "NULL")
         conn.execute(
             f"""
             INSERT INTO records(
                 record_id, project_id, scope_type, scope_id, scope_label,
-                source_name, source_profile, kind, title, body, status,
+                source_name, source_profile, card_type, lifecycle_status, approval_status,
+                confidence, evidence_count, used_count, last_used_at, review_notes,
+                superseded_by, kind, title, body, status,
                 source_session_id, source_event_refs, evidence_refs, created_at, updated_at, valid_from,
                 valid_until, superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes
             )
             SELECT
                 record_id, project_id, {scope_type}, {scope_id}, {scope_label},
-                {source_name}, {source_profile}, kind, title, body, status,
+                {source_name}, {source_profile}, {card_type}, {lifecycle_status}, {approval_status},
+                {confidence}, {evidence_count}, {used_count}, {last_used_at}, {review_notes},
+                {superseded_by}, kind, title, body, status,
                 source_session_id, {source_event_refs}, {evidence_refs}, created_at, updated_at, valid_from,
                 valid_until, superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes
@@ -804,6 +883,15 @@ class ContextStore:
                 scope_label TEXT,
                 source_name TEXT,
                 source_profile TEXT,
+                card_type TEXT,
+                lifecycle_status TEXT NOT NULL DEFAULT 'active',
+                approval_status TEXT NOT NULL DEFAULT 'approved',
+                confidence REAL,
+                evidence_count INTEGER NOT NULL DEFAULT 0,
+                used_count INTEGER NOT NULL DEFAULT 0,
+                last_used_at TEXT,
+                review_notes TEXT,
+                superseded_by TEXT,
                 record_id TEXT NOT NULL,
                 version_no INTEGER NOT NULL,
                 kind TEXT NOT NULL,
@@ -843,13 +931,24 @@ class ContextStore:
         scope_label = self._column_expr(columns, "scope_label", "COALESCE(project_id, record_id)")
         source_name = self._column_expr(columns, "source_name", "NULL")
         source_profile = self._column_expr(columns, "source_profile", "NULL")
+        card_type = self._column_expr(columns, "card_type", "NULL")
+        lifecycle_status = self._column_expr(columns, "lifecycle_status", "'active'")
+        approval_status = self._column_expr(columns, "approval_status", "'approved'")
+        confidence = self._column_expr(columns, "confidence", "NULL")
+        evidence_count = self._column_expr(columns, "evidence_count", "0")
+        used_count = self._column_expr(columns, "used_count", "0")
+        last_used_at = self._column_expr(columns, "last_used_at", "NULL")
+        review_notes = self._column_expr(columns, "review_notes", "NULL")
+        superseded_by = self._column_expr(columns, "superseded_by", "superseded_by_record_id")
         source_event_refs = self._column_expr(columns, "source_event_refs", "NULL")
         evidence_refs = self._column_expr(columns, "evidence_refs", "NULL")
         conn.execute(
             f"""
             INSERT INTO record_versions(
                 version_id, project_id, scope_type, scope_id, scope_label,
-                source_name, source_profile, record_id, version_no, kind,
+                source_name, source_profile, card_type, lifecycle_status, approval_status,
+                confidence, evidence_count, used_count, last_used_at, review_notes,
+                superseded_by, record_id, version_no, kind,
                 title, body, status, source_session_id, source_event_refs, evidence_refs,
                 created_at, updated_at,
                 valid_from, valid_until, superseded_by_record_id, decision, why,
@@ -858,7 +957,9 @@ class ContextStore:
             )
             SELECT
                 version_id, project_id, {scope_type}, {scope_id}, {scope_label},
-                {source_name}, {source_profile}, record_id, version_no, kind,
+                {source_name}, {source_profile}, {card_type}, {lifecycle_status}, {approval_status},
+                {confidence}, {evidence_count}, {used_count}, {last_used_at}, {review_notes},
+                {superseded_by}, record_id, version_no, kind,
                 title, body, status, source_session_id, {source_event_refs}, {evidence_refs},
                 created_at, updated_at,
                 valid_from, valid_until, superseded_by_record_id, decision, why,
@@ -891,6 +992,15 @@ class ContextStore:
                 "title",
                 "body",
                 "status",
+                "card_type",
+                "lifecycle_status",
+                "approval_status",
+                "confidence",
+                "evidence_count",
+                "used_count",
+                "last_used_at",
+                "review_notes",
+                "superseded_by",
                 "source_event_refs",
                 "evidence_refs",
             },
@@ -900,6 +1010,15 @@ class ContextStore:
                 "scope_type",
                 "scope_id",
                 "version_no",
+                "card_type",
+                "lifecycle_status",
+                "approval_status",
+                "confidence",
+                "evidence_count",
+                "used_count",
+                "last_used_at",
+                "review_notes",
+                "superseded_by",
                 "source_event_refs",
                 "evidence_refs",
                 "change_kind",
@@ -1422,6 +1541,7 @@ class ContextStore:
         filter_sql, params = self._build_record_filter_sql(
             project_ids=project_ids,
             kind_filters=None,
+            source_profile=None,
             statuses=None,
             source_session_id=None,
             created_since=None,
@@ -1477,6 +1597,15 @@ class ContextStore:
         outcomes: str | None = None,
         source_event_refs: list[str] | str | None = None,
         evidence_refs: list[str] | str | None = None,
+        card_type: str | None = None,
+        lifecycle_status: str | None = None,
+        approval_status: str | None = None,
+        confidence: float | None = None,
+        evidence_count: int | None = None,
+        used_count: int | None = None,
+        last_used_at: str | None = None,
+        review_notes: str | None = None,
+        superseded_by: str | None = None,
         change_reason: str | None = None,
         scope_identity: ScopeIdentity | None = None,
         scope_type: str | None = None,
@@ -1522,6 +1651,15 @@ class ContextStore:
             outcomes=outcomes,
             source_event_refs=source_event_refs,
             evidence_refs=evidence_refs,
+            card_type=card_type,
+            lifecycle_status=lifecycle_status,
+            approval_status=approval_status,
+            confidence=confidence,
+            evidence_count=evidence_count,
+            used_count=used_count,
+            last_used_at=last_used_at,
+            review_notes=review_notes,
+            superseded_by=superseded_by,
         )
         payload.update(
             {
@@ -1548,12 +1686,14 @@ class ContextStore:
                 """
                 INSERT INTO records(
                     record_id, project_id, scope_type, scope_id, scope_label,
-                    source_name, source_profile, kind, title, body, status, source_session_id,
+                    source_name, source_profile, card_type, lifecycle_status, approval_status,
+                    confidence, evidence_count, used_count, last_used_at, review_notes,
+                    superseded_by, kind, title, body, status, source_session_id,
                     source_event_refs, evidence_refs, created_at, updated_at,
                     valid_from, valid_until, superseded_by_record_id,
                     decision, why, alternatives, consequences, user_intent, what_happened, outcomes
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record_id,
@@ -1563,6 +1703,15 @@ class ContextStore:
                     payload["scope_label"],
                     payload["source_name"],
                     payload["source_profile"],
+                    payload["card_type"],
+                    payload["lifecycle_status"],
+                    payload["approval_status"],
+                    payload["confidence"],
+                    payload["evidence_count"],
+                    payload["used_count"],
+                    payload["last_used_at"],
+                    payload["review_notes"],
+                    payload["superseded_by"],
                     payload["kind"],
                     payload["title"],
                     payload["body"],
@@ -1673,6 +1822,18 @@ class ContextStore:
                 "source_event_refs", merged.get("source_event_refs")
             ),
             evidence_refs=changes.get("evidence_refs", merged.get("evidence_refs")),
+            card_type=changes.get("card_type", merged.get("card_type")),
+            lifecycle_status=changes.get("lifecycle_status", merged.get("lifecycle_status")),
+            approval_status=changes.get("approval_status", merged.get("approval_status")),
+            confidence=changes.get("confidence", merged.get("confidence")),
+            evidence_count=changes.get("evidence_count", merged.get("evidence_count")),
+            used_count=changes.get("used_count", merged.get("used_count")),
+            last_used_at=changes.get("last_used_at", merged.get("last_used_at")),
+            review_notes=changes.get("review_notes", merged.get("review_notes")),
+            superseded_by=changes.get(
+                "superseded_by",
+                changes.get("superseded_by_record_id", merged.get("superseded_by")),
+            ),
         )
         payload.update(
             {
@@ -1700,6 +1861,15 @@ class ContextStore:
             "outcomes",
             "source_event_refs",
             "evidence_refs",
+            "card_type",
+            "lifecycle_status",
+            "approval_status",
+            "confidence",
+            "evidence_count",
+            "used_count",
+            "last_used_at",
+            "review_notes",
+            "superseded_by",
         )
         if all(payload[field] == merged[field] for field in meaningful_fields):
             raise ValueError("no_changes")
@@ -1718,7 +1888,9 @@ class ContextStore:
             SET kind=?, title=?, body=?, status=?, updated_at=?, valid_from=?,
                 valid_until=?, superseded_by_record_id=?, decision=?, why=?,
                 alternatives=?, consequences=?, user_intent=?, what_happened=?, outcomes=?,
-                source_event_refs=?, evidence_refs=?
+                source_event_refs=?, evidence_refs=?, card_type=?, lifecycle_status=?,
+                approval_status=?, confidence=?, evidence_count=?, used_count=?,
+                last_used_at=?, review_notes=?, superseded_by=?
             WHERE record_id=?
             """,
             (
@@ -1739,6 +1911,15 @@ class ContextStore:
                 payload["outcomes"],
                 payload["source_event_refs"],
                 payload["evidence_refs"],
+                payload["card_type"],
+                payload["lifecycle_status"],
+                payload["approval_status"],
+                payload["confidence"],
+                payload["evidence_count"],
+                payload["used_count"],
+                payload["last_used_at"],
+                payload["review_notes"],
+                payload["superseded_by"],
                 record_id,
             ),
         )
@@ -1996,6 +2177,7 @@ class ContextStore:
         mode: str,
         project_ids: list[str] | None = None,
         kind: str | None = None,
+        source_profile: str | None = None,
         status: str | None = None,
         source_session_id: str | None = None,
         created_since: str | None = None,
@@ -2024,6 +2206,7 @@ class ContextStore:
         unsupported_filters = self._unsupported_query_filters(
             entity_name=entity_name,
             kind=kind,
+            source_profile=source_profile,
             status=status,
             updated_since=updated_since,
             updated_until=updated_until,
@@ -2040,6 +2223,7 @@ class ContextStore:
                 mode=mode_name,
                 project_ids=project_ids,
                 kind=kind,
+                source_profile=source_profile,
                 status=status,
                 source_session_id=source_session_id,
                 created_since=created_since,
@@ -2058,6 +2242,7 @@ class ContextStore:
                 mode=mode_name,
                 project_ids=project_ids,
                 kind=kind,
+                source_profile=source_profile,
                 status=status,
                 source_session_id=source_session_id,
                 created_since=created_since,
@@ -2087,6 +2272,7 @@ class ContextStore:
         *,
         entity_name: str,
         kind: str | None,
+        source_profile: str | None = None,
         status: str | None,
         updated_since: str | None,
         updated_until: str | None,
@@ -2101,6 +2287,7 @@ class ContextStore:
                 for name, value in (
                     ("kind", kind),
                     ("status", status),
+                    ("source_profile", source_profile),
                     ("updated_since", updated_since),
                     ("updated_until", updated_until),
                     ("valid_at", valid_at),
@@ -2117,6 +2304,7 @@ class ContextStore:
         mode: str,
         project_ids: list[str] | None,
         kind: str | None,
+        source_profile: str | None,
         status: str | None,
         source_session_id: str | None,
         created_since: str | None,
@@ -2133,6 +2321,7 @@ class ContextStore:
         filter_sql, params = self._build_record_filter_sql(
             project_ids=project_ids,
             kind_filters=[kind] if kind else None,
+            source_profile=source_profile,
             statuses=[status] if status else None,
             source_session_id=source_session_id,
             created_since=created_since,
@@ -2175,6 +2364,7 @@ class ContextStore:
         mode: str,
         project_ids: list[str] | None,
         kind: str | None,
+        source_profile: str | None,
         status: str | None,
         source_session_id: str | None,
         created_since: str | None,
@@ -2190,6 +2380,7 @@ class ContextStore:
         filter_sql, params = self._build_version_filter_sql(
             project_ids=project_ids,
             kind=kind,
+            source_profile=source_profile,
             status=status,
             source_session_id=source_session_id,
             created_since=created_since,
@@ -2300,6 +2491,15 @@ class ContextStore:
             "scope_label": _row_value(row, "scope_label"),
             "source_name": _row_value(row, "source_name"),
             "source_profile": _row_value(row, "source_profile"),
+            "card_type": _row_value(row, "card_type"),
+            "lifecycle_status": _row_value(row, "lifecycle_status", "active"),
+            "approval_status": _row_value(row, "approval_status", "approved"),
+            "confidence": _row_value(row, "confidence"),
+            "evidence_count": int(_row_value(row, "evidence_count", 0) or 0),
+            "used_count": int(_row_value(row, "used_count", 0) or 0),
+            "last_used_at": _row_value(row, "last_used_at"),
+            "review_notes": _row_value(row, "review_notes"),
+            "superseded_by": _row_value(row, "superseded_by"),
             "kind": str(row["kind"]),
             "title": str(row["title"]),
             "body": str(row["body"]),
@@ -2347,6 +2547,15 @@ class ContextStore:
         outcomes: Any,
         source_event_refs: Any = None,
         evidence_refs: Any = None,
+        card_type: Any = None,
+        lifecycle_status: Any = None,
+        approval_status: Any = None,
+        confidence: Any = None,
+        evidence_count: Any = None,
+        used_count: Any = None,
+        last_used_at: Any = None,
+        review_notes: Any = None,
+        superseded_by: Any = None,
     ) -> dict[str, Any]:
         """Normalize and validate one record payload."""
         payload = normalize_record_payload(
@@ -2370,8 +2579,33 @@ class ContextStore:
             source_event_refs=source_event_refs,
             evidence_refs=evidence_refs,
         )
+        card_type_text = normalize_card_type(card_type)
+        if card_type_text and card_type_text not in ALLOWED_CARD_TYPES:
+            raise ValueError(f"invalid_card_type:{card_type}")
+        lifecycle_status_text = normalize_lifecycle_status(lifecycle_status)
+        if lifecycle_status_text not in ALLOWED_LIFECYCLE_STATUSES:
+            raise ValueError(f"invalid_lifecycle_status:{lifecycle_status}")
+        approval_status_text = normalize_approval_status(approval_status)
+        if approval_status_text not in ALLOWED_APPROVAL_STATUSES:
+            raise ValueError(f"invalid_approval_status:{approval_status}")
+        payload.update(
+            {
+                "card_type": card_type_text,
+                "lifecycle_status": lifecycle_status_text,
+                "approval_status": approval_status_text,
+                "confidence": _normalize_optional_float(confidence),
+                "evidence_count": _normalize_nonnegative_int(evidence_count),
+                "used_count": _normalize_nonnegative_int(used_count),
+                "last_used_at": _normalize_optional_text(last_used_at),
+                "review_notes": _normalize_optional_text(review_notes),
+                "superseded_by": _normalize_optional_text(
+                    superseded_by or superseded_by_record_id
+                ),
+            }
+        )
         for field_name in ("created_at", "updated_at", "valid_from", "valid_until"):
             payload[field_name] = _normalize_datetime_utc(payload[field_name])
+        payload["last_used_at"] = _normalize_datetime_utc(payload["last_used_at"])
         return payload
 
     def _ensure_episode_uniqueness(
@@ -2420,14 +2654,16 @@ class ContextStore:
             """
             INSERT INTO record_versions(
                 version_id, project_id, scope_type, scope_id, scope_label,
-                source_name, source_profile, record_id, version_no, kind, title,
+                source_name, source_profile, card_type, lifecycle_status, approval_status,
+                confidence, evidence_count, used_count, last_used_at, review_notes,
+                superseded_by, record_id, version_no, kind, title,
                 body, status, source_session_id, created_at, updated_at,
                 source_event_refs, evidence_refs, valid_from, valid_until,
                 superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes,
                 change_kind, change_reason, changed_at, changed_by_session_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _new_id("ver"),
@@ -2437,6 +2673,15 @@ class ContextStore:
                 payload["scope_label"],
                 payload["source_name"],
                 payload["source_profile"],
+                payload["card_type"],
+                payload["lifecycle_status"],
+                payload["approval_status"],
+                payload["confidence"],
+                payload["evidence_count"],
+                payload["used_count"],
+                payload["last_used_at"],
+                payload["review_notes"],
+                payload["superseded_by"],
                 record_id,
                 version_no,
                 payload["kind"],
@@ -2699,6 +2944,7 @@ class ContextStore:
         *,
         project_ids: list[str] | None,
         kind_filters: list[str] | None,
+        source_profile: str | None = None,
         statuses: list[str] | None,
         source_session_id: str | None,
         created_since: str | None,
@@ -2734,6 +2980,11 @@ class ContextStore:
             params.extend(statuses)
         elif not include_archived:
             clauses.append(f"{prefix}status = 'active'")
+        if source_profile:
+            clauses.append(
+                f"{prefix}LOWER(COALESCE(NULLIF(TRIM(source_profile), ''), 'coding')) = ?"
+            )
+            params.append(str(source_profile).strip().lower())
         if source_session_id:
             clauses.append(f"{prefix}source_session_id = ?")
             params.append(source_session_id)
@@ -2760,6 +3011,7 @@ class ContextStore:
         *,
         project_ids: list[str] | None,
         kind: str | None,
+        source_profile: str | None,
         status: str | None,
         source_session_id: str | None,
         created_since: str | None,
@@ -2781,6 +3033,11 @@ class ContextStore:
         if kind:
             clauses.append("kind = ?")
             params.append(kind)
+        if source_profile:
+            clauses.append(
+                "LOWER(COALESCE(NULLIF(TRIM(source_profile), ''), 'coding')) = ?"
+            )
+            params.append(str(source_profile).strip().lower())
         if status:
             clauses.append("status = ?")
             params.append(status)

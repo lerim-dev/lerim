@@ -27,6 +27,54 @@ class RecordStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class CardType(StrEnum):
+    """Product-facing context card categories."""
+
+    DECISION = "decision"
+    CONSTRAINT = "constraint"
+    HANDOFF = "handoff"
+    SOURCE_OF_TRUTH = "source_of_truth"
+    FAILED_PATH = "failed_path"
+    REPEATED_WASTE = "repeated_waste"
+    GUARDRAIL_CANDIDATE = "guardrail_candidate"
+    KNOWN_FIX = "known_fix"
+    ESCALATION = "escalation"
+    RUNBOOK_GAP = "runbook_gap"
+    CUSTOMER_CONSTRAINT = "customer_constraint"
+    ROOT_CAUSE = "root_cause"
+    MITIGATION = "mitigation"
+    REJECTED_HYPOTHESIS = "rejected_hypothesis"
+    POLICY_REFERENCE = "policy_reference"
+    PRODUCT_BEHAVIOR = "product_behavior"
+    OWNER_DECISION = "owner_decision"
+    FOLLOW_UP_RISK = "follow_up_risk"
+    REPO_CONVENTION = "repo_convention"
+    ARCHITECTURE_DECISION = "architecture_decision"
+    SETUP_FACT = "setup_fact"
+    TEST_LESSON = "test_lesson"
+    RELEASE_HANDOFF = "release_handoff"
+
+
+class LifecycleStatus(StrEnum):
+    """Review lifecycle for product-facing context cards."""
+
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    ACTIVE = "active"
+    NEEDS_REVIEW = "needs_review"
+    SUPERSEDED = "superseded"
+    RETIRED = "retired"
+    REJECTED = "rejected"
+
+
+class ApprovalStatus(StrEnum):
+    """Human review state for context cards."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class RecordChangeKind(StrEnum):
     """Canonical record-version change kinds."""
 
@@ -36,22 +84,12 @@ class RecordChangeKind(StrEnum):
     SUPERSEDE = "supersede"
 
 
-class FindingLevel(StrEnum):
-    """Canonical extracted-finding levels."""
-
-    DECISION = "decision"
-    PREFERENCE = "preference"
-    FEEDBACK = "feedback"
-    REFERENCE = "reference"
-    CONSTRAINT = "constraint"
-    FACT = "fact"
-    IMPLEMENTATION = "implementation"
-
-
 ALLOWED_KINDS = tuple(kind.value for kind in RecordKind)
 ALLOWED_STATUSES = tuple(status.value for status in RecordStatus)
+ALLOWED_CARD_TYPES = tuple(card_type.value for card_type in CardType)
+ALLOWED_LIFECYCLE_STATUSES = tuple(status.value for status in LifecycleStatus)
+ALLOWED_APPROVAL_STATUSES = tuple(status.value for status in ApprovalStatus)
 ALLOWED_CHANGE_KINDS = tuple(change_kind.value for change_kind in RecordChangeKind)
-ALLOWED_FINDING_LEVELS = tuple(level.value for level in FindingLevel)
 MAX_RECORD_TITLE_CHARS = 120
 MAX_EPISODE_BODY_CHARS = 1200
 MAX_DURABLE_BODY_CHARS = 850
@@ -67,7 +105,7 @@ RECORD_TYPED_FIELDS = (
     "what_happened",
     "outcomes",
 )
-SEARCH_TEXT_FIELDS = ("title", "body", *RECORD_TYPED_FIELDS)
+SEARCH_TEXT_FIELDS = ("card_type", "source_profile", "title", "body", *RECORD_TYPED_FIELDS)
 
 
 @dataclass(frozen=True)
@@ -100,14 +138,6 @@ class RecordKindSpec:
     def required_fields(self) -> tuple[str, ...]:
         """Return required typed field names for this record kind."""
         return tuple(field.name for field in self.typed_fields if field.required)
-
-
-@dataclass(frozen=True)
-class FindingLevelSpec:
-    """Canonical classification for one note/finding level."""
-
-    name: str
-    bucket: str
 
 
 RECORD_KIND_SPECS = {
@@ -174,46 +204,6 @@ DURABLE_RECORD_KINDS = tuple(
     kind_name for kind_name in ALLOWED_KINDS if kind_name != RecordKind.EPISODE.value
 )
 
-FINDING_LEVEL_SPECS = {
-    FindingLevel.DECISION.value: FindingLevelSpec(
-        name=FindingLevel.DECISION.value,
-        bucket="durable",
-    ),
-    FindingLevel.PREFERENCE.value: FindingLevelSpec(
-        name=FindingLevel.PREFERENCE.value,
-        bucket="durable",
-    ),
-    FindingLevel.FEEDBACK.value: FindingLevelSpec(
-        name=FindingLevel.FEEDBACK.value,
-        bucket="durable",
-    ),
-    FindingLevel.REFERENCE.value: FindingLevelSpec(
-        name=FindingLevel.REFERENCE.value,
-        bucket="durable",
-    ),
-    FindingLevel.CONSTRAINT.value: FindingLevelSpec(
-        name=FindingLevel.CONSTRAINT.value,
-        bucket="durable",
-    ),
-    FindingLevel.FACT.value: FindingLevelSpec(
-        name=FindingLevel.FACT.value,
-        bucket="durable",
-    ),
-    FindingLevel.IMPLEMENTATION.value: FindingLevelSpec(
-        name=FindingLevel.IMPLEMENTATION.value,
-        bucket="implementation",
-    ),
-}
-DURABLE_FINDING_LEVELS = tuple(
-    level.name for level in FINDING_LEVEL_SPECS.values() if level.bucket == "durable"
-)
-IMPLEMENTATION_FINDING_LEVELS = tuple(
-    level.name
-    for level in FINDING_LEVEL_SPECS.values()
-    if level.bucket == "implementation"
-)
-
-
 def _utc_now() -> str:
     """Return current UTC timestamp."""
     return datetime.now(timezone.utc).isoformat()
@@ -260,19 +250,20 @@ def normalize_record_status(value: Any, default: str = "active") -> str:
     return str(value or default).strip().lower()
 
 
-def normalize_finding_level(value: Any) -> str:
-    """Normalize one finding level candidate."""
-    return str(value or "").strip().lower()
+def normalize_card_type(value: Any) -> str | None:
+    """Normalize one optional product-facing card type."""
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return text or None
 
 
-def format_allowed_finding_levels() -> str:
-    """Return one human-readable finding-level description."""
-    if not ALLOWED_FINDING_LEVELS:
-        return ""
-    if len(ALLOWED_FINDING_LEVELS) == 1:
-        return ALLOWED_FINDING_LEVELS[0]
-    head = ", ".join(ALLOWED_FINDING_LEVELS[:-1])
-    return f"{head}, or {ALLOWED_FINDING_LEVELS[-1]}"
+def normalize_lifecycle_status(value: Any, default: str = "active") -> str:
+    """Normalize one optional context-card lifecycle status."""
+    return str(value or default).strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def normalize_approval_status(value: Any, default: str = "approved") -> str:
+    """Normalize one optional context-card approval status."""
+    return str(value or default).strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def format_durable_record_kinds() -> str:

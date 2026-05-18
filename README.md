@@ -2,10 +2,10 @@
   <img src="assets/lerim.png" alt="Lerim Logo" width="160">
 </p>
 
-<h3 align="center">Living context graph infrastructure for AI agents.</h3>
+<h3 align="center">Trace-to-context compiler for AI agent workflows.</h3>
 
 <p align="center">
-  Lerim extracts reusable decisions, constraints, evidence, and handoffs from completed agent work so future agents start with trusted context instead of raw logs.
+  Lerim turns completed agent runs into evidence-backed context cards so the next agent starts with trusted operating context instead of another raw transcript.
 </p>
 
 <p align="center">
@@ -28,16 +28,21 @@
 
 # Lerim
 
-Lerim is living context graph infrastructure for AI agents.
+Lerim is a post-trace learning compiler for AI agent workflows.
 
-Lerim builds a living context graph from agent traces. It filters noisy execution history into durable signals, links related decisions and evidence, and gives future agents the context they need before they start.
+Observability shows what happened. Lerim decides what was worth learning from it.
+
+Lerim reads completed agent traces, filters noisy execution history into durable signals, and writes reviewed context cards for future runs.
 
 Instead of replaying raw traces or losing what happened after each run, Lerim keeps:
 
 - decisions
 - constraints
-- preferences
-- reference facts
+- handoffs
+- source-of-truth records
+- failed paths
+- repeated-waste patterns
+- guardrail candidates
 - evidence linked back to the source session
 
 ## Why Lerim
@@ -55,10 +60,11 @@ Without a durable context layer:
 
 Lerim fixes that by turning raw traces into reusable context records and making them queryable from agent tools and product workflows.
 
-The current package provides the trace-to-context foundation, supported source
-adapters, and custom clean-trace folders for business workflows such as support
-handoffs, operations incidents, research workflows, revenue processes, security
-reviews, and internal automation logs.
+The current package focuses on three paths:
+
+- coding agents: repo conventions, architecture decisions, setup facts, failed paths, test lessons, release handoffs
+- support operations: customer constraints, known fixes, failed fixes, escalation reasons, policy references, handoffs
+- operations and incidents: root causes, mitigations, rejected hypotheses, runbook gaps, incident handoffs, follow-up risks
 
 ## Key Capabilities
 
@@ -68,16 +74,15 @@ reviews, and internal automation logs.
 - Living context graph. Lerim links related decisions, constraints, evidence, facts, and handoffs so teams can inspect how reusable context connects.
 - Query and startup context. Agents can ask questions against accumulated context or start from a compact context brief.
 - Evidence-backed memory. Useful decisions, constraints, preferences, references, and handoffs stay linked to the work that produced them.
-- Customer-adaptable workflows. The same context layer can be shaped around a software team, support desk, research process, operations workflow, or custom business agent.
+- Source profiles and signal packs. Coding, support, and incident workflows share one compiler, but each profile defines what reusable signal, noise, card types, evidence, and scope mean.
 
-## Business Workflows Lerim Supports
+## Focused Workflows
 
-- Research and market intelligence: retain source trails, evidence strength, assumptions, rejected leads, and client-specific brief constraints across agent-assisted research cycles.
 - Support operations: preserve triage decisions, escalation evidence, policy references, known fixes, and customer constraints.
-- Security and IT: carry forward incident timelines, access-review rationale, policy exceptions, remediation evidence, and helpdesk handoffs.
-- Operations: preserve incident decisions, inventory exceptions, supplier or carrier constraints, runbook lessons, and unresolved risks.
-- Revenue and customer workflows: reuse account context, positioning decisions, campaign constraints, approvals, and follow-up commitments.
-- Engineering automation: retain architecture decisions, failed tests, repo conventions, release lessons, and operational constraints.
+- Operations and incidents: preserve root causes, mitigations, rejected hypotheses, runbook gaps, owner decisions, and follow-up risks.
+- Coding agents: retain architecture decisions, failed paths, repo conventions, setup facts, release handoffs, and constraints.
+
+Research, revenue, security, and other verticals can use the same custom-trace path later, but the first product wedge is coding plus support and incident operations.
 
 ## Custom Agent Traces
 
@@ -108,6 +113,19 @@ Custom mode has no Lerim adapter and no compaction step. The user or customer
 owns the exporter, cleaner, redaction, and retention boundary before files enter
 the custom folder. See the custom trace folder guide for the pasteable prompt
 that helps a coding agent generate that cleaner.
+
+For explicit business traces, import with a source profile and domain scope:
+
+```bash
+lerim trace import ../lerim-cloud/evals/data/traces/support_refund_escalation_001.jsonl \
+  --source-name support-agent \
+  --source-profile support \
+  --scope-type domain \
+  --scope support-ops
+
+lerim context cards --profile support
+lerim context cards --profile support --type failed_path
+```
 
 ## Quick Start
 
@@ -207,6 +225,10 @@ MINIMAX_API_KEY=your-key
 OPENROUTER_API_KEY=your-key
 OPENAI_API_KEY=your-key
 ZAI_API_KEY=your-key
+LERIM_MLFLOW=true
+MLFLOW_TRACKING_URI=http://127.0.0.1:5050
+LERIM_MLFLOW_EXPERIMENT=lerim
+LERIM_MLFLOW_REQUIRED=1
 ```
 
 Example provider config:
@@ -255,6 +277,11 @@ raw trace -> evidence -> durable signal -> context graph -> future agent
 ```
 
 Most routine traces should produce no new durable record. Lerim's value is compact, cited context, not more logs.
+
+Records have two dimensions:
+
+- `kind` is the storage ontology: fact, decision, preference, constraint, reference, or episode.
+- `card_type` is the product shape: known fix, failed path, handoff, source of truth, root cause, mitigation, runbook gap, and similar workflow cards.
 
 Retrieval blends semantic and lexical signals so agents get compact, relevant
 context instead of a raw trace dump.

@@ -46,6 +46,9 @@ type_map = {
     "types.ContextRetrievalPlan": types.ContextRetrievalPlan,
     "stream_types.ContextRetrievalPlan": stream_types.ContextRetrievalPlan,
 
+    "types.DurableFinding": types.DurableFinding,
+    "stream_types.DurableFinding": stream_types.DurableFinding,
+
     "types.DurableRecordDraft": types.DurableRecordDraft,
     "stream_types.DurableRecordDraft": stream_types.DurableRecordDraft,
 
@@ -55,11 +58,11 @@ type_map = {
     "types.EpisodeDraft": types.EpisodeDraft,
     "stream_types.EpisodeDraft": stream_types.EpisodeDraft,
 
+    "types.ImplementationFinding": types.ImplementationFinding,
+    "stream_types.ImplementationFinding": stream_types.ImplementationFinding,
+
     "types.SignalFilterResult": types.SignalFilterResult,
     "stream_types.SignalFilterResult": stream_types.SignalFilterResult,
-
-    "types.SourceWindowFinding": types.SourceWindowFinding,
-    "stream_types.SourceWindowFinding": stream_types.SourceWindowFinding,
 
     "types.SourceWindowScan": types.SourceWindowScan,
     "stream_types.SourceWindowScan": stream_types.SourceWindowScan,
@@ -67,6 +70,10 @@ type_map = {
     "types.SynthesizedContextRecords": types.SynthesizedContextRecords,
     "stream_types.SynthesizedContextRecords": stream_types.SynthesizedContextRecords,
 
+
+    "types.ApprovalStatus": types.ApprovalStatus,
+
+    "types.CardType": types.CardType,
 
     "types.ContextCuratorActionType": types.ContextCuratorActionType,
 
@@ -78,7 +85,7 @@ type_map = {
 
     "types.ContextRetrievalActionType": types.ContextRetrievalActionType,
 
-    "types.FindingLevel": types.FindingLevel,
+    "types.LifecycleStatus": types.LifecycleStatus,
 
     "types.RecordKind": types.RecordKind,
 

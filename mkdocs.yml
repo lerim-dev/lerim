@@ -95,6 +95,8 @@ nav:
     - Quickstart: quickstart.md
   - Concepts:
     - Business Workflows: concepts/business-workflows.md
+    - Signal Packs: concepts/signal-packs.md
+    - Context Cards: concepts/context-cards.md
     - How It Works: concepts/how-it-works.md
     - Context Model: concepts/context-model.md
     - Trace Sources & Adapters: concepts/supported-agents.md
@@ -135,6 +137,9 @@ nav:
   - Guides:
     - Connecting Agents: guides/connecting-agents.md
     - Custom Trace Folders: guides/custom-trace-folders.md
+    - Support Ops Demo: guides/support-ops-demo.md
+    - Incident Ops Demo: guides/incident-ops-demo.md
+    - Evaluate Extraction Quality: guides/evaluate-extraction-quality.md
     - Dashboard: guides/dashboard.md
     - Querying Context: guides/querying-context.md
   - Contributing: contributing/getting-started.md

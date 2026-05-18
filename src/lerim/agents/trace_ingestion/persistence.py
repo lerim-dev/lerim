@@ -8,6 +8,7 @@ from pathlib import Path
 import textwrap
 from typing import Any
 
+from lerim.agents.baml_helpers import model_payload
 from lerim.context import ContextStore, ProjectIdentity, ScopeIdentity
 from lerim.context.spec import (
     DURABLE_RECORD_KINDS,
@@ -17,9 +18,11 @@ from lerim.context.spec import (
     MAX_EPISODE_USER_INTENT_CHARS,
     MAX_EPISODE_WHAT_HAPPENED_CHARS,
     MAX_RECORD_TITLE_CHARS,
+    normalize_card_type,
     normalize_record_kind,
     normalize_record_status,
 )
+from lerim.profiles import normalize_signal_pack_id
 
 MAX_INGESTED_EPISODE_BODY_CHARS = 420
 
@@ -76,7 +79,7 @@ def prepare_context_store(ctx: PersistenceContext) -> None:
         prompt_text=None,
         scope_identity=ctx.scope_identity,
         source_name=ctx.source_name or "trace",
-        source_profile=ctx.source_profile or "generic",
+        source_profile=normalize_signal_pack_id(ctx.source_profile),
         metadata={},
     )
 
@@ -142,7 +145,7 @@ def persist_synthesized_extraction(
     ctx: PersistenceContext,
 ) -> tuple[list[dict[str, Any]], bool, str]:
     """Persist synthesized episode and durable records through ContextStore."""
-    payload = _model_payload(synthesized)
+    payload = model_payload(synthesized)
     durable_records = [
         record
         for record in (
@@ -186,11 +189,11 @@ def persist_synthesized_extraction(
             result = store.create_record(
                 project_id=ctx.project_identity.project_id if ctx.project_identity else None,
                 session_id=ctx.session_id,
-        change_reason="baml_trace_ingestion",
+                change_reason="baml_trace_ingestion",
                 created_at=ctx.session_started_at or None,
                 scope_identity=ctx.scope_identity,
                 source_name=ctx.source_name or "trace",
-                source_profile=ctx.source_profile or "generic",
+                source_profile=normalize_signal_pack_id(ctx.source_profile),
                 **record,
             )
             observation = PersistenceObservation(
@@ -383,7 +386,7 @@ def _prepare_episode(
     archive_when_durable_signal: bool = False,
 ) -> dict[str, Any]:
     """Normalize a synthesized episode draft into a canonical record payload."""
-    episode = _model_payload(value)
+    episode = model_payload(value)
     status = _status_value(episode.get("status"))
     if archive_when_durable_signal:
         status = "archived"
@@ -435,7 +438,7 @@ def _prepare_episode(
 
 def _prepare_durable_record(value: Any) -> dict[str, Any] | None:
     """Normalize one durable draft into a canonical record payload."""
-    record = _model_payload(value)
+    record = model_payload(value)
     kind = normalize_record_kind(_enum_text(record.get("kind")))
     if kind not in DURABLE_RECORD_KINDS:
         return None
@@ -449,11 +452,22 @@ def _prepare_durable_record(value: Any) -> dict[str, Any] | None:
         kind = "fact"
         decision = None
         why = None
+    source_event_refs = _reference_list(record.get("source_event_refs"))
+    evidence_refs = _reference_list(record.get("evidence_refs"))
     return {
         "kind": kind,
+        "card_type": normalize_card_type(_enum_text(record.get("card_type"))),
         "title": title,
         "body": body,
         "status": _status_value(record.get("status")) or "active",
+        "lifecycle_status": _empty_to_none(_enum_text(record.get("lifecycle_status"))),
+        "approval_status": _empty_to_none(_enum_text(record.get("approval_status"))),
+        "confidence": _optional_float(record.get("confidence")),
+        "evidence_count": _evidence_count(source_event_refs, evidence_refs),
+        "used_count": _optional_int(record.get("used_count")) or 0,
+        "last_used_at": _empty_to_none(record.get("last_used_at")),
+        "review_notes": _empty_to_none(record.get("review_notes")),
+        "superseded_by": _empty_to_none(record.get("superseded_by")),
         "valid_from": _empty_to_none(record.get("valid_from")),
         "valid_until": _empty_to_none(record.get("valid_until")),
         "decision": decision if kind == "decision" else None,
@@ -467,14 +481,14 @@ def _prepare_durable_record(value: Any) -> dict[str, Any] | None:
         "user_intent": None,
         "what_happened": None,
         "outcomes": None,
-        "source_event_refs": _reference_list(record.get("source_event_refs")),
-        "evidence_refs": _reference_list(record.get("evidence_refs")),
+        "source_event_refs": source_event_refs,
+        "evidence_refs": evidence_refs,
     }
 
 
 def _prepare_durable_update(value: Any) -> dict[str, Any] | None:
     """Normalize one existing-record update into ContextStore changes."""
-    record = _model_payload(value)
+    record = model_payload(value)
     record_id = str(record.get("record_id") or "").strip()
     if not record_id:
         return None
@@ -482,21 +496,6 @@ def _prepare_durable_update(value: Any) -> dict[str, Any] | None:
     if durable is None:
         return None
     return {"record_id": record_id, **durable}
-
-
-def _model_payload(value: Any) -> dict[str, Any]:
-    """Return a plain dict from a generated BAML/Pydantic-ish object."""
-    if hasattr(value, "model_dump"):
-        return _coerce_value(value.model_dump(exclude_none=True))
-    if isinstance(value, dict):
-        return _coerce_value(
-            {key: item for key, item in value.items() if item is not None}
-        )
-    if value is None:
-        return {}
-    return _coerce_value(
-        json.loads(json.dumps(value, default=lambda item: item.__dict__))
-    )
 
 
 def _reference_list(value: Any) -> list[str] | None:
@@ -513,16 +512,26 @@ def _reference_list(value: Any) -> list[str] | None:
     return [text] if text else None
 
 
-def _coerce_value(value: Any) -> Any:
-    """Convert generated BAML enum values into plain JSON-like values."""
-    enum_value = getattr(value, "value", None)
-    if enum_value is not None:
-        return enum_value
-    if isinstance(value, dict):
-        return {key: _coerce_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_coerce_value(item) for item in value]
-    return value
+def _optional_float(value: Any) -> float | None:
+    """Normalize an optional float emitted by the model."""
+    if value is None or value == "":
+        return None
+    return float(value)
+
+
+def _optional_int(value: Any) -> int | None:
+    """Normalize an optional integer emitted by the model."""
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
+def _evidence_count(
+    source_event_refs: list[str] | None,
+    evidence_refs: list[str] | None,
+) -> int:
+    """Count direct evidence references attached to a record."""
+    return len(source_event_refs or []) + len(evidence_refs or [])
 
 
 def _status_value(value: Any) -> str:

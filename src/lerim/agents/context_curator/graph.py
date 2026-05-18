@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from lerim.agents.baml_helpers import call_baml_with_retries, model_payload
 from lerim.agents.baml_runtime import build_baml_client_for_role
 from lerim.agents.context_curator.inventory import (
     build_health_batches,
@@ -20,14 +21,6 @@ from lerim.agents.context_curator.operations import (
 from lerim.agents.context_curator.state import ContextCuratorGraphState
 from lerim.config.settings import Config
 from lerim.context import ProjectIdentity
-
-MAX_BAML_MODEL_RETRIES = 3
-BAML_RECOVERABLE_ERROR_NAMES = {
-    "BamlClientFinishReasonError",
-    "BamlClientHttpError",
-    "BamlTimeoutError",
-    "BamlValidationError",
-}
 
 
 def run_context_curator_graph(
@@ -165,7 +158,7 @@ def build_context_curator_graph(
                 raise RuntimeError(f"BAML context curator exceeded max_llm_calls={max_llm_calls}.")
             if progress:
                 print(f"  context-curator review cluster {cluster.get('cluster_id')}", flush=True)
-            result, retry_observations, attempts = _call_baml_with_retries(
+            result, retry_observations, attempts = call_baml_with_retries(
                 lambda instruction, cluster=cluster: baml_runtime.CurateContextCluster(
                     run_instruction=instruction,
                     cluster_id=str(cluster.get("cluster_id") or ""),
@@ -173,15 +166,20 @@ def build_context_curator_graph(
                 ),
                 stage="review_cluster",
                 progress=progress,
+                progress_label="context-curator",
                 run_instruction=run_instruction,
                 validate_result=lambda result, cluster=cluster: _validate_action_plan_for_records(
                     result,
                     records=cluster.get("records") or [],
                 ),
+                make_observation=_observation,
+                semantic_retry_content=_semantic_retry_observation,
+                validation_retry_target="complete corrected action plan",
+                raise_on_validation_failure=False,
             )
             llm_calls += attempts
             plans.append(result)
-            action_count = len(_model_payload(result).get("actions") or [])
+            action_count = len(model_payload(result).get("actions") or [])
             observations.extend(retry_observations)
             observations.append(
                 _observation(
@@ -213,7 +211,7 @@ def build_context_curator_graph(
                 raise RuntimeError(f"BAML context curator exceeded max_llm_calls={max_llm_calls}.")
             if progress:
                 print(f"  context-curator review health batch {index}", flush=True)
-            result, retry_observations, attempts = _call_baml_with_retries(
+            result, retry_observations, attempts = call_baml_with_retries(
                 lambda instruction, batch=batch, index=index: baml_runtime.CurateRecordHealthBatch(
                     run_instruction=instruction,
                     batch_id=f"health_{index}",
@@ -221,15 +219,20 @@ def build_context_curator_graph(
                 ),
                 stage="review_health",
                 progress=progress,
+                progress_label="context-curator",
                 run_instruction=run_instruction,
                 validate_result=lambda result, batch=batch: _validate_action_plan_for_records(
                     result,
                     records=batch,
                 ),
+                make_observation=_observation,
+                semantic_retry_content=_semantic_retry_observation,
+                validation_retry_target="complete corrected action plan",
+                raise_on_validation_failure=False,
             )
             llm_calls += attempts
             plans.append(result)
-            action_count = len(_model_payload(result).get("actions") or [])
+            action_count = len(model_payload(result).get("actions") or [])
             observations.extend(retry_observations)
             observations.append(
                 _observation(
@@ -307,73 +310,12 @@ def _run_instruction() -> str:
     )
 
 
-def _call_baml_with_retries(
-    call: Callable[[str], Any],
-    *,
-    stage: str,
-    progress: bool,
-    run_instruction: str,
-    validate_result: Callable[[Any], str | None] | None = None,
-) -> tuple[Any, list[dict[str, Any]], int]:
-    """Run one BAML call with graph-visible recoverable retries."""
-    observations: list[dict[str, Any]] = []
-    attempts = 0
-    validation_feedback = ""
-    while True:
-        attempts += 1
-        try:
-            result = call(_instruction_with_validation_feedback(run_instruction, validation_feedback))
-        except Exception as exc:
-            if not _is_recoverable_baml_error(exc) or attempts > MAX_BAML_MODEL_RETRIES:
-                raise
-            if progress:
-                print(f"  context-curator retry {stage} attempt={attempts}", flush=True)
-            observations.append(
-                _observation(
-                    "model_retry",
-                    False,
-                    _model_retry_observation(exc),
-                    {"stage": stage, "attempt": attempts},
-                )
-            )
-            continue
-        if validate_result is None:
-            return result, observations, attempts
-        validation_error = validate_result(result)
-        if not validation_error:
-            return result, observations, attempts
-        observations.append(
-            _observation(
-                "model_retry",
-                False,
-                _semantic_retry_observation(validation_error),
-                {"stage": stage, "attempt": attempts},
-            )
-        )
-        if attempts > MAX_BAML_MODEL_RETRIES:
-            return result, observations, attempts
-        validation_feedback = validation_error
-        if progress:
-            print(f"  context-curator retry {stage} attempt={attempts}", flush=True)
-
-
-def _model_payload(value: Any) -> dict[str, Any]:
-    """Convert generated BAML objects into plain dictionaries."""
-    if hasattr(value, "model_dump"):
-        return _plain_value(value.model_dump(exclude_none=True))
-    if isinstance(value, dict):
-        return _plain_value({key: item for key, item in value.items() if item is not None})
-    if value is None:
-        return {}
-    return _plain_value(getattr(value, "__dict__", {}))
-
-
 def _planned_action_record_ids(action_plans: list[Any]) -> set[str]:
     """Return record IDs already targeted by non-noop cluster actions."""
     record_ids: set[str] = set()
     for plan in action_plans:
-        for raw_action in _model_payload(plan).get("actions") or []:
-            action = _model_payload(raw_action)
+        for raw_action in model_payload(plan).get("actions") or []:
+            action = model_payload(raw_action)
             action_type = str(action.get("action_type") or "").strip().lower()
             record_id = str(action.get("record_id") or "").strip()
             if record_id and action_type and action_type != "noop":
@@ -386,8 +328,8 @@ def _validate_action_plan_for_records(result: Any, *, records: list[dict[str, An
     records_by_id = {str(record.get("record_id") or ""): record for record in records}
     touched_record_ids: set[str] = set()
     has_non_noop_action = False
-    for raw_action in _model_payload(result).get("actions") or []:
-        action = _model_payload(raw_action)
+    for raw_action in model_payload(result).get("actions") or []:
+        action = model_payload(raw_action)
         action_type = _clean_action_type(action.get("action_type"))
         record_id = str(action.get("record_id") or "").strip()
         if action_type == "noop":
@@ -454,7 +396,7 @@ def _validate_revision_is_substantive(
     patch: Any, *, record: dict[str, Any], record_id: str
 ) -> str | None:
     """Reject cosmetic rewrites of already-compact decision records."""
-    payload = _model_payload(patch)
+    payload = model_payload(patch)
     current_kind = str(record.get("kind") or "").strip().lower()
     if current_kind != "decision":
         return None
@@ -478,7 +420,7 @@ def _validate_revision_is_substantive(
 
 def _validate_revision_patch(patch: Any, *, record: dict[str, Any], record_id: str) -> str | None:
     """Return feedback for an incomplete or unsafe revise patch."""
-    payload = _model_payload(patch)
+    payload = model_payload(patch)
     if not payload:
         return f"revise action for {record_id} must include a complete patch"
     current_kind = str(record.get("kind") or "").strip().lower()
@@ -506,45 +448,6 @@ def _clean_action_type(value: Any) -> str:
     enum_value = getattr(value, "value", None)
     text = str(enum_value if enum_value is not None else value or "").strip().lower()
     return text or "noop"
-
-
-def _instruction_with_validation_feedback(run_instruction: str, validation_feedback: str) -> str:
-    """Add compact retry feedback to the BAML run instruction."""
-    if not validation_feedback:
-        return run_instruction
-    return (
-        f"{run_instruction}\n\n"
-        "Previous structured output was unsafe or incomplete. "
-        f"Fix this validation error and return a complete corrected action plan: {validation_feedback}"
-    )
-
-
-def _plain_value(value: Any) -> Any:
-    """Convert enum-ish values recursively into JSON-like values."""
-    enum_value = getattr(value, "value", None)
-    if enum_value is not None:
-        return enum_value
-    if isinstance(value, dict):
-        return {key: _plain_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_plain_value(item) for item in value]
-    return value
-
-
-def _is_recoverable_baml_error(exc: Exception) -> bool:
-    """Return whether a BAML model/parsing failure should be retried."""
-    return type(exc).__name__ in BAML_RECOVERABLE_ERROR_NAMES
-
-
-def _model_retry_observation(exc: Exception) -> str:
-    """Render a compact model failure note."""
-    message = str(exc).replace("\n", " ")[:1200]
-    return (
-        "The previous BAML model call did not produce valid structured output. "
-        "Retry and return exactly one JSON object matching the requested schema. "
-        "Do not include <think> tags, hidden reasoning, markdown, or prose before "
-        f"the JSON. Error: {type(exc).__name__}: {message}"
-    )
 
 
 def _semantic_retry_observation(validation_error: str) -> str:

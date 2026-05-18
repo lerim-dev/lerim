@@ -150,18 +150,18 @@ class BamlSyncClient:
                 "run_instruction": run_instruction,"batch_id": batch_id,"records_json": records_json,
             })
             return typing.cast(types.ContextCurationPlan, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def FilterDurableSignal(self, run_instruction: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
+    def FilterDurableSignal(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> types.SignalFilterResult:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
-            __stream__ = self.stream.FilterDurableSignal(run_instruction=run_instruction,episode_summary=episode_summary,durable_findings_summary=durable_findings_summary,implementation_summary=implementation_summary,existing_record_manifest=existing_record_manifest,
+            __stream__ = self.stream.FilterDurableSignal(run_instruction=run_instruction,source_profile_context=source_profile_context,episode_summary=episode_summary,durable_findings_summary=durable_findings_summary,implementation_summary=implementation_summary,existing_record_manifest=existing_record_manifest,
                 baml_options=baml_options)
             return __stream__.get_final_response()
         else:
             # Original non-streaming code
             __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="FilterDurableSignal", args={
-                "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
+                "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
             })
             return typing.cast(types.SignalFilterResult, __result__.cast_to(types, types, stream_types, False, __runtime__))
     def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
@@ -178,18 +178,18 @@ class BamlSyncClient:
                 "run_instruction": run_instruction,"cluster_id": cluster_id,"records_json": records_json,"candidate_pairs_json": candidate_pairs_json,"existing_edges_json": existing_edges_json,
             })
             return typing.cast(types.ContextGraphPlan, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def ObserveSourceWindow(self, run_instruction: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
+    def ObserveSourceWindow(self, run_instruction: str,source_profile_context: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
         baml_options: BamlCallOptions = {},
     ) -> types.SourceWindowScan:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
-            __stream__ = self.stream.ObserveSourceWindow(run_instruction=run_instruction,prior_episode_summary=prior_episode_summary,prior_findings_summary=prior_findings_summary,source_window=source_window,
+            __stream__ = self.stream.ObserveSourceWindow(run_instruction=run_instruction,source_profile_context=source_profile_context,prior_episode_summary=prior_episode_summary,prior_findings_summary=prior_findings_summary,source_window=source_window,
                 baml_options=baml_options)
             return __stream__.get_final_response()
         else:
             # Original non-streaming code
             __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="ObserveSourceWindow", args={
-                "run_instruction": run_instruction,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
+                "run_instruction": run_instruction,"source_profile_context": source_profile_context,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
             })
             return typing.cast(types.SourceWindowScan, __result__.cast_to(types, types, stream_types, False, __runtime__))
     def PlanContextRetrieval(self, question: str,current_utc: str,hints: str,
@@ -220,32 +220,32 @@ class BamlSyncClient:
                 "run_instruction": run_instruction,"records_json": records_json,"proposed_links_json": proposed_links_json,
             })
             return typing.cast(types.ContextGraphPlan, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def ReviewSynthesizedContextRecords(self, run_instruction: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
+    def ReviewSynthesizedContextRecords(self, run_instruction: str,source_profile_context: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
         baml_options: BamlCallOptions = {},
     ) -> types.SynthesizedContextRecords:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
-            __stream__ = self.stream.ReviewSynthesizedContextRecords(run_instruction=run_instruction,durable_findings_summary=durable_findings_summary,existing_record_manifest=existing_record_manifest,synthesized_records_json=synthesized_records_json,
+            __stream__ = self.stream.ReviewSynthesizedContextRecords(run_instruction=run_instruction,source_profile_context=source_profile_context,durable_findings_summary=durable_findings_summary,existing_record_manifest=existing_record_manifest,synthesized_records_json=synthesized_records_json,
                 baml_options=baml_options)
             return __stream__.get_final_response()
         else:
             # Original non-streaming code
             __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="ReviewSynthesizedContextRecords", args={
-                "run_instruction": run_instruction,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,"synthesized_records_json": synthesized_records_json,
+                "run_instruction": run_instruction,"source_profile_context": source_profile_context,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,"synthesized_records_json": synthesized_records_json,
             })
             return typing.cast(types.SynthesizedContextRecords, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def SynthesizeContextRecords(self, run_instruction: str,episode_summary: str,durable_findings_summary: str,existing_record_manifest: str,
+    def SynthesizeContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> types.SynthesizedContextRecords:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
-            __stream__ = self.stream.SynthesizeContextRecords(run_instruction=run_instruction,episode_summary=episode_summary,durable_findings_summary=durable_findings_summary,existing_record_manifest=existing_record_manifest,
+            __stream__ = self.stream.SynthesizeContextRecords(run_instruction=run_instruction,source_profile_context=source_profile_context,episode_summary=episode_summary,durable_findings_summary=durable_findings_summary,existing_record_manifest=existing_record_manifest,
                 baml_options=baml_options)
             return __stream__.get_final_response()
         else:
             # Original non-streaming code
             __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="SynthesizeContextRecords", args={
-                "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,
+                "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,
             })
             return typing.cast(types.SynthesizedContextRecords, __result__.cast_to(types, types, stream_types, False, __runtime__))
     
@@ -305,11 +305,11 @@ class BamlStreamClient:
           lambda x: typing.cast(types.ContextCurationPlan, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def FilterDurableSignal(self, run_instruction: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
+    def FilterDurableSignal(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.SignalFilterResult, types.SignalFilterResult]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="FilterDurableSignal", args={
-            "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
         })
         return baml_py.BamlSyncStream[stream_types.SignalFilterResult, types.SignalFilterResult](
           __result__,
@@ -329,11 +329,11 @@ class BamlStreamClient:
           lambda x: typing.cast(types.ContextGraphPlan, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def ObserveSourceWindow(self, run_instruction: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
+    def ObserveSourceWindow(self, run_instruction: str,source_profile_context: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.SourceWindowScan, types.SourceWindowScan]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="ObserveSourceWindow", args={
-            "run_instruction": run_instruction,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
         })
         return baml_py.BamlSyncStream[stream_types.SourceWindowScan, types.SourceWindowScan](
           __result__,
@@ -365,11 +365,11 @@ class BamlStreamClient:
           lambda x: typing.cast(types.ContextGraphPlan, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def ReviewSynthesizedContextRecords(self, run_instruction: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
+    def ReviewSynthesizedContextRecords(self, run_instruction: str,source_profile_context: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.SynthesizedContextRecords, types.SynthesizedContextRecords]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="ReviewSynthesizedContextRecords", args={
-            "run_instruction": run_instruction,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,"synthesized_records_json": synthesized_records_json,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,"synthesized_records_json": synthesized_records_json,
         })
         return baml_py.BamlSyncStream[stream_types.SynthesizedContextRecords, types.SynthesizedContextRecords](
           __result__,
@@ -377,11 +377,11 @@ class BamlStreamClient:
           lambda x: typing.cast(types.SynthesizedContextRecords, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def SynthesizeContextRecords(self, run_instruction: str,episode_summary: str,durable_findings_summary: str,existing_record_manifest: str,
+    def SynthesizeContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.SynthesizedContextRecords, types.SynthesizedContextRecords]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="SynthesizeContextRecords", args={
-            "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,
         })
         return baml_py.BamlSyncStream[stream_types.SynthesizedContextRecords, types.SynthesizedContextRecords](
           __result__,
@@ -425,11 +425,11 @@ class BamlHttpRequestClient:
             "run_instruction": run_instruction,"batch_id": batch_id,"records_json": records_json,
         }, mode="request")
         return __result__
-    def FilterDurableSignal(self, run_instruction: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
+    def FilterDurableSignal(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="FilterDurableSignal", args={
-            "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
         }, mode="request")
         return __result__
     def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
@@ -439,11 +439,11 @@ class BamlHttpRequestClient:
             "run_instruction": run_instruction,"cluster_id": cluster_id,"records_json": records_json,"candidate_pairs_json": candidate_pairs_json,"existing_edges_json": existing_edges_json,
         }, mode="request")
         return __result__
-    def ObserveSourceWindow(self, run_instruction: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
+    def ObserveSourceWindow(self, run_instruction: str,source_profile_context: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="ObserveSourceWindow", args={
-            "run_instruction": run_instruction,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
         }, mode="request")
         return __result__
     def PlanContextRetrieval(self, question: str,current_utc: str,hints: str,
@@ -460,18 +460,18 @@ class BamlHttpRequestClient:
             "run_instruction": run_instruction,"records_json": records_json,"proposed_links_json": proposed_links_json,
         }, mode="request")
         return __result__
-    def ReviewSynthesizedContextRecords(self, run_instruction: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
+    def ReviewSynthesizedContextRecords(self, run_instruction: str,source_profile_context: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="ReviewSynthesizedContextRecords", args={
-            "run_instruction": run_instruction,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,"synthesized_records_json": synthesized_records_json,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,"synthesized_records_json": synthesized_records_json,
         }, mode="request")
         return __result__
-    def SynthesizeContextRecords(self, run_instruction: str,episode_summary: str,durable_findings_summary: str,existing_record_manifest: str,
+    def SynthesizeContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="SynthesizeContextRecords", args={
-            "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,
         }, mode="request")
         return __result__
     
@@ -510,11 +510,11 @@ class BamlHttpStreamRequestClient:
             "run_instruction": run_instruction,"batch_id": batch_id,"records_json": records_json,
         }, mode="stream")
         return __result__
-    def FilterDurableSignal(self, run_instruction: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
+    def FilterDurableSignal(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="FilterDurableSignal", args={
-            "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
         }, mode="stream")
         return __result__
     def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
@@ -524,11 +524,11 @@ class BamlHttpStreamRequestClient:
             "run_instruction": run_instruction,"cluster_id": cluster_id,"records_json": records_json,"candidate_pairs_json": candidate_pairs_json,"existing_edges_json": existing_edges_json,
         }, mode="stream")
         return __result__
-    def ObserveSourceWindow(self, run_instruction: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
+    def ObserveSourceWindow(self, run_instruction: str,source_profile_context: str,prior_episode_summary: str,prior_findings_summary: str,source_window: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="ObserveSourceWindow", args={
-            "run_instruction": run_instruction,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
         }, mode="stream")
         return __result__
     def PlanContextRetrieval(self, question: str,current_utc: str,hints: str,
@@ -545,18 +545,18 @@ class BamlHttpStreamRequestClient:
             "run_instruction": run_instruction,"records_json": records_json,"proposed_links_json": proposed_links_json,
         }, mode="stream")
         return __result__
-    def ReviewSynthesizedContextRecords(self, run_instruction: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
+    def ReviewSynthesizedContextRecords(self, run_instruction: str,source_profile_context: str,durable_findings_summary: str,existing_record_manifest: str,synthesized_records_json: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="ReviewSynthesizedContextRecords", args={
-            "run_instruction": run_instruction,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,"synthesized_records_json": synthesized_records_json,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,"synthesized_records_json": synthesized_records_json,
         }, mode="stream")
         return __result__
-    def SynthesizeContextRecords(self, run_instruction: str,episode_summary: str,durable_findings_summary: str,existing_record_manifest: str,
+    def SynthesizeContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="SynthesizeContextRecords", args={
-            "run_instruction": run_instruction,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"existing_record_manifest": existing_record_manifest,
         }, mode="stream")
         return __result__
     

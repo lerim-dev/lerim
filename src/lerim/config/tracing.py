@@ -1,10 +1,9 @@
 """MLflow tracing for Lerim agent observability.
 
 Activates MLflow when ``LERIM_MLFLOW=true`` is set. BAML/LangGraph flows emit
-explicit spans through Lerim's runtime instrumentation.
-
-Traces are stored under ``~/.lerim/observability/`` so observability files do
-not clutter the root of the Lerim home directory.
+explicit spans through Lerim's runtime instrumentation. When
+``MLFLOW_TRACKING_URI`` is configured, traces go to the shared tracking server;
+otherwise Lerim keeps the legacy local SQLite fallback.
 """
 
 from __future__ import annotations
@@ -111,6 +110,42 @@ def _ensure_mlflow_schema(tracking_uri: str, db_path: str) -> None:
 		raise
 
 
+def _is_sqlite_tracking_uri(tracking_uri: str) -> bool:
+	"""Return True when MLflow uses a local SQLite backend."""
+	return tracking_uri.strip().lower().startswith("sqlite:///")
+
+
+def _configured_string(config: Config, name: str, default: str = "") -> str:
+	"""Read a string config attribute defensively for old test doubles."""
+	value = getattr(config, name, default)
+	return value.strip() if isinstance(value, str) else default
+
+
+def _configured_bool(config: Config, name: str, default: bool = False) -> bool:
+	"""Read a bool config attribute defensively for old test doubles."""
+	value = getattr(config, name, default)
+	return value if isinstance(value, bool) else default
+
+
+def _raise_if_required(config: Config, message: str, exc: Exception | None = None) -> None:
+	"""Raise a clear MLflow startup error when strict tracing is enabled."""
+	if not _configured_bool(config, "mlflow_required", False):
+		return
+	error = RuntimeError(
+		f"{message} Start shared MLflow with: "
+		"cd /Users/kargarisaac/codes/personal/local-mlflow && docker compose up -d"
+	)
+	if exc is not None:
+		raise error from exc
+	raise error
+
+
+def _default_sqlite_tracking(config: Config) -> tuple[str, Path]:
+	"""Return Lerim's legacy SQLite tracking URI and DB path."""
+	db_path = Path(config.global_data_dir).expanduser() / "observability" / "mlflow.db"
+	return f"sqlite:///{db_path}", db_path
+
+
 def configure_tracing(config: Config, experiment_name: str = "lerim") -> None:
 	"""Activate MLflow tracing if enabled via env/config.
 
@@ -125,30 +160,55 @@ def configure_tracing(config: Config, experiment_name: str = "lerim") -> None:
 	if not config.mlflow_enabled:
 		return
 
-	# Disable external OTel OTLP export — we use MLflow's SQLite backend only.
-	# Without this, a stale OTEL_EXPORTER_OTLP_ENDPOINT env var causes
-	# "Exception while exporting Span" errors on every LLM call.
+	# Disable external OTel OTLP export. MLflow owns trace export here, and a
+	# stale OTEL endpoint causes noisy "Exception while exporting Span" errors.
 	os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
 	os.environ.pop("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", None)
 
-	db_path = Path(config.global_data_dir).expanduser() / "observability" / "mlflow.db"
-	db_path.parent.mkdir(parents=True, exist_ok=True)
-	tracking_uri = f"sqlite:///{db_path}"
+	configured_tracking_uri = _configured_string(config, "mlflow_tracking_uri")
+	configured_experiment = _configured_string(config, "mlflow_experiment", experiment_name)
+	if _configured_bool(config, "mlflow_required", False) and not configured_tracking_uri:
+		_raise_if_required(
+			config,
+			"MLflow is required but MLFLOW_TRACKING_URI is not configured.",
+		)
+		return
+
+	if configured_tracking_uri:
+		tracking_uri = configured_tracking_uri
+		db_path = None
+	else:
+		tracking_uri, db_path = _default_sqlite_tracking(config)
+		db_path.parent.mkdir(parents=True, exist_ok=True)
+
+	active_experiment = configured_experiment or experiment_name
 
 	def _activate_mlflow() -> None:
 		mlflow.set_tracking_uri(tracking_uri)
-		mlflow.set_experiment(experiment_name)
+		mlflow.set_experiment(active_experiment)
 
 	try:
-		_ensure_mlflow_schema(tracking_uri, str(db_path))
+		if _is_sqlite_tracking_uri(tracking_uri):
+			_ensure_mlflow_schema(tracking_uri, str(db_path))
 		_activate_mlflow()
 		logger.info(
-			"MLflow tracing enabled → sqlite:///{} experiment={}",
-			db_path,
-			experiment_name,
+			"MLflow tracing enabled → {} experiment={}",
+			tracking_uri,
+			active_experiment,
 		)
 	except Exception as exc:
 		if _is_recoverable_schema_reset_error(str(exc)):
+			if db_path is None:
+				_raise_if_required(
+					config,
+					f"MLflow is required but unavailable at {tracking_uri}.",
+					exc,
+				)
+				logger.warning(
+					"MLflow tracing disabled due to initialization error: {}",
+					exc,
+				)
+				return
 			backup_path = _backup_and_reset_mlflow_db(Path(db_path))
 			logger.warning(
 				"MLflow revision state is broken; backed up DB to {} and reinitializing {}",
@@ -156,20 +216,31 @@ def configure_tracing(config: Config, experiment_name: str = "lerim") -> None:
 				db_path,
 			)
 			try:
-				_ensure_mlflow_schema(tracking_uri, str(db_path))
+				if _is_sqlite_tracking_uri(tracking_uri):
+					_ensure_mlflow_schema(tracking_uri, str(db_path))
 				_activate_mlflow()
 				logger.info(
-					"MLflow tracing enabled → sqlite:///{} experiment={}",
-					db_path,
-					experiment_name,
+					"MLflow tracing enabled → {} experiment={}",
+					tracking_uri,
+					active_experiment,
 				)
 				return
 			except Exception as retry_exc:
+				_raise_if_required(
+					config,
+					f"MLflow is required but unavailable at {tracking_uri}.",
+					retry_exc,
+				)
 				logger.warning(
 					"MLflow tracing disabled due to initialization error: {}",
 					retry_exc,
 				)
 				return
+		_raise_if_required(
+			config,
+			f"MLflow is required but unavailable at {tracking_uri}.",
+			exc,
+		)
 		logger.warning(
 			"MLflow tracing disabled due to initialization error: {}",
 			exc,

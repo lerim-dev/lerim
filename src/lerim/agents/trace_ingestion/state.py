@@ -16,6 +16,7 @@ class TraceIngestionGraphState(TypedDict, total=False):
     trace_total_lines: int
     current_window: dict[str, Any]
     episode_updates: Annotated[list[str], operator.add]
+    episode_update_refs: Annotated[list[str], operator.add]
     durable_findings: Annotated[list[dict[str, Any]], operator.add]
     implementation_findings: Annotated[list[dict[str, Any]], operator.add]
     discarded_noise: Annotated[list[str], operator.add]

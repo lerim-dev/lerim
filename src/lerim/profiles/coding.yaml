@@ -1,0 +1,36 @@
+id: coding
+display_name: Coding Agents
+description: Software engineering agent traces and repository workflow sessions.
+signal_types:
+  - decision
+  - failed_path
+  - handoff
+  - source_of_truth
+  - repo_convention
+  - architecture_decision
+  - setup_fact
+  - test_lesson
+  - release_handoff
+  - constraint
+reject_as_noise:
+  - raw command output without a reusable lesson
+  - one-off debug steps
+  - temporary implementation details
+  - branch-local cleanup
+  - stale status observations
+output_cards:
+  - decision
+  - constraint
+  - handoff
+  - source_of_truth
+  - failed_path
+  - setup_fact
+  - test_lesson
+  - release_handoff
+evidence_rules:
+  - keep file or command evidence when it supports a future-facing rule
+  - attach trace line references when available
+  - prefer source-of-truth docs over local observations
+scope_rules:
+  - default to project scope for repository records
+  - use domain scope only for non-repo workflow traces

@@ -1,0 +1,35 @@
+id: ops
+display_name: Operations and Incidents
+description: Incident response, operations, runbook, and reliability traces.
+signal_types:
+  - root_cause
+  - rejected_hypothesis
+  - failed_path
+  - runbook_gap
+  - owner_decision
+  - source_of_truth
+  - guardrail_candidate
+  - repeated_waste
+reject_as_noise:
+  - raw logs without a reusable conclusion
+  - transient alert chatter
+  - unconfirmed hypotheses
+  - local dashboard status without a durable rule
+  - generic troubleshooting steps
+output_cards:
+  - root_cause
+  - rejected_hypothesis
+  - failed_path
+  - runbook_gap
+  - owner_decision
+  - source_of_truth
+  - guardrail_candidate
+  - repeated_waste
+evidence_rules:
+  - keep incident ids as episode or evidence context unless the reusable card is scoped to that exact ongoing incident
+  - keep runbook or service-catalog source if present
+  - distinguish confirmed root cause from rejected hypotheses
+  - attach trace line references when possible
+scope_rules:
+  - use domain scope for incident operations unless a service scope is provided
+  - preserve source-of-truth routing and owner boundaries

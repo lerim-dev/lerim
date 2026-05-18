@@ -22,6 +22,7 @@ from lerim.agents.trace_ingestion.windowing import trace_line_count
 from lerim.agents.mlflow_observability import mlflow_span
 from lerim.config.settings import Config, get_config
 from lerim.context import ProjectIdentity, ScopeIdentity, scope_from_project
+from lerim.profiles import normalize_signal_pack_id
 
 
 @overload
@@ -101,6 +102,7 @@ def run_trace_ingestion(
         provider=provider,
         model_name=model_name,
     )
+    effective_source_profile = normalize_signal_pack_id(source_profile)
     resolved_scope = scope_identity or (
         scope_from_project(project_identity) if project_identity is not None else None
     )
@@ -115,7 +117,7 @@ def run_trace_ingestion(
         session_started_at=source_started_at,
         model_name=effective_model_label,
         source_name=source_name,
-        source_profile=source_profile,
+        source_profile=effective_source_profile,
     )
     prepare_context_store(persistence_context)
     existing_record_manifest = format_existing_record_manifest(
@@ -130,7 +132,7 @@ def run_trace_ingestion(
         session_started_at=source_started_at,
         existing_record_manifest=existing_record_manifest,
         source_name=source_name,
-        source_profile=source_profile,
+        source_profile=effective_source_profile,
     )
     line_count = trace_line_count(resolved_trace_path)
     with mlflow_span(
@@ -209,6 +211,9 @@ def _build_run_instruction(
         "records only from the kept signal. "
         f"Scope: {scope_identity.scope_type}:{scope_identity.scope_id} ({scope_identity.label}). "
         f"Source: {source_text}. "
+        "Use the source profile as a signal pack: it narrows extraction priorities, "
+        "rejection rules, card types, evidence expectations, and scope semantics without "
+        "replacing the generic durable-signal rules. "
         "Durable records must be positive canonical context: when source text combines a "
         "durable point with cleanup/noise/ignore guidance, exclude that guidance entirely "
         "from the durable record. "
