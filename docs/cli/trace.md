@@ -1,6 +1,6 @@
 # lerim trace
 
-Import one explicit generic trace file.
+Import one explicit trace file with a source profile.
 
 ## Overview
 
@@ -16,8 +16,8 @@ lerim project add ~/lerim-traces/support-clean --type custom
 lerim ingest --agent custom
 ```
 
-Use `trace import` only when you intentionally want to import one standalone
-file into a non-project scope.
+Use `trace import` when you intentionally want to import one standalone file
+into a selected scope and profile, such as `support` or `ops`.
 
 ## Syntax
 
@@ -37,6 +37,16 @@ lerim trace import ./support-agent-run.jsonl \
   --source-profile support \
   --scope-type domain \
   --scope support
+```
+
+Release eval examples live in `../lerim-cloud/evals`, not inside `lerim-cli`:
+
+```bash
+lerim trace import ../lerim-cloud/evals/data/traces/incident_webhook_outage_002.jsonl \
+  --source-name incident-agent \
+  --source-profile ops \
+  --scope-type domain \
+  --scope incident-ops
 ```
 
 ## What Happens
@@ -70,10 +80,10 @@ That is the right place to remove secrets, regulated fields, oversized tool
 payloads, screenshots, binary blobs, and source-specific noise.
 
 Lerim's ingestion flow is selective about durable signal: routine traces can
-produce no permanent durable record, and useful records are compacted around
-decisions, constraints, evidence, assumptions, and handoffs. That filtering is
-not a replacement for customer-owned privacy, retention, or compliance cleaning
-before a trace enters Lerim.
+produce no permanent durable record, and useful records are compacted into
+evidence-backed context cards. That filtering is not a replacement for
+customer-owned privacy, retention, or compliance cleaning before a trace enters
+Lerim.
 
 ## Scope
 

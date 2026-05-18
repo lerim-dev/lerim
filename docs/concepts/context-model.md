@@ -15,6 +15,15 @@ High-level record kinds include:
 - `decision`
 - `preference`
 - `constraint`
+- `reference`
+
+Record kind is the storage ontology. Card type is the product surface.
+
+Examples:
+
+- a support `constraint` can render as an `escalation` card
+- an ops `fact` can render as a `root_cause` card
+- a coding `reference` can render as a `source_of_truth` card
 
 Each record can carry:
 
@@ -22,6 +31,9 @@ Each record can carry:
 - summary
 - structured payload
 - status
+- `source_profile`
+- `card_type`
+- lifecycle and approval status
 - validity window
 - graph links to related records
 - evidence from traces

@@ -29,11 +29,14 @@ When tracing is enabled, MLflow records:
 
 ## Setup
 
-MLflow ships as a Lerim dependency, so `pip install lerim` already includes it.
+MLflow ships as a Lerim dependency, so `pip install lerim` already includes the
+client library. The recommended local server is the shared Docker MLflow service
+under `/Users/kargarisaac/codes/personal/local-mlflow`.
 
 !!! info "No account needed"
-	Lerim writes traces to a local SQLite DB. No authentication,
-	no external account, and no API keys required. Everything stays on your machine.
+	The shared MLflow server is local. No authentication, external account, or
+	API key is required. Each project uses the same tracking URL with a different
+	experiment name.
 
 ## Enable tracing
 
@@ -45,9 +48,9 @@ MLflow has two separate roles in Lerim:
 
 - **Lerim server writes traces.** This happens during `lerim serve` or the
   Docker service started by `lerim up`, when tracing is enabled in config.
-- **MLflow UI reads traces.** `mlflow ui` only starts a local web viewer for the
-  SQLite trace database. It does not need to be running while ingest/curate
-  jobs execute, and it does not cause Lerim to log anything.
+- **Shared MLflow server stores and shows traces.** It must be running when
+  `LERIM_MLFLOW_REQUIRED=1`; otherwise Lerim fails early instead of silently
+  losing observability.
 
 === "config.toml"
 
@@ -78,6 +81,9 @@ MLflow has two separate roles in Lerim:
 
 	```bash
 	LERIM_MLFLOW=true
+	MLFLOW_TRACKING_URI=http://127.0.0.1:5050
+	LERIM_MLFLOW_EXPERIMENT=lerim
+	LERIM_MLFLOW_REQUIRED=1
 	```
 
 	Restart the service after changing the file:
@@ -88,25 +94,17 @@ MLflow has two separate roles in Lerim:
 
 ## Viewing traces
 
-Lerim stores trace data in `~/.lerim/observability/mlflow.db` (SQLite).
-Start the MLflow UI pointed at that database:
+Start the shared MLflow server:
 
 ```bash
-mlflow ui --backend-store-uri sqlite:///$HOME/.lerim/observability/mlflow.db
+cd /Users/kargarisaac/codes/personal/local-mlflow
+docker compose up -d --build
 ```
 
-Then navigate to [http://localhost:5000](http://localhost:5000).
+Then navigate to [http://127.0.0.1:5050](http://127.0.0.1:5050).
 
-When working from the source checkout, prefer the locked project environment so
-the UI uses the same MLflow schema version as Lerim:
-
-```bash
-uv run mlflow ui --backend-store-uri sqlite:///$HOME/.lerim/observability/mlflow.db
-```
-
-The UI command is only a viewer. You can stop it without stopping tracing;
-Lerim continues writing traces as long as the server is running with
-`mlflow_enabled = true`.
+The server is both the trace writer target and the UI. If it is stopped and
+`LERIM_MLFLOW_REQUIRED=1`, Lerim refuses to start traced work.
 
 In the UI, look for:
 
@@ -124,7 +122,7 @@ In the UI, look for:
   run folder's `agent_trace.json`.
 
 Classic MLflow **Runs** may be empty for agent traces. That does not mean
-tracing is broken; check the Traces view or verify the SQLite counts below.
+tracing is broken; check the Traces view or use the API check below.
 
 !!! tip "Filtering"
 	Use the MLflow search bar to filter traces by experiment name, tags, status,
@@ -132,15 +130,15 @@ tracing is broken; check the Traces view or verify the SQLite counts below.
 
 ## Verify Logging
 
-You do not need the UI to confirm that Lerim is logging. From the source
-checkout, inspect the trace tables directly:
+You do not need the UI to confirm that the shared server is reachable:
 
 ```bash
-uv run python -c "import sqlite3, pathlib; p=pathlib.Path.home()/'.lerim/observability/mlflow.db'; con=sqlite3.connect(p); print('trace_info', con.execute('select count(*) from trace_info').fetchone()[0]); print('spans', con.execute('select count(*) from spans').fetchone()[0])"
+curl -s http://127.0.0.1:5050/api/2.0/mlflow/experiments/search \
+  -H 'Content-Type: application/json' \
+  -d '{"max_results": 20}'
 ```
 
-You should see `trace_info` and `spans` counts increase while ingest, curate,
-answer, or Context Brief work runs.
+You should see the `lerim` experiment after a traced run creates it.
 
 ## Local Run Artifacts
 
@@ -161,18 +159,27 @@ Important files:
 
 ## Notes
 
-- Lerim configures MLflow tracking to a local SQLite store (`~/.lerim/observability/mlflow.db`).
+- Lerim reads `MLFLOW_TRACKING_URI`, `LERIM_MLFLOW_EXPERIMENT`, and
+  `LERIM_MLFLOW_REQUIRED` from `.env` / shell.
 - `[observability].mlflow_enabled = true` is the persistent switch for the server process.
 - `LERIM_MLFLOW=true` is still supported as an environment override.
-- The UI command can be run later, after the traces were already recorded.
+- If `MLFLOW_TRACKING_URI` is missing and strict mode is off, Lerim still has a
+  legacy SQLite fallback under `~/.lerim/observability/mlflow.db`.
 - Hidden provider chain-of-thought is not available to Lerim or MLflow unless a
   provider exposes it. Visible prompts, model responses, tool calls, tool
   results, timing, token metadata, and spans are the expected trace payload.
 
 ## Troubleshooting
 
-If `mlflow ui` reports an out-of-date or unknown database revision, start Lerim
-once with tracing enabled. Lerim checks the MLflow schema at startup and will
-upgrade compatible databases. If MLflow cannot migrate the recorded revision,
-Lerim backs up the incompatible DB under `~/.lerim/observability/backups/` and
-creates a fresh trace DB.
+If Lerim says MLflow is required but unavailable, start the shared server:
+
+```bash
+cd /Users/kargarisaac/codes/personal/local-mlflow
+docker compose up -d --build
+```
+
+For the legacy SQLite fallback only: if `mlflow ui` reports an out-of-date or
+unknown database revision, start Lerim once with tracing enabled. Lerim checks
+the MLflow schema at startup and will upgrade compatible databases. If MLflow
+cannot migrate the recorded revision, Lerim backs up the incompatible DB under
+`~/.lerim/observability/backups/` and creates a fresh trace DB.

@@ -1,10 +1,11 @@
 # Trace Sources & Workflow Adapters
 
-Lerim turns agent traces into reusable context across business workflows.
+Lerim turns agent traces into reusable context for repeated workflows.
 
-The context model is meant to sit above support, research, operations, revenue,
-custom business agents, and engineering automation. Current adapters cover
-supported sources available today. Custom agents use clean trace folders.
+The current wedge is coding agents plus support and incident operations. Other
+business workflows should start through custom clean trace folders, then become
+signal packs when their reusable signal is clear. Current adapters cover the
+supported coding-agent sources available today.
 
 ## Current adapters
 

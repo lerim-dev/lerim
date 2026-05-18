@@ -1,17 +1,19 @@
 # Lerim
 
-Lerim builds a living context graph from agent traces. It filters noisy execution
-history into durable signals, links related decisions and evidence, and gives
-future agents the context they need before they start.
+Lerim turns completed agent traces into reusable operating context.
+
+It filters noisy execution history into evidence-backed context cards:
+decisions, constraints, handoffs, source-of-truth records, failed paths,
+repeated-waste patterns, and guardrail candidates.
 
 ## Summary
 
-Lerim sits above agent workflows, extracts durable signal from their traces, and gives future agents compact context they can query before they start work.
+Lerim sits after trace systems and before future agents. Observability shows
+what happened; Lerim decides what was worth learning from it.
 
-The product direction is living context graph infrastructure for support,
-research, operations, revenue, custom business agents, and engineering
-automation. Current adapters are one compatibility path; custom clean-trace
-folders are the path for other agents and business workflows.
+The focused wedge is coding agents plus two non-coding profiles: support
+operations and operations/incidents. Other workflows can be added later as
+signal packs, not separate pipelines.
 
 If you are evaluating Lerim, start with the workflow: traces in, durable context
 out, cited answers and startup context for future agents.
@@ -31,20 +33,19 @@ The operating model is simple:
 - `context_graph` links curated records into a sparse context graph during curate cycles
 - `answer` retrieves records and answers a question
 
-## Common workflows
+## Focused workflows
 
-- Research teams preserving source trails, assumptions, evidence strength, and analyst handoffs.
-- Support teams preserving escalation reasons, customer constraints, known fixes, and policy references.
-- Operations teams preserving incident timelines, inventory exceptions, unresolved risks, and runbook lessons.
-- Security and IT teams preserving investigation evidence, access-review rationale, policy exceptions, and remediation notes.
-- Revenue and customer teams preserving account context, positioning decisions, approvals, and follow-up commitments.
-- Engineering teams preserving architecture decisions, release constraints, and operational lessons.
+- Coding agents preserve repo conventions, architecture decisions, setup facts, failed commands, test lessons, and release handoffs.
+- Support operations preserve customer constraints, known fixes, failed fixes, escalation reasons, policy references, and handoffs.
+- Operations and incidents preserve root causes, mitigations, rejected hypotheses, runbook gaps, incident handoffs, and follow-up risks.
 
 ## Start here
 
 - [Installation](installation.md)
 - [Quickstart](quickstart.md)
 - [Business Workflows](concepts/business-workflows.md)
+- [Signal Packs](concepts/signal-packs.md)
+- [Context Cards](concepts/context-cards.md)
 - [Custom Trace Folders](guides/custom-trace-folders.md)
 - [How It Works](concepts/how-it-works.md)
 - [Context Brief](concepts/context-brief.md)

@@ -1,32 +1,34 @@
 # Business Workflows
 
 Lerim is useful when a team runs repeated AI workflows and keeps losing the
-context between runs.
+operating context between runs.
 
 The pattern is:
 
 1. an agent completes work inside a business process
 2. the trace contains evidence, decisions, constraints, open questions, and handoffs
 3. Lerim extracts the reusable signal
-4. Lerim links related decisions, evidence, and constraints into a context graph
+4. Lerim writes reviewed context cards with source evidence
 5. the next agent starts with compact, cited context instead of a raw transcript
 
-## Research and market intelligence
-
-Research teams can preserve source trails, evidence strength, assumptions,
-rejected leads, client-specific brief constraints, and analyst handoffs across
-agent-assisted research cycles.
-
-Example question:
-
-```bash
-lerim answer "What sources supported our last competitor-pricing assumption?"
-```
+The first product wedge is coding agents plus support and incident operations.
+Research, revenue, security, and other workflows are future signal-pack
+extensions, not separate pipelines today.
 
 ## Support operations
 
-Support teams can preserve triage decisions, escalation evidence, policy
-references, known fixes, product behavior, customer constraints, and next steps.
+Support teams preserve customer constraints, known fixes, failed fixes,
+escalation reasons, policy references, source-of-truth links, and handoffs.
+
+Example import:
+
+```bash
+lerim trace import ../lerim-cloud/evals/data/traces/support_refund_escalation_001.jsonl \
+  --source-name support-agent \
+  --source-profile support \
+  --scope-type domain \
+  --scope support-ops
+```
 
 Example question:
 
@@ -36,37 +38,14 @@ lerim answer "What do we already know about this customer escalation pattern?"
 
 ## Operations and incidents
 
-Operations teams can preserve incident timelines, owner decisions, inventory
-exceptions, supplier or carrier constraints, unresolved risks, and runbook
-lessons.
+Operations teams preserve confirmed root causes, rejected hypotheses,
+mitigations, failed mitigations, runbook gaps, owner decisions, source-of-truth
+references, and follow-up risks.
 
 Example question:
 
 ```bash
 lerim answer "What risks were still open after the last carrier-delay incident?"
-```
-
-## Security and IT
-
-Security and IT teams can carry forward investigation timelines, access-review
-rationale, policy exceptions, remediation evidence, and internal helpdesk
-handoffs.
-
-Example question:
-
-```bash
-lerim answer "What evidence supports the latest access-review exception?"
-```
-
-## Revenue and customer workflows
-
-Revenue and customer teams can reuse account context, positioning decisions,
-campaign constraints, legal approvals, and follow-up commitments.
-
-Example question:
-
-```bash
-lerim answer "What account constraints should the renewal agent know before outreach?"
 ```
 
 ## Engineering automation
@@ -85,13 +64,15 @@ lerim answer "What release constraints did previous agents discover?"
 The open-source package includes the trace-to-context foundation, supported
 source adapters, and custom clean-trace folders. Customer pilots can start by
 choosing one workflow, cleaning its traces into Lerim canonical JSONL, and
-registering that folder as a custom project.
+registering that folder as a custom project or importing explicit traces with
+`lerim trace import`.
 
 For custom agents today, the practical path is:
 
 ```bash
 lerim project add ~/lerim-traces/support-clean --type custom
 lerim ingest --agent custom
+lerim context cards --profile support
 ```
 
 If the source trace contains customer-specific noise or sensitive fields, run a

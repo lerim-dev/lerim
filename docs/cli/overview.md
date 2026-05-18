@@ -13,6 +13,8 @@ These work on local files, Docker, or config:
 - `lerim down`
 - `lerim logs`
 - `lerim trace import`
+- `lerim profile list`
+- `lerim profile show`
 - `lerim query`
 - `lerim queue`
 - `lerim retry`
@@ -23,6 +25,7 @@ These work on local files, Docker, or config:
 - `lerim context-brief status`
 - `lerim context-brief path`
 - `lerim context-brief refresh`
+- `lerim context cards`
 
 ## Server-backed commands
 
