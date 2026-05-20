@@ -31,15 +31,15 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/lerim-trace-to-answer.gif" alt="Lerim compiles completed source sessions into a reusable memory graph and cited answer slices" width="860">
+  <img src="docs/assets/lerim-context-compiler.svg" alt="Lerim compiles completed source sessions into a reusable context graph for future agents and humans" width="860">
 </p>
 
 <p align="center">
-  <em>Completed source sessions become a reusable memory graph; future agents retrieve compact cited slices.</em>
+  <em>Completed source sessions become a reusable context graph; future agents and humans retrieve compact cited memory.</em>
 </p>
 
 <p align="center">
-  <strong>Sessions in</strong> -> <strong>memory graph compiled</strong> -> <strong>cited context out</strong>
+  <strong>Runs in</strong> -> <strong>context graph compiled</strong> -> <strong>agents and humans reuse it</strong>
 </p>
 
 # Lerim

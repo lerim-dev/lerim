@@ -78,6 +78,11 @@ plugins:
 
 not_in_nav: |
   assets/README.md
+  assets/remotion/**/README.md
+
+exclude_docs: |
+  assets/remotion/**/node_modules/
+  assets/remotion/**/out/
 
 extra_css:
   - stylesheets/extra.css
