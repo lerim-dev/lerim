@@ -408,13 +408,15 @@ async def _list_mcp_tools_via_stdio(timeout_seconds: float) -> list[str]:
 
 
 async def _call_context_brief_via_stdio(
-    timeout_seconds: float, *, project: str
+    timeout_seconds: float, *, project: str, env_override: dict[str, str] | None = None
 ) -> dict[str, Any]:
     """Start the real stdio MCP server and call lerim_context_brief."""
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
     env = os.environ.copy()
+    if env_override:
+        env.update(env_override)
     env.setdefault("PYTHONUNBUFFERED", "1")
     params = StdioServerParameters(
         command=sys.executable,
@@ -544,11 +546,32 @@ def run_stdio_context_tool_probe(
     """Run a real stdio MCP context tool-call probe."""
     started = time.perf_counter()
     command = f"{sys.executable} -m lerim.mcp_server"
-    project = context_project or str(Path.cwd())
+    project_path = Path(context_project).expanduser().resolve() if context_project else Path.cwd()
+    project = str(project_path)
     try:
-        result = asyncio.run(
-            _call_context_brief_via_stdio(timeout_seconds, project=project)
-        )
+        with tempfile.TemporaryDirectory(prefix="lerim-mcp-context-") as raw_root:
+            root = Path(raw_root)
+            config_path = root / "config.toml"
+            data_dir = root / ".lerim"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(
+                "[data]\n"
+                f'dir = "{data_dir}"\n'
+                "\n"
+                "[server]\n"
+                "port = 8766\n"
+                "\n"
+                "[projects]\n"
+                f'mcp-benchmark = "{project_path}"\n',
+                encoding="utf-8",
+            )
+            result = asyncio.run(
+                _call_context_brief_via_stdio(
+                    timeout_seconds,
+                    project=project,
+                    env_override={"LERIM_CONFIG": str(config_path)},
+                )
+            )
         structured = result.get("structured") if isinstance(result, dict) else {}
         if not isinstance(structured, dict):
             structured = {}
@@ -1632,8 +1655,9 @@ def render_markdown(report: dict[str, Any]) -> str:
     if report.get("failures"):
         lines.extend(["## Failures", ""])
         for failure in report["failures"]:
+            message = str(failure.get("message") or failure.get("error_type") or "no message")
             lines.append(
-                f"- `{failure.get('probe')}` / `{failure.get('target')}`: {failure.get('message')}"
+                f"- `{failure.get('probe')}` / `{failure.get('target')}`: {message}"
             )
         lines.append("")
     if report.get("blockers"):
