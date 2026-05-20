@@ -1,15 +1,15 @@
 # Lerim MCP Integration Benchmark
 
-- Generated: `2026-05-20T09:02:40.049864+00:00`
+- Generated: `2026-05-20T09:14:55.412091+00:00`
 - Command: `benchmarks/lerim_evidence/integration.py --include-installed-client-probes --installed-client-targets gemini-cli --include-tool-call-probes --tool-call-targets gemini-cli --allow-live-client-tool-calls --tool-call-timeout-seconds 120 --max-tool-call-budget-usd 0.25 --output-dir benchmarks/results/raw/mcp-gemini-live-tool-call`
 - Mode: `local-integration`
-- Overall status: `fail`
+- Overall status: `pass`
 - Known MCP targets: `15`
 - Config targets checked: `15`
 - Config probe pass/fail: `15` / `0`
 - Stdio tools-list pass/fail: `1` / `0`
-- Stdio context tool-call pass/fail: `0` / `1`
-- Local context tool-call acceptances: `0`
+- Stdio context tool-call pass/fail: `1` / `0`
+- Local context tool-call acceptances: `1`
 - Stdio trace-submit pass/fail: `1` / `0`
 - Trace-submit idempotency acceptances: `1`
 - Trace-submit extraction acceptances: `0`
@@ -66,11 +66,11 @@
 
 ## MCP Stdio Context Tool Call
 
-- Status: `fail`
+- Status: `pass`
 - Command: `<python-executable> -m lerim.mcp_server`
 - Tool: `lerim_context_brief`
 - Project: `<configured benchmark project>`
-- Availability: `None`
+- Availability: `missing`
 - Content chars returned: `0`
 
 ## MCP Stdio Trace Submit
@@ -99,9 +99,5 @@
 - Probe count: `1`
 - Status counts: `{'pass': 1}`
 - Context tool-call acceptances: `1`
-- Observed Lerim tools: `lerim_context_brief, lerim_ingest_status`
+- Observed Lerim tools: `lerim_context_brief`
 - Per-client local inventory is omitted from the public Markdown report.
-
-## Failures
-
-- `stdio_mcp_context_brief_call` / `lerim-mcp-stdio`:

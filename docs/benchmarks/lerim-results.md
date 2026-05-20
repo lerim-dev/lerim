@@ -5,22 +5,23 @@ competitor table. Use [Market Comparison](market-comparison.md) for market-wide
 comparisons.
 
 Every public Lerim number below points to a raw artifact in
-`benchmarks/results/raw/`. Current artifacts were produced from an uncommitted
-development tree and record `git_dirty: true`. Before launch, rerun these from a
-clean commit and update the raw reports.
+`benchmarks/results/raw/`. Retrieval, context-budget, latency, ingestion, and
+MCP artifacts keep clean release-worktree provenance in their environment
+metadata. Aggregate extraction diagnostics keep their own provenance and are
+reported only as first-party diagnostic numbers.
 
 ## Current Lerim Summary
 
 | Surface | Current result | Evidence status | Source |
 | --- | --- | --- | --- |
-| LongMemEval-S retrieval, hybrid | R@5 96.4%, R@10 98.6%, R@20 99.4%, NDCG@10 88.6%, MRR 88.4% on 500 questions | Full retrieval-only artifact; dirty development tree | `benchmarks/results/raw/longmemeval-hybrid-full/report.json` |
-| LongMemEval-S retrieval, lexical | R@5 77.0%, R@10 82.0%, R@20 89.8%, NDCG@10 62.7%, MRR 64.0% on 500 questions | Full retrieval-only artifact; dirty development tree | `benchmarks/results/raw/longmemeval-lexical-full/report.json` |
-| Context budget, hybrid top-10 | 75.2% context reduction with 98.6% recall | Full retrieval-only artifact; dirty development tree | `benchmarks/results/raw/context-budget-hybrid-full/report.json` |
-| Retrieval latency | 100 records p50 8.7 ms, p99 9.7 ms; 1,000 records p50 32.4 ms, p99 54.5 ms | Partial local artifact; dirty development tree | `benchmarks/results/raw/retrieval-latency-longmemeval/report.json` |
-| Trace ingestion cost/performance | 3/3 traces passed; avg ingestion 62,185.4 ms; avg 5.0 LLM calls/trace; avg DB growth 581,632 bytes/trace; cost not available | Small LongMemEval-S public-trace sample; dirty development tree | `benchmarks/results/raw/trace-ingestion-cost-longmemeval-s-sample/report.json` |
-| MCP integration | 15/15 config probes, doctor 14 passed/1 skipped, local context call passed, trace-submit idempotency passed, synthetic trace-submit extraction probe passed, 3 anonymized connection-visibility checks; separate Gemini CLI artifact records 1 installed-client connection and 1 live `lerim_context_brief` tool-call acceptance. Other clients are not live-tool-call validated yet. | Integration artifacts; dirty development tree; per-client local inventory omitted | `benchmarks/results/raw/mcp-integration-full/report.json`, `benchmarks/results/raw/mcp-gemini-live-tool-call/report.json` |
-| Extraction quality | Diagnostic aggregate: quality 62.45%, quality gate 46.81%, hard gate 21.28% across 47 cases | Internal LLM-backed eval; aggregate-only public report; not launch-grade | `benchmarks/results/raw/extraction-minimax-m27-full-47/report.json` |
-| False-positive extraction | Negative precision 35.71%; 9 false-positive cases; 52 durable records created across 14 negative cases | Internal LLM-backed eval slice; aggregate-only public report; not launch-grade | `benchmarks/results/raw/false-positive-extraction-minimax-m27-negative-cases/report.json` |
+| LongMemEval-S retrieval, hybrid | R@5 96.2%, R@10 98.6%, R@20 99.6%, NDCG@10 88.4%, MRR 88.1% on 500 questions | Full retrieval-only artifact; clean release worktree | `benchmarks/results/raw/longmemeval-hybrid-full/report.json` |
+| LongMemEval-S retrieval, lexical | R@5 77.0%, R@10 82.0%, R@20 89.8%, NDCG@10 62.7%, MRR 64.0% on 500 questions | Full retrieval-only artifact; clean release worktree | `benchmarks/results/raw/longmemeval-lexical-full/report.json` |
+| Context budget, hybrid top-10 | 75.3% context reduction with 98.6% recall | Full retrieval-only artifact; clean release worktree | `benchmarks/results/raw/context-budget-hybrid-full/report.json` |
+| Retrieval latency | 100 records p50 8.4 ms, p99 9.6 ms; 1,000 records p50 31.1 ms, p99 47.5 ms | Local retrieval artifact; clean release worktree | `benchmarks/results/raw/retrieval-latency-longmemeval/report.json` |
+| Trace ingestion cost/performance | 3/3 traces passed; avg ingestion 106,303.6 ms; avg 5.0 LLM calls/trace; avg DB growth 581,632 bytes/trace; cost not available | Small LongMemEval-S public-trace sample; clean release worktree | `benchmarks/results/raw/trace-ingestion-cost-longmemeval-s-sample/report.json` |
+| MCP integration | 15/15 config probes, doctor 14 passed/1 skipped, local context call passed, trace-submit idempotency passed, synthetic trace-submit extraction probe passed, 3 anonymized connection-visibility checks; separate Gemini CLI artifact records 1 installed-client connection and 1 live `lerim_context_brief` tool-call acceptance. Other clients are not live-tool-call validated yet. | Integration artifacts; clean release worktree; per-client local inventory omitted | `benchmarks/results/raw/mcp-integration-full/report.json`, `benchmarks/results/raw/mcp-gemini-live-tool-call/report.json` |
+| Extraction quality | Diagnostic aggregate: quality 60.07%, quality gate 51.06%, hard gate 19.15% across 47 cases | Internal LLM-backed eval; aggregate-only public report | `benchmarks/results/raw/extraction-minimax-m27-full-47/report.json` |
+| False-positive extraction | Negative precision 28.57%; 10 false-positive cases; 65 durable records created across 14 negative cases | Internal LLM-backed eval slice; aggregate-only public report | `benchmarks/results/raw/false-positive-extraction-minimax-m27-negative-cases/report.json` |
 
 ## LongMemEval-S Retrieval
 
@@ -59,7 +60,7 @@ fusion (`rrf_k=2`, semantic weight `0.7`, lexical weight `0.3`).
 
 | Mode | Questions | R@1 | R@3 | R@5 | R@10 | R@20 | NDCG@10 | MRR | Raw artifact |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Hybrid | 500 | 82.2% | 93.4% | 96.4% | 98.6% | 99.4% | 88.6% | 88.4% | `benchmarks/results/raw/longmemeval-hybrid-full/report.json` |
+| Hybrid | 500 | 81.8% | 93.0% | 96.2% | 98.6% | 99.6% | 88.4% | 88.1% | `benchmarks/results/raw/longmemeval-hybrid-full/report.json` |
 | Lexical | 500 | 54.0% | 71.0% | 77.0% | 82.0% | 89.8% | 62.7% | 64.0% | `benchmarks/results/raw/longmemeval-lexical-full/report.json` |
 
 Run the full hybrid retrieval artifact:
@@ -99,11 +100,11 @@ Source artifact: `benchmarks/results/raw/context-budget-hybrid-full/report.json`
 | Selection | Average selected tokens | Average tokens reduced | Average reduction | Recall |
 | --- | ---: | ---: | ---: | ---: |
 | Full haystack | 110,326 | 0 | 0.0% | 100.0% by definition |
-| Top 1 | 2,985 | 107,342 | 97.3% | 82.2% |
-| Top 3 | 8,810 | 101,516 | 92.0% | 93.4% |
-| Top 5 | 14,217 | 96,109 | 87.1% | 96.4% |
-| Top 10 | 27,346 | 82,981 | 75.2% | 98.6% |
-| Top 20 | 52,583 | 57,744 | 52.3% | 99.4% |
+| Top 1 | 2,984 | 107,343 | 97.3% | 81.8% |
+| Top 3 | 8,814 | 101,512 | 92.0% | 93.0% |
+| Top 5 | 14,260 | 96,067 | 87.1% | 96.2% |
+| Top 10 | 27,304 | 83,023 | 75.3% | 98.6% |
+| Top 20 | 52,561 | 57,765 | 52.4% | 99.6% |
 
 Run the full context-budget artifact:
 
@@ -129,8 +130,8 @@ Source artifact: `benchmarks/results/raw/retrieval-latency-longmemeval/report.js
 
 | Corpus size | Ops | Average hit count | p50 | p90 | p95 | p99 |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 100 records | 75 | 20.0 | 8.7 ms | 9.2 ms | 9.4 ms | 9.7 ms |
-| 1,000 records | 75 | 20.0 | 32.4 ms | 34.2 ms | 35.5 ms | 54.5 ms |
+| 100 records | 75 | 20.0 | 8.4 ms | 8.9 ms | 9.1 ms | 9.6 ms |
+| 1,000 records | 75 | 20.0 | 31.1 ms | 32.4 ms | 32.7 ms | 47.5 ms |
 
 These numbers are useful engineering evidence, but they are not a hosted load
 test and should not be marketed as server throughput.
@@ -159,8 +160,8 @@ Source artifact:
 | --- | ---: |
 | Public traces evaluated | 3 |
 | Passed traces | 3 |
-| Average ingestion time | 62,185.4 ms |
-| p95 ingestion time | 71,501.9 ms |
+| Average ingestion time | 106,303.6 ms |
+| p95 ingestion time | 118,911.5 ms |
 | Average LLM calls per trace | 5.0 |
 | Total LLM calls | 15 |
 | Average context DB growth per trace | 581,632 bytes |
@@ -284,18 +285,18 @@ The eval measures the core trace-to-context job:
 | Dataset cases | 47 |
 | Harness case failures | 0 |
 | Task completion | 96.97% |
-| Quality average | 62.45% |
-| Quality gate pass | 46.81% |
-| Hard gate pass | 21.28% |
-| Concept recall average | 61.16% |
-| Required concept coverage | 59.57% |
-| Kind alignment | 93.97% |
-| Record precision average | 70.34% |
-| Faithfulness average | 69.20% |
-| Claim faithfulness | 40.43% |
-| Negative precision | 35.71% |
-| Signal filtering | 29.79% |
-| Evidence coverage | 99.65% |
+| Quality average | 60.07% |
+| Quality gate pass | 51.06% |
+| Hard gate pass | 19.15% |
+| Concept recall average | 68.99% |
+| Required concept coverage | 68.09% |
+| Kind alignment | 91.49% |
+| Record precision average | 76.16% |
+| Faithfulness average | 78.21% |
+| Claim faithfulness | 51.06% |
+| Negative precision | 28.57% |
+| Signal filtering | 25.53% |
+| Evidence coverage | 100.00% |
 | Evidence validity | 100.00% |
 
 ### False-Positive Extraction
@@ -310,13 +311,13 @@ It measures false-positive memory creation, not retrieval quality.
 | Metric | Result |
 | --- | ---: |
 | Negative cases | 14 |
-| No-durable cases | 5 |
-| False-positive cases | 9 |
-| Negative precision | 35.71% |
-| False-positive case rate | 64.29% |
-| Durable records on negative cases | 52 |
-| Forbidden-concept score average | 82.80% |
-| Signal-filtering score average | 21.43% |
+| No-durable cases | 4 |
+| False-positive cases | 10 |
+| Negative precision | 28.57% |
+| False-positive case rate | 71.43% |
+| Durable records on negative cases | 65 |
+| Forbidden-concept score average | 74.05% |
+| Signal-filtering score average | 28.57% |
 
 The first labeled extraction dataset uses coding-agent traces because that is
 where Lerim has the strongest labels today, not because Lerim is limited to
