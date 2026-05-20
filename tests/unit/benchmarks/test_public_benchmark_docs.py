@@ -199,8 +199,8 @@ def test_lerim_results_doc_matches_latency_mcp_and_extraction_artifacts() -> Non
         "config probes"
     ) in text
     assert (
-        f"doctor {integration['real_doctor_status_counts']['pass']} passed/"
-        f"{integration['real_doctor_status_counts']['skip']} skipped"
+        f"doctor {integration['real_doctor_status_counts'].get('pass', 0)} passed/"
+        f"{integration['real_doctor_status_counts'].get('skip', 0)} skipped"
     ) in text
     assert (
         f"quality {_metric_pct(extraction['quality_avg'])}, "
