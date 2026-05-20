@@ -1,6 +1,6 @@
 # Lerim MCP Integration Benchmark
 
-- Generated: `2026-05-20T09:00:41.436388+00:00`
+- Generated: `2026-05-20T09:13:44.634006+00:00`
 - Command: `benchmarks/lerim_evidence/integration.py --include-real-doctor --include-installed-client-probes --include-stdio-trace-submit-extraction --stdio-extraction-timeout-seconds 300 --output-dir benchmarks/results/raw/mcp-integration-full`
 - Mode: `local-integration`
 - Overall status: `fail`
@@ -8,8 +8,8 @@
 - Config targets checked: `15`
 - Config probe pass/fail: `15` / `0`
 - Stdio tools-list pass/fail: `1` / `0`
-- Stdio context tool-call pass/fail: `0` / `1`
-- Local context tool-call acceptances: `0`
+- Stdio context tool-call pass/fail: `1` / `0`
+- Local context tool-call acceptances: `1`
 - Stdio trace-submit pass/fail: `1` / `1`
 - Trace-submit idempotency acceptances: `1`
 - Trace-submit extraction acceptances: `0`
@@ -66,11 +66,11 @@
 
 ## MCP Stdio Context Tool Call
 
-- Status: `fail`
+- Status: `pass`
 - Command: `<python-executable> -m lerim.mcp_server`
 - Tool: `lerim_context_brief`
 - Project: `<configured benchmark project>`
-- Availability: `None`
+- Availability: `missing`
 - Content chars returned: `0`
 
 ## MCP Stdio Trace Submit
@@ -114,5 +114,4 @@
 
 ## Failures
 
-- `stdio_mcp_context_brief_call` / `lerim-mcp-stdio`: 
-- `stdio_mcp_trace_submit_extraction` / `lerim-mcp-stdio`:
+- `stdio_mcp_trace_submit_extraction` / `lerim-mcp-stdio`: no message
