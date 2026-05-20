@@ -11,7 +11,7 @@ not only parser fixtures.
 | Native completed-session adapters | Adapter code and unit/integration fixtures for Claude Code, Codex CLI, Cursor, OpenCode, and pi | Lerim can ingest stable local session stores where the adapter format is current | Every current client version and every OS path |
 | MCP config writers | 15/15 config-writer probes in `mcp-integration-full` | `lerim connect <agent> --mode mcp` writes/validates Lerim MCP entries with backups | A live tool call from every external client |
 | Installed-client MCP evidence | 3 anonymized connection-visibility acceptances; Gemini CLI live `lerim_context_brief` tool-call artifact | Gemini CLI can call a Lerim context tool through MCP in the current public artifact | Per-client live tool-call acceptance artifacts beyond Gemini |
-| Generic trace submission | Local stdio `lerim_trace_submit` duplicate probe and synthetic trace-submit extraction probe | Completed traces can be submitted through CLI import or MCP and processed by Lerim | That every MCP-first agent automatically submits completed sessions |
+| Generic trace submission | Local stdio `lerim_trace_submit` duplicate probe; the current synthetic trace-submit extraction probe has 0 acceptances | Completed traces can be submitted through CLI import or MCP and normalized by Lerim | Successful MCP-submitted extraction in the current public artifact, or automatic completed-session submission from every MCP-first agent |
 | Planned deeper capture | OpenClaw plugin, Hermes provider plugin, and pi extension are documented candidates | Current plugin mode reports planned status honestly | Native lifecycle capture for those plugins |
 
 ## Native Or Near-Native Sources
@@ -45,7 +45,7 @@ not only parser fixtures.
 | Hermes | MCP config writer; provider plugin candidate | `lerim connect hermes --mode mcp`; config at `~/.hermes/config.yaml` | [Hermes](https://docs.opencomputer.dev/agents/cores/hermes) | Config-writer evidence | Native provider plugin capture |
 | OpenHuman | Experimental generic MCP config writer | `lerim connect openhuman --mode mcp`; config at `~/.openhuman/mcp.json` | [OpenHuman](https://github.com/tinyhumansai/openhuman) | Config-writer evidence only | Client-loading evidence or upstream lifecycle integration |
 | Custom trace folder | Supported generic trace folder | `lerim project add <path> --type custom` or `lerim ingest --agent custom` | See [custom traces](../guides/submit-custom-agent-trace.md) | Import path validation | User exporter quality, cleaning, redaction, and retention |
-| Generic trace import / MCP submit | Supported generic trace submission | `lerim trace import <path>` or `lerim_trace_submit` | See [MCP quickstart](../guides/mcp-quickstart.md) | MCP trace-submit duplicate and extraction probes | Automatic completed-session submission from every MCP-first agent |
+| Generic trace import / MCP submit | Supported generic trace submission | `lerim trace import <path>` or `lerim_trace_submit` | See [MCP quickstart](../guides/mcp-quickstart.md) | MCP trace-submit duplicate probe; extraction probe currently records 0 acceptances | Automatic completed-session submission from every MCP-first agent |
 
 ## Evidence Artifacts
 

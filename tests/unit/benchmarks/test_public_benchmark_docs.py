@@ -183,7 +183,8 @@ def test_lerim_results_doc_matches_latency_mcp_and_extraction_artifacts() -> Non
     text = _doc("lerim-results.md")
     latency = _load_report("retrieval-latency-longmemeval")["results"]
     integration = _load_report("mcp-integration-full")["summary"]
-    extraction = _load_report("extraction-minimax-m27-full-47")["results"]["headline"]
+    extraction_report = _load_report("extraction-minimax-m27-full-47")
+    extraction = extraction_report["results"]["headline"]
     false_positive = _load_report("false-positive-extraction-minimax-m27-negative-cases")[
         "results"
     ]["headline"]
@@ -203,10 +204,21 @@ def test_lerim_results_doc_matches_latency_mcp_and_extraction_artifacts() -> Non
         f"{integration['real_doctor_status_counts'].get('skip', 0)} skipped"
     ) in text
     assert (
+        "trace-submit extraction "
+        f"{integration['trace_submit_extraction_acceptance_count']} accepted/"
+        f"{integration['stdio_trace_submit_failed_count']} failed"
+    ) in text
+    if integration["trace_submit_extraction_acceptance_count"] == 0:
+        assert "synthetic trace-submit extraction probe passed" not in text
+        assert "created 1 episode record and 1 durable record" not in text
+    assert (
         f"quality {_metric_pct(extraction['quality_avg'])}, "
         f"quality gate {_metric_pct(extraction['quality_gate_rate_pct'])}, "
         f"hard gate {_metric_pct(extraction['hard_gate_pass_rate_pct'])}"
     ) in text
+    assert extraction_report["model_provider"]["agent_model"] in text
+    assert extraction_report["model_provider"]["judge_model"] in text
+    assert "judged by MiniMax M2.7" not in text
     assert (
         f"Negative precision {_metric_pct(false_positive['negative_precision_rate_pct'])}; "
         f"{false_positive['false_positive_case_count']} false-positive cases; "

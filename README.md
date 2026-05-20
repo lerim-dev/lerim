@@ -254,7 +254,7 @@ from an internal MiniMax M2.7 run, not a public market-comparison score.
 | Context budget | Full 500-question context-selection artifact with recall beside token reduction |
 | Retrieval latency | Local search timing over LongMemEval-S sessions |
 | Trace ingestion cost/performance | Small public-trace sample with measured LLM calls and unavailable-cost disclosure |
-| MCP integration | Config writers, local stdio probes, trace-submit extraction probe, and one Gemini CLI live context-tool call |
+| MCP integration | Config writers, local stdio tools/context probes, trace-submit idempotency, 0 trace-submit extraction acceptances in the current artifact, and one Gemini CLI live context-tool call |
 | Extraction quality | Aggregate-only 47-case diagnostic report; competitors not run on this private eval |
 
 Before publishing a benchmark claim, require the exact command, git commit,

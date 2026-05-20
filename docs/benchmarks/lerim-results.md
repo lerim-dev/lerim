@@ -19,7 +19,7 @@ reported only as first-party diagnostic numbers.
 | Context budget, hybrid top-10 | 75.3% context reduction with 98.6% recall | Full retrieval-only artifact; clean release worktree | `benchmarks/results/raw/context-budget-hybrid-full/report.json` |
 | Retrieval latency | 100 records p50 9.6 ms, p99 20.4 ms; 1,000 records p50 35.4 ms, p99 55.0 ms | Local retrieval artifact; clean release worktree | `benchmarks/results/raw/retrieval-latency-longmemeval/report.json` |
 | Trace ingestion cost/performance | 3/3 traces passed; avg ingestion 96,994.9 ms; avg 5.0 LLM calls/trace; avg DB growth 581,632 bytes/trace; cost not available | Small LongMemEval-S public-trace sample; clean release worktree | `benchmarks/results/raw/trace-ingestion-cost-longmemeval-s-sample/report.json` |
-| MCP integration | 15/15 config probes, doctor 0 passed/15 skipped, local context call passed, trace-submit idempotency passed, synthetic trace-submit extraction probe passed, 3 anonymized connection-visibility checks; separate Gemini CLI artifact records 1 installed-client connection and 1 live `lerim_context_brief` tool-call acceptance. Other clients are not live-tool-call validated yet. | Integration artifacts; clean release worktree; per-client local inventory omitted | `benchmarks/results/raw/mcp-integration-full/report.json`, `benchmarks/results/raw/mcp-gemini-live-tool-call/report.json` |
+| MCP integration | 15/15 config probes, doctor 0 passed/15 skipped, local context call passed, trace-submit idempotency passed, trace-submit extraction 0 accepted/1 failed, 3 anonymized connection-visibility checks; separate Gemini CLI artifact records 1 installed-client connection and 1 live `lerim_context_brief` tool-call acceptance. Other clients are not live-tool-call validated yet. | Integration artifacts; clean release worktree; per-client local inventory omitted | `benchmarks/results/raw/mcp-integration-full/report.json`, `benchmarks/results/raw/mcp-gemini-live-tool-call/report.json` |
 | Extraction quality | Diagnostic aggregate: quality 60.07%, quality gate 51.06%, hard gate 19.15% across 47 cases | Internal LLM-backed eval; aggregate-only public report | `benchmarks/results/raw/extraction-minimax-m27-full-47/report.json` |
 | False-positive extraction | Negative precision 28.57%; 10 false-positive cases; 65 durable records created across 14 negative cases | Internal LLM-backed eval slice; aggregate-only public report | `benchmarks/results/raw/false-positive-extraction-minimax-m27-negative-cases/report.json` |
 
@@ -200,7 +200,7 @@ Source artifacts:
 | Local stdio tools-list probe | passed |
 | Local `lerim_context_brief` MCP call | passed |
 | Local `lerim_trace_submit` idempotency call | passed |
-| Local `lerim_trace_submit` extraction call | passed with a synthetic submitted trace fixture; created 1 episode record and 1 durable record through the real BAML/LangGraph path |
+| Local `lerim_trace_submit` extraction call | 0 accepted/1 failed in this artifact; the submitted trace path ran but did not create the required episode plus durable records |
 | Live installed-client tool-call probes | skipped in this artifact |
 
 The separate Gemini CLI live artifact records:
@@ -219,8 +219,8 @@ It verifies:
 - supported MCP config shapes can be written
 - those configs can be validated
 - Lerim's MCP server can list tools over stdio
-- local stdio calls to `lerim_context_brief` and `lerim_trace_submit` work
-- the opt-in `lerim_trace_submit` extraction probe can import a fresh completed trace and create records through MiniMax M2.7 BAML/LangGraph ingestion
+- local stdio calls to `lerim_context_brief` and the `lerim_trace_submit` idempotency path work
+- the opt-in `lerim_trace_submit` extraction probe is recorded separately; the current public artifact has 0 accepted extraction rows, so it is not used as extraction-quality evidence
 - optional installed-client probes can confirm installed clients can see the MCP config
 
 Temporary config fixtures do not count as installed-agent acceptance. Live
@@ -259,8 +259,8 @@ uv run python benchmarks/lerim_evidence/integration.py \
 
 ## Extraction Eval Status
 
-Lerim has an aggregate-only public report from one internal 47-case MiniMax M2.7
-extraction eval, judged by MiniMax M2.7.
+Lerim has an aggregate-only public report from one internal 47-case extraction
+eval using a `MiniMax-M2.7` agent model and a `MiniMax-M2.5` judge model.
 
 Source artifact:
 `benchmarks/results/raw/extraction-minimax-m27-full-47/report.json`
