@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-05-20
+
+### Changed
+- Generalized imported market-baseline benchmark artifacts and docs so public
+  benchmark structure is not organized around one competitor-specific name.
+- Kept release benchmark pages on the clean public artifact numbers while
+  preserving source/provenance boundaries for imported competitor rows.
+
+### Fixed
+- Hardened coding trace ingestion against one-way implementation runs that
+  should be archived without durable records.
+- Improved coding extraction retention for user strategy, project identity, and
+  supported coding-context records before persistence.
+
 ## [0.3.0] - 2026-05-20
 
 ### Added
