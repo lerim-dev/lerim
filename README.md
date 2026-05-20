@@ -242,11 +242,11 @@ reporting rules:
 - [Lerim Results](docs/benchmarks/lerim-results.md): first-party raw artifacts, commands, and boundaries.
 - [Market Comparison](docs/benchmarks/market-comparison.md): source-backed market rows with provenance for each external number.
 
-Current development artifacts are backed by raw `report.json` files, but they
-are not launch-grade until rerun from a clean commit. Retrieval and
-context-budget artifacts are retrieval-only, not official LongMemEval QA scores.
-The extraction artifact is an aggregate-only diagnostic from an internal
-MiniMax M2.7 run, not a public market-comparison score.
+Current public artifacts are backed by raw `report.json` files and were
+validated with the clean/tracked public benchmark gate for the `v0.3.0` release.
+Retrieval and context-budget artifacts are retrieval-only, not official
+LongMemEval QA scores. The extraction artifact is an aggregate-only diagnostic
+from an internal MiniMax M2.7 run, not a public market-comparison score.
 
 | Surface | Current evidence |
 | --- | --- |

@@ -6,10 +6,10 @@ The rule is simple: public numbers must point to raw artifacts or cited external
 sources. Generated report copies are kept for auditability, but raw `report.json`
 files are the source of truth for Lerim numbers.
 
-Launch-grade benchmark artifacts should be rerun from a clean commit. Current
-development artifacts are usable evidence when they include raw `report.json`
-files, but a `git_dirty: true` environment flag means the run should be treated
-as pre-release evidence until rerun after commit.
+Launch-grade benchmark artifacts should be rerun from a clean commit and pass
+the clean/tracked public benchmark gate. The `v0.3.0` public artifacts passed
+that release gate. Future artifacts with `git_dirty: true` should still be
+treated as pre-release evidence until rerun after commit.
 
 ## Start Here
 
