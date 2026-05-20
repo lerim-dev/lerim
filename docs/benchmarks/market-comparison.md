@@ -34,7 +34,7 @@ Lerim benchmark run and is exempt from first-party clean-run publication gates.
 
 | System | Product type | Benchmark number tracked today | Benchmark boundary | Source / provenance | Comparable to Lerim LongMemEval-S retrieval? |
 | --- | --- | --- | --- | --- | --- |
-| Lerim | Source-session context compiler | Hybrid R@5 96.2%, R@10 98.6%, NDCG@10 88.4%, MRR 88.1%; lexical R@5 77.0%, R@10 82.0%, NDCG@10 62.7%, MRR 64.0% | LongMemEval-S retrieval-only over 500 questions | First-party raw artifacts: `benchmarks/results/raw/longmemeval-hybrid-full/report.json` and `benchmarks/results/raw/longmemeval-lexical-full/report.json`; dirty development tree, not launch-grade until rerun from a clean release candidate | Yes, first-party baseline |
+| Lerim | Source-session context compiler | Hybrid R@5 96.2%, R@10 98.6%, NDCG@10 88.4%, MRR 88.1%; lexical R@5 77.0%, R@10 82.0%, NDCG@10 62.7%, MRR 64.0% | LongMemEval-S retrieval-only over 500 questions | First-party raw artifacts: `benchmarks/results/raw/longmemeval-hybrid-full/report.json` and `benchmarks/results/raw/longmemeval-lexical-full/report.json`; clean release worktree | Yes, first-party baseline |
 | AgentMemory | Local memory engine plus MCP server | Hybrid R@5 95.2%, R@10 98.6%, NDCG@10 87.9%, MRR 88.2%; BM25 R@5 86.2%, R@10 94.6%, NDCG@10 73.0%, MRR 71.5% | LongMemEval-S retrieval-only over 500 questions | Pinned upstream raw artifact normalized in this repo at commit `68fddd418e1bbcc41d32a1c61b7a78d91eb7c4dc`; pinned public docs at <https://github.com/rohitg00/agentmemory/blob/68fddd418e1bbcc41d32a1c61b7a78d91eb7c4dc/benchmark/LONGMEMEVAL.md>, accessed 2026-05-19 | Pinned upstream artifact, not local rerun |
 | MemPalace | Memory system | Pinned public docs report raw ChromaDB full-500 R@5 96.6%; later held-out-450 hybrid_v4 no-rerank R@5 98.4%, R@10 99.8%; neither row is normalized locally | LongMemEval retrieval recall, but raw artifacts and method are not normalized here | MemPalace benchmark docs: <https://github.com/MemPalace/mempalace/blob/1b94f4efb4949765d6965936476c236df13fd108/benchmarks/BENCHMARKS.md>, develop commit checked 2026-05-20; not normalized in this repo yet | Not yet |
 | Mem0 | Memory API / cloud platform | Official Mem0 docs report LongMemEval overall 93.4 and LoCoMo overall 91.6 | Official answer/judge metrics, not Lerim's retrieval-only boundary | Mem0 official evaluation docs: <https://docs.mem0.ai/core-concepts/memory-evaluation>, accessed 2026-05-19; not pinned or normalized locally yet | No |
@@ -122,7 +122,8 @@ for market awareness, not as pinned reproducibility artifacts.
 
 ## Next Normalization Work
 
-- Rerun Lerim public artifacts from a clean commit before launch.
+- Keep Lerim public artifacts regenerated from clean release worktrees before
+  each launch.
 - Normalize MemPalace if raw artifacts are available.
 - Add reproducible importers or fresh local runs for Mem0, Letta, Zep/Graphiti,
   Supermemory, Khoj, claude-mem, Hippo, and any other serious memory system.

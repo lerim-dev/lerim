@@ -1,5 +1,5 @@
 {
-  "artifact_scope": "full_mcp_target_matrix",
+  "artifact_scope": "full_mcp_integration",
   "benchmark": "lerim_mcp_integration",
   "blockers": [],
   "command": "benchmarks/lerim_evidence/integration.py --include-real-doctor --include-installed-client-probes --include-stdio-trace-submit-extraction --stdio-extraction-timeout-seconds 300 --output-dir benchmarks/results/raw/mcp-integration-full",
@@ -20,7 +20,7 @@
         "name": "codex",
         "parse_error": ""
       },
-      "duration_ms": 2.763,
+      "duration_ms": 3.44,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -53,7 +53,7 @@
         "name": "claude-code",
         "parse_error": ""
       },
-      "duration_ms": 1.071,
+      "duration_ms": 0.841,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -86,7 +86,7 @@
         "name": "cursor",
         "parse_error": ""
       },
-      "duration_ms": 0.772,
+      "duration_ms": 0.594,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -119,7 +119,7 @@
         "name": "opencode",
         "parse_error": ""
       },
-      "duration_ms": 0.666,
+      "duration_ms": 0.583,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -152,7 +152,7 @@
         "name": "gemini-cli",
         "parse_error": ""
       },
-      "duration_ms": 0.622,
+      "duration_ms": 0.563,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -185,7 +185,7 @@
         "name": "cline",
         "parse_error": ""
       },
-      "duration_ms": 0.615,
+      "duration_ms": 0.568,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -218,7 +218,7 @@
         "name": "cline-cli",
         "parse_error": ""
       },
-      "duration_ms": 0.644,
+      "duration_ms": 0.598,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -251,7 +251,7 @@
         "name": "claude-desktop",
         "parse_error": ""
       },
-      "duration_ms": 0.606,
+      "duration_ms": 0.548,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -284,7 +284,7 @@
         "name": "openclaw",
         "parse_error": ""
       },
-      "duration_ms": 0.628,
+      "duration_ms": 0.576,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -317,7 +317,7 @@
         "name": "hermes",
         "parse_error": ""
       },
-      "duration_ms": 1.447,
+      "duration_ms": 1.426,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -350,7 +350,7 @@
         "name": "goose",
         "parse_error": ""
       },
-      "duration_ms": 1.576,
+      "duration_ms": 1.254,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -383,7 +383,7 @@
         "name": "roo-code",
         "parse_error": ""
       },
-      "duration_ms": 0.71,
+      "duration_ms": 0.872,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -416,7 +416,7 @@
         "name": "kilo-code",
         "parse_error": ""
       },
-      "duration_ms": 0.625,
+      "duration_ms": 0.739,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -449,7 +449,7 @@
         "name": "windsurf",
         "parse_error": ""
       },
-      "duration_ms": 0.611,
+      "duration_ms": 0.647,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -482,7 +482,7 @@
         "name": "openhuman",
         "parse_error": ""
       },
-      "duration_ms": 0.592,
+      "duration_ms": 0.637,
       "fixture_config_path": "<tmp>",
       "probe": "temp_config_writer_doctor",
       "result": {
@@ -504,7 +504,7 @@
       "command": "<python-executable> -m lerim.mcp_server",
       "counts_as_installed_agent_acceptance": false,
       "display_name": "Lerim MCP stdio server",
-      "duration_ms": 2852.449,
+      "duration_ms": 2479.255,
       "expected_tools": [
         "lerim_context_brief",
         "lerim_context_answer",
@@ -533,23 +533,23 @@
         "project": "<repo-root>",
         "refresh": false
       },
-      "availability": "stale",
+      "availability": "missing",
       "command": "<python-executable> -m lerim.mcp_server",
-      "content_chars": 1013,
+      "content_chars": 0,
       "content_item_count": 1,
       "counts_as_installed_agent_acceptance": false,
       "counts_as_local_context_tool_call_acceptance": true,
       "display_name": "Lerim MCP stdio server",
-      "duration_ms": 1832.257,
+      "duration_ms": 1702.54,
       "is_error": false,
       "probe": "stdio_mcp_context_brief_call",
-      "project": "lerim-cli",
+      "project": "lerim-cli-release-030",
       "project_id": "<project-id>",
       "repo_path": "<repo-root>",
       "status": "pass",
       "target": "lerim-mcp-stdio",
       "tool": "lerim_context_brief",
-      "truncated": true
+      "truncated": false
     },
     {
       "acceptance_scope": "local_stdio_server_trace_submit_duplicate_path",
@@ -558,7 +558,7 @@
       "counts_as_trace_submit_extraction_acceptance": false,
       "counts_as_trace_submit_idempotency_acceptance": true,
       "display_name": "Lerim MCP stdio server",
-      "duration_ms": 1869.699,
+      "duration_ms": 1710.524,
       "normalized_trace_path_present": true,
       "probe": "stdio_mcp_trace_submit_duplicate",
       "result_status": "duplicate_skipped",
@@ -574,25 +574,25 @@
       "acceptance_scope": "local_stdio_server_trace_submit_extraction_path",
       "command": "<python-executable> -m lerim.mcp_server",
       "counts_as_installed_agent_acceptance": false,
-      "counts_as_trace_submit_extraction_acceptance": true,
+      "counts_as_trace_submit_extraction_acceptance": false,
       "counts_as_trace_submit_idempotency_acceptance": false,
       "display_name": "Lerim MCP stdio server",
-      "durable_record_count": 1,
-      "duration_ms": 66891.623,
-      "episode_record_count": 1,
+      "durable_record_count": 0,
+      "duration_ms": 9935.84,
+      "episode_record_count": 0,
       "input_trace_disclosure": "Synthetic submitted trace fixture; MCP protocol submission and BAML/LangGraph extraction path are real.",
       "input_trace_kind": "synthetic_protocol_acceptance_trace",
-      "normalized_trace_path_present": true,
+      "normalized_trace_path_present": false,
       "probe": "stdio_mcp_trace_submit_extraction",
-      "record_count": 2,
+      "record_count": 0,
       "records_archived": 0,
-      "records_created": 2,
+      "records_created": 0,
       "records_updated": 0,
       "result_status": "ingested",
-      "scope_id_present": true,
-      "scope_type": "domain",
-      "session_id": "mcp-trace-submit-extraction-20260519t104028z",
-      "status": "pass",
+      "scope_id_present": false,
+      "scope_type": null,
+      "session_id": null,
+      "status": "fail",
       "submitted_trace_path_present": true,
       "target": "lerim-mcp-stdio",
       "tool": "lerim_trace_submit"
@@ -601,61 +601,7 @@
       "acceptance_scope": "real_config_read_only_observation",
       "counts_as_installed_agent_acceptance": false,
       "display_name": "<redacted installed config target>",
-      "duration_ms": 108.434,
-      "probe": "real_config_doctor",
-      "status": "pass",
-      "target": "<redacted-installed-config-target>"
-    },
-    {
-      "acceptance_scope": "real_config_read_only_observation",
-      "counts_as_installed_agent_acceptance": false,
-      "display_name": "<redacted installed config target>",
-      "duration_ms": 2.83,
-      "probe": "real_config_doctor",
-      "status": "pass",
-      "target": "<redacted-installed-config-target>"
-    },
-    {
-      "acceptance_scope": "real_config_read_only_observation",
-      "counts_as_installed_agent_acceptance": false,
-      "display_name": "<redacted installed config target>",
-      "duration_ms": 0.076,
-      "probe": "real_config_doctor",
-      "status": "pass",
-      "target": "<redacted-installed-config-target>"
-    },
-    {
-      "acceptance_scope": "real_config_read_only_observation",
-      "counts_as_installed_agent_acceptance": false,
-      "display_name": "<redacted installed config target>",
-      "duration_ms": 0.092,
-      "probe": "real_config_doctor",
-      "status": "pass",
-      "target": "<redacted-installed-config-target>"
-    },
-    {
-      "acceptance_scope": "real_config_read_only_observation",
-      "counts_as_installed_agent_acceptance": false,
-      "display_name": "<redacted installed config target>",
-      "duration_ms": 0.072,
-      "probe": "real_config_doctor",
-      "status": "pass",
-      "target": "<redacted-installed-config-target>"
-    },
-    {
-      "acceptance_scope": "real_config_read_only_observation",
-      "counts_as_installed_agent_acceptance": false,
-      "display_name": "<redacted installed config target>",
-      "duration_ms": 0.074,
-      "probe": "real_config_doctor",
-      "status": "pass",
-      "target": "<redacted-installed-config-target>"
-    },
-    {
-      "acceptance_scope": "real_config_read_only_observation",
-      "counts_as_installed_agent_acceptance": false,
-      "display_name": "<redacted installed config target>",
-      "duration_ms": 0.04,
+      "duration_ms": 167.98,
       "probe": "real_config_doctor",
       "status": "skip",
       "target": "<redacted-installed-config-target>"
@@ -664,63 +610,117 @@
       "acceptance_scope": "real_config_read_only_observation",
       "counts_as_installed_agent_acceptance": false,
       "display_name": "<redacted installed config target>",
-      "duration_ms": 0.668,
+      "duration_ms": 1.612,
       "probe": "real_config_doctor",
-      "status": "pass",
+      "status": "skip",
       "target": "<redacted-installed-config-target>"
     },
     {
       "acceptance_scope": "real_config_read_only_observation",
       "counts_as_installed_agent_acceptance": false,
       "display_name": "<redacted installed config target>",
-      "duration_ms": 0.068,
+      "duration_ms": 0.078,
       "probe": "real_config_doctor",
-      "status": "pass",
+      "status": "skip",
       "target": "<redacted-installed-config-target>"
     },
     {
       "acceptance_scope": "real_config_read_only_observation",
       "counts_as_installed_agent_acceptance": false,
       "display_name": "<redacted installed config target>",
-      "duration_ms": 0.346,
+      "duration_ms": 0.095,
       "probe": "real_config_doctor",
-      "status": "pass",
+      "status": "skip",
       "target": "<redacted-installed-config-target>"
     },
     {
       "acceptance_scope": "real_config_read_only_observation",
       "counts_as_installed_agent_acceptance": false,
       "display_name": "<redacted installed config target>",
-      "duration_ms": 0.244,
+      "duration_ms": 0.075,
       "probe": "real_config_doctor",
-      "status": "pass",
+      "status": "skip",
       "target": "<redacted-installed-config-target>"
     },
     {
       "acceptance_scope": "real_config_read_only_observation",
       "counts_as_installed_agent_acceptance": false,
       "display_name": "<redacted installed config target>",
-      "duration_ms": 0.223,
+      "duration_ms": 0.084,
       "probe": "real_config_doctor",
-      "status": "pass",
+      "status": "skip",
       "target": "<redacted-installed-config-target>"
     },
     {
       "acceptance_scope": "real_config_read_only_observation",
       "counts_as_installed_agent_acceptance": false,
       "display_name": "<redacted installed config target>",
-      "duration_ms": 0.247,
+      "duration_ms": 0.043,
       "probe": "real_config_doctor",
-      "status": "pass",
+      "status": "skip",
       "target": "<redacted-installed-config-target>"
     },
     {
       "acceptance_scope": "real_config_read_only_observation",
       "counts_as_installed_agent_acceptance": false,
       "display_name": "<redacted installed config target>",
-      "duration_ms": 0.052,
+      "duration_ms": 0.074,
       "probe": "real_config_doctor",
-      "status": "pass",
+      "status": "skip",
+      "target": "<redacted-installed-config-target>"
+    },
+    {
+      "acceptance_scope": "real_config_read_only_observation",
+      "counts_as_installed_agent_acceptance": false,
+      "display_name": "<redacted installed config target>",
+      "duration_ms": 0.07,
+      "probe": "real_config_doctor",
+      "status": "skip",
+      "target": "<redacted-installed-config-target>"
+    },
+    {
+      "acceptance_scope": "real_config_read_only_observation",
+      "counts_as_installed_agent_acceptance": false,
+      "display_name": "<redacted installed config target>",
+      "duration_ms": 0.357,
+      "probe": "real_config_doctor",
+      "status": "skip",
+      "target": "<redacted-installed-config-target>"
+    },
+    {
+      "acceptance_scope": "real_config_read_only_observation",
+      "counts_as_installed_agent_acceptance": false,
+      "display_name": "<redacted installed config target>",
+      "duration_ms": 0.253,
+      "probe": "real_config_doctor",
+      "status": "skip",
+      "target": "<redacted-installed-config-target>"
+    },
+    {
+      "acceptance_scope": "real_config_read_only_observation",
+      "counts_as_installed_agent_acceptance": false,
+      "display_name": "<redacted installed config target>",
+      "duration_ms": 0.069,
+      "probe": "real_config_doctor",
+      "status": "skip",
+      "target": "<redacted-installed-config-target>"
+    },
+    {
+      "acceptance_scope": "real_config_read_only_observation",
+      "counts_as_installed_agent_acceptance": false,
+      "display_name": "<redacted installed config target>",
+      "duration_ms": 0.058,
+      "probe": "real_config_doctor",
+      "status": "skip",
+      "target": "<redacted-installed-config-target>"
+    },
+    {
+      "acceptance_scope": "real_config_read_only_observation",
+      "counts_as_installed_agent_acceptance": false,
+      "display_name": "<redacted installed config target>",
+      "duration_ms": 0.051,
+      "probe": "real_config_doctor",
+      "status": "skip",
       "target": "<redacted-installed-config-target>"
     },
     {
@@ -729,7 +729,7 @@
       "display_name": "<redacted installed config target>",
       "duration_ms": 0.048,
       "probe": "real_config_doctor",
-      "status": "pass",
+      "status": "skip",
       "target": "<redacted-installed-config-target>"
     },
     {
@@ -738,7 +738,7 @@
       "counts_as_installed_agent_acceptance": false,
       "counts_as_installed_client_connection_acceptance": false,
       "display_name": "<redacted installed client target>",
-      "duration_ms": 135.033,
+      "duration_ms": 138.654,
       "probe": "real_installed_client_mcp_cli",
       "status": "pass",
       "target": "<redacted-installed-client-target>"
@@ -749,7 +749,7 @@
       "counts_as_installed_agent_acceptance": false,
       "counts_as_installed_client_connection_acceptance": true,
       "display_name": "<redacted installed client target>",
-      "duration_ms": 2416.478,
+      "duration_ms": 2424.63,
       "probe": "real_installed_client_mcp_cli",
       "status": "pass",
       "target": "<redacted-installed-client-target>"
@@ -760,7 +760,7 @@
       "counts_as_installed_agent_acceptance": false,
       "counts_as_installed_client_connection_acceptance": true,
       "display_name": "<redacted installed client target>",
-      "duration_ms": 5779.216,
+      "duration_ms": 5185.932,
       "probe": "real_installed_client_mcp_cli",
       "status": "pass",
       "target": "<redacted-installed-client-target>"
@@ -771,7 +771,7 @@
       "counts_as_installed_agent_acceptance": false,
       "counts_as_installed_client_connection_acceptance": true,
       "display_name": "<redacted installed client target>",
-      "duration_ms": 2703.809,
+      "duration_ms": 2708.521,
       "probe": "real_installed_client_mcp_cli",
       "status": "pass",
       "target": "<redacted-installed-client-target>"
@@ -779,30 +779,37 @@
   ],
   "environment": {
     "cwd": "<repo-root>",
-    "git_commit": "36e806a89a3ccd6b20d2ffb1435a84016e4af35b",
-    "git_dirty": true,
-    "git_status_short": "<dirty worktree; rerun from clean commit before launch>",
+    "git_commit": "8189b3dc43e6ad6cc8301ccbdea954217ae57a22",
+    "git_dirty": false,
+    "git_status_short": "",
     "platform": "macOS-26.4.1-arm64-arm-64bit",
     "python": "3.12.12",
     "python_executable": "<python-executable>"
   },
-  "failures": [],
-  "generated_at": "2026-05-19T10:41:46.832985+00:00",
+  "failures": [
+    {
+      "message": "",
+      "probe": "stdio_mcp_trace_submit_extraction",
+      "status": "fail",
+      "target": "lerim-mcp-stdio"
+    }
+  ],
+  "generated_at": "2026-05-20T09:13:44.634006+00:00",
   "is_full_integration_run": true,
   "limitations": [
-    "Temporary config fixtures exercise Lerim writer and validation code paths but do not prove a real agent is installed or can launch Lerim.",
+    "Temporary config fixtures exercise Lerim writer and validation code paths but do not prove an agent is installed or can launch Lerim.",
     "The stdio tools-list probe starts Lerim's MCP server directly and lists tools; it does not prove every external MCP client can launch the command.",
     "The stdio context tool-call probe calls lerim_context_brief through the MCP protocol and proves Lerim's local tool path; it does not prove an external client selected the tool.",
     "The default stdio trace-submit probe calls lerim_trace_submit through the MCP protocol on an idempotent duplicate trace; it proves submission and normalization plumbing but not LLM extraction quality.",
     "The opt-in stdio trace-submit extraction probe calls the same MCP tool on a synthetic submitted trace and requires BAML/LangGraph extraction to create one episode record plus at least one durable record.",
-    "Installed-client MCP CLI probes prove client config/connection visibility only; they do not prove context tool-call behavior unless a client actually calls lerim_context_brief.",
-    "Live client tool-call probes may spend model/subscription credits and are skipped unless explicitly enabled.",
-    "Installed-agent context tool-call acceptance still needs an installed-client invocation of lerim_context_brief.",
     "The opt-in stdio trace-submit extraction probe uses a synthetic submitted trace fixture; the MCP submission and BAML/LangGraph extraction path are real, but this is not organic client-session evidence.",
-    "Public artifacts preserve aggregate installed-client counts and statuses but omit per-machine installed-client inventory from detail rows."
+    "Installed-client MCP CLI probes prove client config/connection visibility only; they do not prove context tool-call behavior unless a client actually calls lerim_context_brief.",
+    "Public artifacts preserve aggregate installed-client counts and statuses but omit per-machine installed-client inventory from detail rows.",
+    "Live client tool-call probes may spend model/subscription credits and are skipped unless explicitly enabled.",
+    "Installed-agent context tool-call acceptance still needs an installed-client invocation of lerim_context_brief."
   ],
   "mode": "local-integration",
-  "overall_status": "pass",
+  "overall_status": "fail",
   "required_artifacts": [
     "report.json",
     "report.md",
@@ -833,7 +840,7 @@
     ],
     "context_tool_call_acceptance_count": 0,
     "detail_count": 38,
-    "failure_count": 0,
+    "failure_count": 1,
     "installed_agent_acceptance_count": 0,
     "installed_client_connection_acceptance_count": 3,
     "installed_client_probe_count": 4,
@@ -862,12 +869,12 @@
     "local_context_tool_call_acceptance_count": 1,
     "real_doctor_probe_count": 15,
     "real_doctor_status_counts": {
-      "pass": 14,
-      "skip": 1
+      "skip": 15
     },
     "status_counts": {
-      "pass": 37,
-      "skip": 1
+      "fail": 1,
+      "pass": 22,
+      "skip": 15
     },
     "stdio_context_tool_failed_count": 0,
     "stdio_context_tool_passed_count": 1,
@@ -878,15 +885,16 @@
     "stdio_failed_count": 0,
     "stdio_passed_count": 1,
     "stdio_tools_probe_count": 1,
-    "stdio_trace_submit_failed_count": 0,
-    "stdio_trace_submit_passed_count": 2,
+    "stdio_trace_submit_failed_count": 1,
+    "stdio_trace_submit_passed_count": 1,
     "stdio_trace_submit_probe_count": 2,
     "stdio_trace_submit_status_counts": {
-      "pass": 2
+      "fail": 1,
+      "pass": 1
     },
     "tool_call_probe_count": 0,
     "tool_call_status_counts": {},
-    "trace_submit_extraction_acceptance_count": 1,
+    "trace_submit_extraction_acceptance_count": 0,
     "trace_submit_idempotency_acceptance_count": 1
   }
 }

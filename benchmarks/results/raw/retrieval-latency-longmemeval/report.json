@@ -1,7 +1,7 @@
 {
   "batch_indexing": true,
   "benchmark": "longmemeval_s_retrieval_latency",
-  "command": "benchmarks/lerim_evidence/retrieval_latency.py --local-files-only --sizes 100,1000 --query-count 25 --iterations 3 --output-dir benchmarks/results/raw/retrieval-latency-longmemeval",
+  "command": "benchmarks/lerim_evidence/retrieval_latency.py --local-files-only --sizes 100,1000 --query-count 25 --iterations 3 --output-dir /tmp/lerim-clean-artifacts/retrieval-latency-longmemeval",
   "cost_estimate": {
     "embedding_api_usd": 0.0,
     "external_llm_usd": 0.0,
@@ -19,21 +19,21 @@
     "snapshot": "98d7416c24c778c2fee6e6f3006e7a073259d48f"
   },
   "environment": {
-    "git_commit": "36e806a89a3ccd6b20d2ffb1435a84016e4af35b",
-    "git_dirty": true,
-    "git_status_short": "<dirty worktree; rerun from clean commit before launch>",
+    "git_commit": "f75fad8cd4fa3c5d07ce8cb8a272d9ee78c4ed55",
+    "git_dirty": false,
+    "git_status_short": "",
     "hardware": {
       "machine": "arm64",
       "platform": "macOS-26.4.1-arm64-arm-64bit",
       "processor": "arm"
     },
-    "lerim_version": "0.2.1",
+    "lerim_version": "0.3.0",
     "machine": "arm64",
     "platform": "macOS-26.4.1-arm64-arm-64bit",
     "processor": "arm",
     "python": "3.12.12"
   },
-  "generated_at": "2026-05-19T07:32:59.889546+00:00",
+  "generated_at": "2026-05-20T09:50:20.484366+00:00",
   "is_full_filtered_run": false,
   "iterations": 3,
   "limit": null,
@@ -88,32 +88,32 @@
   "results": {
     "100": {
       "avg_hit_count": 20.0,
-      "avg_ms": 8.653590505321821,
-      "max_ms": 9.704458003398031,
-      "min_ms": 7.833082985598594,
+      "avg_ms": 10.584112795380255,
+      "max_ms": 20.427415962330997,
+      "min_ms": 8.29233299009502,
       "ops": 75,
-      "p50_ms": 8.653416996821761,
-      "p90_ms": 9.150041965767741,
-      "p95_ms": 9.43887501489371,
-      "p99_ms": 9.704458003398031
+      "p50_ms": 9.635291062295437,
+      "p90_ms": 14.370541903190315,
+      "p95_ms": 15.620165970176458,
+      "p99_ms": 20.427415962330997
     },
     "1000": {
       "avg_hit_count": 20.0,
-      "avg_ms": 32.8339071610632,
-      "max_ms": 54.47212501894683,
-      "min_ms": 30.584749998524785,
+      "avg_ms": 36.32992942351848,
+      "max_ms": 54.96450001373887,
+      "min_ms": 31.963416025973856,
       "ops": 75,
-      "p50_ms": 32.40458300570026,
-      "p90_ms": 34.17237498797476,
-      "p95_ms": 35.485416010487825,
-      "p99_ms": 54.47212501894683
+      "p50_ms": 35.39924998767674,
+      "p90_ms": 39.85362499952316,
+      "p95_ms": 48.80758305080235,
+      "p99_ms": 54.96450001373887
     }
   },
   "retrieval_limit": 20,
   "retrieval_mode": "hybrid",
   "runtime": {
     "failure_count": 0,
-    "wall_clock_ms": 58298.65370801417
+    "wall_clock_ms": 70398.6278749071
   },
   "schema_version": 1,
   "sizes": [

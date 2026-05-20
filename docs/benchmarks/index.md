@@ -6,10 +6,10 @@ The rule is simple: public numbers must point to raw artifacts or cited external
 sources. Generated report copies are kept for auditability, but raw `report.json`
 files are the source of truth for Lerim numbers.
 
-Launch-grade benchmark artifacts should be rerun from a clean commit. Current
-development artifacts are usable evidence when they include raw `report.json`
-files, but a `git_dirty: true` environment flag means the run should be treated
-as pre-release evidence until rerun after commit.
+Launch-grade benchmark artifacts should be rerun from a clean commit and pass
+the clean/tracked public benchmark gate. The `v0.3.0` public artifacts passed
+that release gate. Future artifacts with `git_dirty: true` should still be
+treated as pre-release evidence until rerun after commit.
 
 ## Start Here
 
@@ -52,8 +52,8 @@ the generated artifacts.
 | Context budget | Full 500-question context-selection run using a Hugging Face tokenizer | [Lerim Results](lerim-results.md#context-budget) |
 | Retrieval latency | Partial local scale run on LongMemEval-S sessions | [Lerim Results](lerim-results.md#retrieval-latency) |
 | Trace ingestion cost/performance | Small public-trace sample with measured LLM calls and unavailable-cost disclosure | [Lerim Results](lerim-results.md#trace-ingestion-costperformance) |
-| MCP integration | Config validation, local stdio MCP probes, trace-submit extraction, and a Gemini CLI live tool-call acceptance artifact | [Lerim Results](lerim-results.md#mcp-integration) |
-| Extraction quality | Aggregate-only 47-case diagnostic report from a MiniMax M2.7 artifact; not launch-grade | [Lerim Results](lerim-results.md#extraction-eval-status) |
+| MCP integration | Config validation, local stdio MCP probes, trace-submit idempotency, 0 trace-submit extraction acceptances, and a Gemini CLI live tool-call acceptance artifact | [Lerim Results](lerim-results.md#mcp-integration) |
+| Extraction quality | Aggregate-only 47-case diagnostic report from a `MiniMax-M2.7` agent artifact judged by `MiniMax-M2.5`; not launch-grade | [Lerim Results](lerim-results.md#extraction-eval-status) |
 | Market comparison | Source-backed market table with comparable and not-yet-comparable rows separated | [Market Comparison](market-comparison.md) |
 
 ## Surface Map
@@ -64,7 +64,7 @@ the generated artifacts.
 | Context budget | How much context does Lerim select after retrieval? | Same 500 LongMemEval-S questions, Hugging Face tokenizer counts, recall shown beside reduction | Dollar cost savings, answer quality, or a replacement for the retrieval benchmark |
 | Retrieval latency | How fast is local search on this machine? | Local timings over LongMemEval-S sessions | Hosted/server load performance |
 | Trace ingestion cost/performance | How much time, LLM-call count, and local DB growth does the write path use? | Small LongMemEval-S public-trace sample through BAML/LangGraph ingestion | Extraction quality, answer quality, or dollar cost when provider usage is unavailable |
-| MCP integration | Does Lerim's config and MCP plumbing work? | Config validation, local stdio probes, trace-submit extraction, and Gemini CLI live tool-call acceptance | Autonomous live tool use by every external client |
+| MCP integration | Does Lerim's config and MCP plumbing work? | Config validation, local stdio tools/context probes, trace-submit idempotency, 0 trace-submit extraction acceptances, and Gemini CLI live tool-call acceptance | Autonomous live tool use by every external client or successful trace-submit extraction in this artifact |
 | Extraction | Can Lerim extract durable records from source sessions? | Aggregate-only report from one 47-case internal eval | Launch-grade public claim or market comparison |
 | Market comparison | How does Lerim compare to alternatives? | Market table with source/provenance per row | Full same-boundary market ranking |
 

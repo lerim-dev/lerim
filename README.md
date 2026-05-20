@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/lerim/"><img src="https://img.shields.io/pypi/v/lerim?style=flat-square&color=245f46" alt="PyPI version"></a>
-  <a href="https://pypi.org/project/lerim/"><img src="https://img.shields.io/pypi/pyversions/lerim?style=flat-square" alt="Python versions"></a>
+  <a href="https://pypi.org/project/lerim/"><img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square" alt="Python 3.11+"></a>
   <a href="https://github.com/lerim-dev/lerim-cli/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License"></a>
   <a href="https://github.com/lerim-dev/lerim-cli/actions"><img src="https://img.shields.io/github/actions/workflow/status/lerim-dev/lerim-cli/ci.yml?style=flat-square&label=tests" alt="Tests"></a>
   <a href="https://github.com/lerim-dev/lerim-cli"><img src="https://img.shields.io/github/stars/lerim-dev/lerim-cli?style=flat-square" alt="GitHub stars"></a>
@@ -31,15 +31,15 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/lerim-trace-to-answer.gif" alt="Lerim imports a completed trace, extracts durable context, and answers with cited records" width="860">
+  <img src="docs/assets/lerim-trace-to-answer.gif" alt="Lerim compiles completed source sessions into a reusable memory graph and cited answer slices" width="860">
 </p>
 
 <p align="center">
-  <em>Trace to answer: support trace input, Lerim CLI import, MiniMax/BAML extraction, stored context, and cited answer.</em>
+  <em>Completed source sessions become a reusable memory graph; future agents retrieve compact cited slices.</em>
 </p>
 
 <p align="center">
-  <strong>Completed session in</strong> -> <strong>durable context out</strong> -> <strong>the next agent starts with evidence</strong>
+  <strong>Sessions in</strong> -> <strong>memory graph compiled</strong> -> <strong>cited context out</strong>
 </p>
 
 # Lerim
@@ -242,11 +242,11 @@ reporting rules:
 - [Lerim Results](docs/benchmarks/lerim-results.md): first-party raw artifacts, commands, and boundaries.
 - [Market Comparison](docs/benchmarks/market-comparison.md): source-backed market rows with provenance for each external number.
 
-Current development artifacts are backed by raw `report.json` files, but they
-are not launch-grade until rerun from a clean commit. Retrieval and
-context-budget artifacts are retrieval-only, not official LongMemEval QA scores.
-The extraction artifact is an aggregate-only diagnostic from an internal
-MiniMax M2.7 run, not a public market-comparison score.
+Current public artifacts are backed by raw `report.json` files and were
+validated with the clean/tracked public benchmark gate for the `v0.3.0` release.
+Retrieval and context-budget artifacts are retrieval-only, not official
+LongMemEval QA scores. The extraction artifact is an aggregate-only diagnostic
+from an internal MiniMax M2.7 run, not a public market-comparison score.
 
 | Surface | Current evidence |
 | --- | --- |
@@ -254,7 +254,7 @@ MiniMax M2.7 run, not a public market-comparison score.
 | Context budget | Full 500-question context-selection artifact with recall beside token reduction |
 | Retrieval latency | Local search timing over LongMemEval-S sessions |
 | Trace ingestion cost/performance | Small public-trace sample with measured LLM calls and unavailable-cost disclosure |
-| MCP integration | Config writers, local stdio probes, trace-submit extraction probe, and one Gemini CLI live context-tool call |
+| MCP integration | Config writers, local stdio tools/context probes, trace-submit idempotency, 0 trace-submit extraction acceptances in the current artifact, and one Gemini CLI live context-tool call |
 | Extraction quality | Aggregate-only 47-case diagnostic report; competitors not run on this private eval |
 
 Before publishing a benchmark claim, require the exact command, git commit,
