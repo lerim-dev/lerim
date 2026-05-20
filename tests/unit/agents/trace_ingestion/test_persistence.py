@@ -132,6 +132,33 @@ def test_episode_is_archived_when_model_marks_active_beside_durable_record(tmp_p
     assert episode["status"] == "archived"
 
 
+def test_episode_title_is_compacted_for_ingested_records(tmp_path) -> None:
+    """Ingested episode titles stay within the extraction benchmark title budget."""
+    ctx = _context(tmp_path)
+    prepare_context_store(ctx)
+    payload = _synthesized_payload()
+    payload["episode"]["title"] = (
+        "Established cloud record provenance and all-projects labeling constraints"
+    )
+
+    observations, done, _summary = persist_synthesized_extraction(payload, ctx)
+
+    store = ContextStore(ctx.context_db_path)
+    rows = store.query(
+        entity="records",
+        mode="list",
+        project_ids=[ctx.project_identity.project_id],
+        source_session_id=ctx.session_id,
+        limit=10,
+        include_archived=True,
+    )["rows"]
+    episode = next(row for row in rows if row["kind"] == "episode")
+
+    assert done is True
+    assert observations[0]["ok"] is True
+    assert len(episode["title"]) <= 72
+
+
 def test_model_completion_summary_is_not_persisted(tmp_path) -> None:
     """Persistence uses deterministic summaries instead of model-authored chatter."""
     ctx = _context(tmp_path)
@@ -147,4 +174,3 @@ def test_model_completion_summary_is_not_persisted(tmp_path) -> None:
     assert summary == "Trace ingestion completed: 1 durable record created."
     assert observations[-1]["content"] == summary
     assert "CSS" not in summary
-

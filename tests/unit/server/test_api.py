@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -1128,6 +1129,53 @@ def test_api_project_add_registers_custom_project_type(monkeypatch, tmp_path) ->
     assert result["name"] == "clean-traces"
     assert result["type"] == "custom"
     assert saved[0]["project_types"]["clean-traces"] == "custom"
+
+
+def test_api_project_add_registers_project_source_profile(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """api_project_add persists a validated project default source profile."""
+    traces_dir = tmp_path / "research-traces"
+    traces_dir.mkdir()
+    cfg = replace(make_config(tmp_path), projects={})
+
+    saved: list[dict] = []
+    monkeypatch.setattr(api_mod, "save_config_patch", lambda patch: saved.append(patch))
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    monkeypatch.setattr(
+        api_mod,
+        "list_signal_packs",
+        lambda: [SimpleNamespace(id="coding"), SimpleNamespace(id="research")],
+    )
+
+    result = api_project_add(
+        str(traces_dir),
+        project_type="custom",
+        source_profile="RESEARCH",
+    )
+
+    assert result["name"] == "research-traces"
+    assert saved[0]["project_profiles"]["research-traces"] == "research"
+
+
+def test_api_project_add_rejects_unknown_source_profile(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """api_project_add rejects profiles that are not bundled or registered."""
+    traces_dir = tmp_path / "research-traces"
+    traces_dir.mkdir()
+    monkeypatch.setattr(
+        api_mod,
+        "list_signal_packs",
+        lambda: [SimpleNamespace(id="coding")],
+    )
+
+    result = api_project_add(str(traces_dir), source_profile="research")
+
+    assert result["name"] is None
+    assert "unknown source profile" in result["error"]
 
 
 def test_api_project_add_rejects_unknown_project_type(tmp_path) -> None:

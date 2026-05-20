@@ -100,6 +100,7 @@ class ContextBriefStatus:
     age_seconds: int | None
     records_included: int
     records_changed_since_generation: int
+    records_missing_since_generation: int
     current_file: str
     current_manifest: str
     latest_run_folder: str | None
@@ -240,6 +241,31 @@ def count_changed_records_since(
                 (project_id,),
             ).fetchone()
     return int(row["total"] or 0) if row else 0
+
+
+def count_missing_included_records(
+    store: ContextStore,
+    *,
+    project_id: str,
+    record_ids: list[str],
+) -> int:
+    """Count manifest-cited records that are no longer live for this project."""
+    cleaned_ids = [str(record_id).strip() for record_id in record_ids if str(record_id).strip()]
+    if not cleaned_ids:
+        return 0
+    placeholders = ", ".join("?" for _ in cleaned_ids)
+    with store.connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT record_id
+            FROM records
+            WHERE project_id = ?
+              AND record_id IN ({placeholders})
+            """,
+            (project_id, *cleaned_ids),
+        ).fetchall()
+    existing = {str(row["record_id"]) for row in rows}
+    return len(set(cleaned_ids) - existing)
 
 
 def load_candidate_records(
@@ -695,6 +721,13 @@ def context_brief_status(
         project_id=project.identity.project_id,
         since=generated_at,
     )
+    raw_included_ids = manifest.get("included_record_ids") or []
+    included_ids = raw_included_ids if isinstance(raw_included_ids, list) else []
+    missing = count_missing_included_records(
+        store,
+        project_id=project.identity.project_id,
+        record_ids=[str(record_id) for record_id in included_ids],
+    )
     age = age_seconds_since(generated_at)
     file_exists = paths.current_file.is_file()
     manifest_exists = paths.current_manifest.is_file()
@@ -704,6 +737,9 @@ def context_brief_status(
     elif not manifest_exists:
         availability = "error"
         action = "Run `lerim context-brief refresh --force`."
+    elif missing > 0:
+        availability = "stale"
+        action = "Refresh because this Context Brief cites records no longer present in the live DB."
     elif changed > 0:
         availability = "stale"
         action = "Refresh if newest persisted DB context matters."
@@ -719,6 +755,7 @@ def context_brief_status(
         age_seconds=age,
         records_included=int(manifest.get("records_included") or 0),
         records_changed_since_generation=changed,
+        records_missing_since_generation=missing,
         current_file=str(paths.current_file),
         current_manifest=str(paths.current_manifest),
         latest_run_folder=str(manifest.get("run_folder") or "") or None,

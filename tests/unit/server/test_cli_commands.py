@@ -554,6 +554,61 @@ class TestCmdDashboard:
 
 
 # ===================================================================
+# _cmd_trace
+# ===================================================================
+
+
+class TestCmdTrace:
+    """Tests for generic trace command recovery helpers."""
+
+    def test_trace_submissions_json_lists_failed_manifest(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The CLI can show failed MCP-submitted traces from sidecars."""
+        from lerim.traces.submissions import (
+            create_submission_manifest,
+            mark_submission_failed,
+        )
+
+        cfg = make_config(tmp_path / ".lerim")
+        monkeypatch.setattr(cli, "get_config", lambda: cfg)
+        trace_path = cfg.global_data_dir / "workspace" / "mcp-submissions" / "trace.json"
+        trace_path.parent.mkdir(parents=True)
+        trace_path.write_text('{"messages":[]}', encoding="utf-8")
+        create_submission_manifest(
+            trace_path=trace_path,
+            source_name="support-agent",
+            source_profile="support",
+            scope_type="domain",
+            scope="support",
+            scope_label=None,
+            session_id="sess-1",
+            filename_hint=None,
+            force=False,
+        )
+        mark_submission_failed(trace_path=trace_path, exc=RuntimeError("temporary"))
+
+        args = _ns(
+            command="trace",
+            trace_action="submissions",
+            status="failed",
+            limit=10,
+            json=True,
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = cli._cmd_trace(args)
+
+        assert code == 0
+        payload = json.loads(buf.getvalue())
+        assert payload["count"] == 1
+        assert payload["rows"][0]["status"] == "failed"
+        assert payload["rows"][0]["retry_command"].startswith("lerim trace retry ")
+
+
+# ===================================================================
 # _cmd_answer
 # ===================================================================
 
@@ -1454,10 +1509,12 @@ class TestCmdProject:
         def fake_project_add(path: str, **kwargs):
             captured["path"] = path
             captured["project_type"] = kwargs["project_type"]
+            captured["source_profile"] = kwargs["source_profile"]
             return {
                 "name": "support-traces",
                 "path": path,
                 "type": kwargs["project_type"],
+                "source_profile": kwargs["source_profile"],
                 "error": None,
             }
 
@@ -1469,6 +1526,7 @@ class TestCmdProject:
             project_action="add",
             path="/home/user/support-traces",
             project_type="custom",
+            source_profile="support",
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -1477,8 +1535,10 @@ class TestCmdProject:
         assert captured == {
             "path": "/home/user/support-traces",
             "project_type": "custom",
+            "source_profile": "support",
         }
         assert "type=custom" in buf.getvalue()
+        assert "source_profile=support" in buf.getvalue()
 
     def test_project_add_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Project add with error response returns 1."""
@@ -2313,6 +2373,7 @@ class TestBuildParser:
                 "Support",
                 "--session-id",
                 "sess_support",
+                "--force",
             ]
         )
         assert args.command == "trace"
@@ -2321,6 +2382,27 @@ class TestBuildParser:
         assert args.scope_type == "domain"
         assert args.scope_label == "Support"
         assert args.session_id == "sess_support"
+        assert args.force is True
+
+    def test_trace_retry_flags(self) -> None:
+        """Trace retry parser accepts submitted trace paths and force."""
+        parser = cli.build_parser()
+        args = parser.parse_args(["trace", "retry", "trace.json", "--force"])
+        assert args.command == "trace"
+        assert args.trace_action == "retry"
+        assert args.path == "trace.json"
+        assert args.force is True
+
+    def test_trace_submissions_flags(self) -> None:
+        """Trace submissions parser accepts status and limit filters."""
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            ["trace", "submissions", "--status", "failed", "--limit", "5"]
+        )
+        assert args.command == "trace"
+        assert args.trace_action == "submissions"
+        assert args.status == "failed"
+        assert args.limit == 5
 
     def test_queue_flags(self) -> None:
         """Queue parser accepts --failed, --status, and --project."""

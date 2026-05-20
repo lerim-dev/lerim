@@ -53,6 +53,8 @@ def make_config(base: Path) -> Config:
         agents={},
         projects={},
         project_types={},
+        project_profiles={},
+        profiles={},
         cloud_endpoint="https://api.lerim.dev",
         cloud_token=None,
     )

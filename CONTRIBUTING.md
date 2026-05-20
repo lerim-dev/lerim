@@ -1,7 +1,7 @@
 # Contributing to Lerim
 
-Lerim is licensed under BSL 1.1. By contributing you agree your changes
-fall under the same license (1 user free, 2+ users need a commercial license).
+Lerim is licensed under Apache-2.0. By contributing you agree your changes
+fall under the same license.
 
 ## Dev environment setup
 
@@ -9,7 +9,7 @@ Requires Python 3.12+.
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install -e '.[test]'
+uv sync --extra test --extra lint --extra docs
 ```
 
 ## Running tests

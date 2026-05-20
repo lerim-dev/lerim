@@ -14,6 +14,7 @@ import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -31,6 +32,7 @@ from lerim.server.daemon import (
     _now_iso,
     _parse_iso,
     _pid_alive,
+    _project_source_profile,
     _retry_backoff_seconds,
     active_lock_state,
     log_activity,
@@ -86,6 +88,51 @@ def test_retry_backoff_exponential() -> None:
     assert _retry_backoff_seconds(2) == 60
     assert _retry_backoff_seconds(3) == 120
     assert _retry_backoff_seconds(4) == 240
+
+
+def test_project_source_profile_resolves_registered_project(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Project profile lookup returns the explicit config profile."""
+    project = tmp_path / "research"
+    project.mkdir()
+    cfg = replace(
+        make_config(tmp_path),
+        projects={"research": str(project)},
+        project_profiles={"research": "research"},
+    )
+    monkeypatch.setattr(daemon, "get_config", lambda: cfg)
+    monkeypatch.setattr(
+        daemon,
+        "list_signal_packs",
+        lambda: [SimpleNamespace(id="coding"), SimpleNamespace(id="research")],
+    )
+
+    assert _project_source_profile(str(project)) == "research"
+
+
+def test_project_source_profile_rejects_unknown_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Project profile lookup fails loudly on config typos."""
+    project = tmp_path / "research"
+    project.mkdir()
+    cfg = replace(
+        make_config(tmp_path),
+        projects={"research": str(project)},
+        project_profiles={"research": "typo"},
+    )
+    monkeypatch.setattr(daemon, "get_config", lambda: cfg)
+    monkeypatch.setattr(
+        daemon,
+        "list_signal_packs",
+        lambda: [SimpleNamespace(id="coding"), SimpleNamespace(id="research")],
+    )
+
+    with pytest.raises(ValueError, match="unknown source profile"):
+        _project_source_profile(str(project))
 
 
 def test_retry_backoff_capped_at_3600() -> None:

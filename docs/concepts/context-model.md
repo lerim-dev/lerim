@@ -64,9 +64,9 @@ It can link:
 - contradictory records for review
 - records that share a reusable topic
 
-The graph stores the persisted semantic cluster for each node. The dashboard can
-derive Louvain and combined visual lenses from the accepted graph links without
-adding those transient labels to the runtime store.
+The graph stores the persisted semantic cluster for each node. A planned hosted
+dashboard can derive Louvain and combined visual lenses from the accepted graph
+links without adding those transient labels to the runtime store.
 
 ## What answer does
 

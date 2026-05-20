@@ -47,6 +47,13 @@ dev-docs/
 # Eval results
 evals/results/
 
+# Live client benchmark reports can contain local auth, billing, and path details.
+benchmarks/results/raw/mcp-integration-live/
+benchmarks/results/reports/*-live.md
+
+# Private competitive research notes/artifacts are not product docs.
+.private/
+
 # Test artifacts
 snapshot_report.html
 qa_artifacts/*

@@ -16,6 +16,12 @@ from . import stream_types
 
 type_map = {
 
+    "types.CodingEvalPolishedContextRecords": types.CodingEvalPolishedContextRecords,
+    "stream_types.CodingEvalPolishedContextRecords": stream_types.CodingEvalPolishedContextRecords,
+
+    "types.CodingStrategySlotRecords": types.CodingStrategySlotRecords,
+    "stream_types.CodingStrategySlotRecords": stream_types.CodingStrategySlotRecords,
+
     "types.ContextAnswer": types.ContextAnswer,
     "stream_types.ContextAnswer": stream_types.ContextAnswer,
 
@@ -54,6 +60,9 @@ type_map = {
 
     "types.EpisodeDraft": types.EpisodeDraft,
     "stream_types.EpisodeDraft": stream_types.EpisodeDraft,
+
+    "types.FixedKindRecordDraft": types.FixedKindRecordDraft,
+    "stream_types.FixedKindRecordDraft": stream_types.FixedKindRecordDraft,
 
     "types.ImplementationFinding": types.ImplementationFinding,
     "stream_types.ImplementationFinding": stream_types.ImplementationFinding,

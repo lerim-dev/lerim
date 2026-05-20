@@ -21,6 +21,8 @@ Priority order:
 - `[agents]`
 - `[projects]`
 - `[project_types]`
+- `[project_profiles]`
+- `[profiles]`
 
 ## Important paths
 

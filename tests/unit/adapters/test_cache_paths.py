@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lerim.adapters import claude, codex, cursor, opencode
+from lerim.adapters import claude, codex, cursor, opencode, pi
 from tests.helpers import write_test_config
 
 
@@ -18,3 +18,4 @@ def test_adapter_trace_caches_live_under_cache_traces(tmp_path, monkeypatch):
         opencode._default_cache_dir()
         == tmp_path / "cache" / "traces" / "opencode"
     )
+    assert pi._default_cache_dir() == tmp_path / "cache" / "traces" / "pi"

@@ -1,4 +1,4 @@
-"""Claude desktop session adapter for reading JSONL trace sessions."""
+"""Claude Code session adapter for reading JSONL trace sessions."""
 
 from __future__ import annotations
 

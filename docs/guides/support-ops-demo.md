@@ -1,17 +1,12 @@
 # Support Ops Demo
 
-Support examples live in the monorepo eval template, not in `lerim-cli`:
-
-```text
-lerim-cloud/evals/data/traces/
-lerim-cloud/evals/data/labels/
-lerim-cloud/evals/projects/vertical_samples/support_ops/
-```
+This demo uses a tiny checked-in example trace to show the import shape. Replace
+it with your own cleaned support-agent source session for real evaluation.
 
 Import a support trace:
 
 ```bash
-lerim trace import ../lerim-cloud/evals/data/traces/support_refund_escalation_001.jsonl \
+lerim trace import docs/examples/traces/support-agent-run.jsonl \
   --source-name support-agent \
   --source-profile support \
   --scope-type domain \
@@ -30,6 +25,6 @@ Support records should preserve strict reusable context: customer constraints,
 policy-backed facts, source-of-truth evidence, known fixes, failed paths, and
 handoff boundaries when they are supported by the trace.
 
-Do not put support datasets, expected files, or converter outputs under
-`lerim-cli`. Stage conversion work under `lerim-cloud/evals/projects/vertical_samples/support_ops`
-and promote release-ready traces/labels into `lerim-cloud/evals/data`.
+Do not put private customer datasets or converter outputs under public docs.
+Use customer-owned storage for raw traces and commit only small sanitized
+examples when a public example is useful.

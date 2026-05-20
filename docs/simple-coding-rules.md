@@ -1,7 +1,7 @@
-# Simple Coding Rules (Lerim)
+# Engineering Rules
 
-This file defines general coding rules for Lerim.
-Follow these rules unless Isaac explicitly asks to change them.
+These rules describe how public Lerim contributors should keep the runtime
+small, testable, and easy to audit.
 
 ## 1) One clear path per feature
 

@@ -19,11 +19,14 @@ from lerim.context.retrieval import (
     RRF_K,
     SearchHit,
     compile_safe_fts_query,
+    lexical_candidates,
     rrf_fuse,
     semantic_candidates,
 )
 from lerim.context.store import (
     ContextStore,
+    RECORD_EMBEDDINGS_GENERATION_KEY,
+    RECORDS_FTS_GENERATION_KEY,
 )
 
 
@@ -251,6 +254,18 @@ class TestRRFFusion:
         expected = 1.0 / (RRF_K + 1) + 1.0 / (RRF_K + 1)
         assert abs(result[0][1] - expected) < 1e-10
 
+    def test_source_weights_scale_rank_contribution(self):
+        result = rrf_fuse(
+            semantic_rows=[("semantic_first", 0.0)],
+            lexical_rows=[("lexical_first", -1.0)],
+            semantic_weight=0.6,
+            lexical_weight=0.4,
+        )
+
+        assert result[0][0] == "semantic_first"
+        assert result[0][1] == pytest.approx(0.6 / (RRF_K + 1))
+        assert result[1][1] == pytest.approx(0.4 / (RRF_K + 1))
+
 
 class TestSearchIntegration:
     def test_empty_database_returns_empty(self, tmp_path, monkeypatch):
@@ -270,6 +285,129 @@ class TestSearchIntegration:
         hits = store.search(project_ids=[pid], query="pytest testing")
         assert len(hits) >= 1
         assert isinstance(hits[0], SearchHit)
+
+    def test_search_uses_hidden_index_text_without_returning_it(self, tmp_path, monkeypatch):
+        store, pid = _build_store_with_project(tmp_path, monkeypatch)
+        record = store.create_record(
+            project_id=pid,
+            session_id="sess_search",
+            kind="fact",
+            title="Compact public record",
+            body="The visible record stays compact.",
+            index_text="The source transcript mentions falconry-token-needle in the middle.",
+        )
+
+        hits = lexical_candidates(
+            store,
+            project_ids=[pid],
+            query="falconry-token-needle",
+            kind_filters=None,
+            statuses=["active"],
+            valid_at=None,
+            include_archived=False,
+            limit=5,
+        )
+        fetched = store.fetch_record(record["record_id"], project_ids=[pid])
+
+        assert [record_id for record_id, _score in hits] == [record["record_id"]]
+        assert "index_text" not in record
+        assert fetched is not None
+        assert "index_text" not in fetched
+
+    def test_updating_hidden_index_text_refreshes_search_indexes(
+        self, tmp_path, monkeypatch
+    ):
+        store, pid = _build_store_with_project(tmp_path, monkeypatch)
+        record = store.create_record(
+            project_id=pid,
+            session_id="sess_search",
+            kind="fact",
+            title="Compact public record",
+            body="The visible record stays compact.",
+            index_text="oldfalconry",
+        )
+
+        store.update_record(
+            record_id=record["record_id"],
+            session_id="sess_search",
+            project_ids=[pid],
+            changes={"index_text": "newfalconry"},
+            change_reason="refresh retrieval source text",
+        )
+
+        new_hits = lexical_candidates(
+            store,
+            project_ids=[pid],
+            query="newfalconry",
+            kind_filters=None,
+            statuses=["active"],
+            valid_at=None,
+            include_archived=False,
+            limit=5,
+        )
+        old_hits = lexical_candidates(
+            store,
+            project_ids=[pid],
+            query="oldfalconry",
+            kind_filters=None,
+            statuses=["active"],
+            valid_at=None,
+            include_archived=False,
+            limit=5,
+        )
+
+        assert [record_id for record_id, _score in new_hits] == [record["record_id"]]
+        assert old_hits == []
+
+    def test_search_uses_fresh_index_metadata_fast_path(self, tmp_path, monkeypatch):
+        store, pid = _build_store_with_project(tmp_path, monkeypatch)
+        store.create_record(
+            project_id=pid,
+            session_id="sess_search",
+            kind="fact",
+            title="Redis TTL cache",
+            body="Use Redis TTL for cache expiration.",
+        )
+
+        store.search(project_ids=[pid], query="Redis TTL cache")
+
+        def fail_fts_audit(_conn):
+            raise AssertionError("fresh FTS metadata should skip full audit")
+
+        def fail_embedding_audit(_conn, *, provider_model: str):
+            del provider_model
+            raise AssertionError("fresh embedding metadata should skip full audit")
+
+        monkeypatch.setattr(store, "_ensure_records_fts_index", fail_fts_audit)
+        monkeypatch.setattr(store, "_stale_embedding_count", fail_embedding_audit)
+
+        hits = store.search(project_ids=[pid], query="Redis TTL cache")
+
+        assert hits
+
+    def test_search_repairs_stale_index_metadata(self, tmp_path, monkeypatch):
+        store, pid = _build_store_with_project(tmp_path, monkeypatch)
+        store.create_record(
+            project_id=pid,
+            session_id="sess_search",
+            kind="fact",
+            title="Pytest repair target",
+            body="Pytest unit tests should still be searchable after repair.",
+        )
+        with store.connect() as conn:
+            conn.execute("DELETE FROM records_fts")
+            conn.execute("DELETE FROM record_embeddings")
+            conn.execute(
+                "UPDATE schema_meta SET value = '-1' WHERE key IN (?, ?)",
+                (RECORDS_FTS_GENERATION_KEY, RECORD_EMBEDDINGS_GENERATION_KEY),
+            )
+
+        hits = store.search(project_ids=[pid], query="pytest unit repair")
+        health = store.index_health(project_ids=[pid])
+
+        assert hits
+        assert health["stale_fts_count"] == 0
+        assert health["stale_embedding_count"] == 0
 
     def test_kind_filter_excludes_non_matching(self, tmp_path, monkeypatch):
         store, pid = _build_store_with_project(tmp_path, monkeypatch)

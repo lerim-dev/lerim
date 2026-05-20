@@ -22,12 +22,28 @@ This writes user config to the active Lerim config path (by default `~/.lerim/co
 lerim connect auto
 ```
 
-Or connect one current coding-agent platform manually:
+Or connect one native source-session adapter manually:
 
 ```bash
 lerim connect claude
 lerim connect codex
 ```
+
+The first native adapters are strongest for coding-agent session stores. For
+support, incident, research, or other business workflows, use custom trace
+folders or MCP `lerim_trace_submit`.
+
+## Connect MCP clients
+
+For agents that support MCP, install Lerim as their shared context server:
+
+```bash
+lerim connect auto --mode mcp --dry-run
+lerim connect auto --mode mcp
+```
+
+Use `--dry-run` first to preview the real config files Lerim will edit. Every
+write creates a timestamped backup when a target config already exists.
 
 ## Register a project
 

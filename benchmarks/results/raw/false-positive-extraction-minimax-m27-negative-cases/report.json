@@ -1,0 +1,87 @@
+{
+  "artifact_scope": "aggregate_only_negative_slice",
+  "benchmark": "lerim_false_positive_extraction_minimax_m27_negative_cases",
+  "command": "benchmarks/lerim_evidence/false_positive_extraction.py --source-report '<private-source-report>' --output-dir benchmarks/results/raw/false-positive-extraction-minimax-m27-negative-cases",
+  "dataset": {
+    "negative_cases": 14,
+    "selection_rule": "case.category == 'negative'",
+    "source_total_cases": 47
+  },
+  "environment": {
+    "lerim_git_commit": "36e806a89a3ccd6b20d2ffb1435a84016e4af35b",
+    "lerim_git_dirty": true,
+    "lerim_git_status_short": "<dirty worktree; rerun from clean commit before launch>",
+    "machine": "arm64",
+    "platform": "macOS-26.4.1-arm64-arm-64bit",
+    "python": "3.12.12"
+  },
+  "generated_at": "2026-05-20T04:12:26.145634+00:00",
+  "limitations": [
+    "This diagnostic is derived from the negative/noise cases in the 47-case LLM-backed extraction artifact.",
+    "It measures whether Lerim avoids durable records when labeled source sessions have no durable signal.",
+    "Raw traces, case identifiers, extracted record text, tool payloads, forbidden concept text, per-case metrics, and judge details are intentionally excluded.",
+    "Treat this as internal development evidence until rerun from a clean release state.",
+    "Competitors have not been run on this private labeled eval, so their scores are not available."
+  ],
+  "methodology": {
+    "aggregate_metrics_included": true,
+    "competitor_scores_available": false,
+    "extracted_record_text_included": false,
+    "forbidden_concept_text_included": false,
+    "judge_detail_included": false,
+    "not_comparable_to_retrieval_only_scores": true,
+    "per_case_numeric_metrics_included": false,
+    "raw_trace_text_included": false,
+    "task": "false_positive_extraction_on_negative_source_sessions",
+    "tool_payloads_included": false
+  },
+  "model_provider": {
+    "agent_model": "MiniMax-M2.7",
+    "agent_provider": "minimax",
+    "judge_model": "MiniMax-M2.7",
+    "llm_in_loop": true,
+    "semantic_judge_in_loop": true
+  },
+  "public_sanitized": true,
+  "publication_status": "diagnostic_development_guardrail_not_market_comparison",
+  "required_artifacts": [
+    "report.json",
+    "report.md"
+  ],
+  "results": {
+    "headline": {
+      "false_positive_case_count": 9,
+      "false_positive_case_rate_pct": 64.29,
+      "forbidden_concept_score_avg": 0.828,
+      "hard_gate_score_avg": 0.2143,
+      "negative_case_count": 14,
+      "negative_precision_rate_pct": 35.71,
+      "no_durable_case_count": 5,
+      "quality_gate_score_avg": 0.3571,
+      "signal_filtering_score_avg": 0.2143,
+      "total_durable_records_on_negative_cases": 52,
+      "total_llm_calls_on_negative_cases": 81,
+      "total_records_on_negative_cases": 66
+    },
+    "summary": {
+      "false_positive_case_count": 9,
+      "false_positive_case_rate_pct": 64.29,
+      "forbidden_concept_score_avg": 0.828,
+      "hard_gate_score_avg": 0.2143,
+      "negative_case_count": 14,
+      "negative_precision_rate_pct": 35.71,
+      "no_durable_case_count": 5,
+      "quality_gate_score_avg": 0.3571,
+      "signal_filtering_score_avg": 0.2143,
+      "total_durable_records_on_negative_cases": 52,
+      "total_llm_calls_on_negative_cases": 81,
+      "total_records_on_negative_cases": 66
+    }
+  },
+  "schema_version": 1,
+  "source_artifact": {
+    "label": "private first-party extraction eval artifact",
+    "sha256": "b933d8037ca3068f3c771ed05366f255f42fd6a94e03069d94d3e77b1bd18ffc",
+    "visibility": "private"
+  }
+}

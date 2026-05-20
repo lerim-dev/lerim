@@ -70,6 +70,114 @@ def test_ingest_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> None:
     assert "vectors_error" not in latest["details"]
 
 
+def test_ingest_run_id_discovers_unindexed_codex_session(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """A direct run-id ingest can discover a fresh Codex session before indexing."""
+    _setup(tmp_path, monkeypatch)
+    session_path = tmp_path / "sessions" / "fresh-run.jsonl"
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text('{"role":"assistant","content":"ok"}\n', encoding="utf-8")
+
+    def fake_index_session_by_run_id(run_id, **kwargs):
+        assert run_id == "fresh-run"
+        assert kwargs["agents"] == ["codex"]
+        assert kwargs["projects"] == {"testproj": str(tmp_path)}
+        assert kwargs["skip_unscoped"] is True
+        return catalog.IndexedSession(
+            run_id="fresh-run",
+            agent_type="codex",
+            session_path=str(session_path),
+            start_time="2026-05-19T10:00:00+00:00",
+            repo_path=str(tmp_path),
+            changed=False,
+        )
+
+    monkeypatch.setattr(
+        daemon,
+        "index_session_by_run_id",
+        fake_index_session_by_run_id,
+    )
+    monkeypatch.setattr(
+        "lerim.server.runtime.LerimRuntime.ingest",
+        lambda *_args, **_kwargs: {
+            "counts": {"add": 1, "update": 0, "no_op": 0},
+            "run_folder": str(tmp_path / "workspace" / "fresh-run"),
+        },
+    )
+
+    code, summary = daemon.run_ingest_once(
+        run_id="fresh-run",
+        agent_filter=["codex"],
+        no_extract=False,
+        force=False,
+        max_sessions=1,
+        dry_run=False,
+        ignore_lock=True,
+        trigger="session-finished",
+        window_start=None,
+        window_end=None,
+    )
+
+    latest = catalog.latest_service_run("ingest")
+    assert code == daemon.EXIT_OK
+    assert summary.indexed_sessions == 1
+    assert summary.extracted_sessions == 1
+    assert summary.run_ids == ["fresh-run"]
+    assert latest is not None
+    assert latest["details"]["ingest_metrics"]["queued_sessions"] == 1
+    assert latest["trigger"] == "session-finished"
+
+
+def test_ingest_run_id_honors_agent_filter_for_indexed_session(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """A targeted ingest does not process an indexed session for another agent."""
+    _setup(tmp_path, monkeypatch)
+    session_path = tmp_path / "sessions" / "claude-run.jsonl"
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text('{"role":"assistant","content":"ok"}\n', encoding="utf-8")
+    catalog.index_session_for_fts(
+        run_id="claude-run",
+        agent_type="claude",
+        content="session content",
+        session_path=str(session_path),
+        repo_path=str(tmp_path),
+    )
+    catalog.enqueue_session_job(
+        "claude-run",
+        agent_type="claude",
+        session_path=str(session_path),
+        repo_path=str(tmp_path),
+    )
+    monkeypatch.setattr(
+        "lerim.server.runtime.LerimRuntime.ingest",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("runtime should not be called")
+        ),
+    )
+
+    code, summary = daemon.run_ingest_once(
+        run_id="claude-run",
+        agent_filter=["codex"],
+        no_extract=False,
+        force=False,
+        max_sessions=1,
+        dry_run=False,
+        ignore_lock=True,
+        trigger="test",
+        window_start=None,
+        window_end=None,
+    )
+
+    assert code == daemon.EXIT_OK
+    assert summary.extracted_sessions == 0
+    assert summary.skipped_sessions == 1
+    assert summary.run_ids == []
+
+
 def test_ingest_zero_success_extraction_is_failed(monkeypatch, tmp_path) -> None:
     """A ingest that only fails extraction should not report completed."""
     _setup(tmp_path, monkeypatch)

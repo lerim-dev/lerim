@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"Customer requested a refund for a failed renewal. Policy says refunds above EUR 500 require manager approval."},"timestamp":"2026-05-16T09:00:00Z"}
+{"type":"assistant","message":{"role":"assistant","content":"The support agent confirmed the renewal failed twice, kept the ticket open, and escalated because the refund amount was above the approval threshold."},"timestamp":"2026-05-16T09:05:00Z"}

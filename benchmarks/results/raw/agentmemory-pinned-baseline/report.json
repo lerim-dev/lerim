@@ -1,0 +1,224 @@
+{
+  "agentmemory": {
+    "baseline_type": "pinned_upstream_raw_artifacts",
+    "commit": "68fddd418e1bbcc41d32a1c61b7a78d91eb7c4dc",
+    "repo": "https://github.com/rohitg00/agentmemory",
+    "rerun_in_this_environment": false
+  },
+  "benchmark": "agentmemory_pinned_upstream_baseline",
+  "command": "benchmarks/scripts/run_agentmemory_baseline.py",
+  "comparisons": {
+    "latency": {
+      "agentmemory_artifact_available": true,
+      "agentmemory_measure": "HTTP endpoint load harness",
+      "comparison_status": "not_directly_comparable",
+      "lerim_artifact_available": true,
+      "lerim_measure": "local ContextStore.search latency",
+      "surface": "retrieval_latency",
+      "warning": "Do not publish latency winner claims from these two artifacts until both products are measured through the same boundary."
+    },
+    "longmemeval": [
+      {
+        "agentmemory_mode": "hybrid",
+        "agentmemory_questions": 500,
+        "comparison_status": "pinned_upstream_competitor_row_for_market_table",
+        "lerim_available": true,
+        "lerim_questions": 500,
+        "lerim_report": "benchmarks/results/raw/longmemeval-hybrid-full/report.json",
+        "surface": "longmemeval_s_retrieval_only",
+        "warning": "The competitor was not rerun in this environment. Treat this as a pinned upstream market row, not a fresh competitor rerun."
+      },
+      {
+        "agentmemory_mode": "bm25",
+        "agentmemory_questions": 500,
+        "comparison_status": "pinned_upstream_competitor_row_for_market_table",
+        "lerim_available": true,
+        "lerim_questions": 500,
+        "lerim_report": "benchmarks/results/raw/longmemeval-lexical-full/report.json",
+        "surface": "longmemeval_s_retrieval_only",
+        "warning": "The competitor was not rerun in this environment. Treat this as a pinned upstream market row, not a fresh competitor rerun."
+      }
+    ]
+  },
+  "environment": {
+    "lerim_git_commit": "36e806a89a3ccd6b20d2ffb1435a84016e4af35b",
+    "lerim_git_dirty": true,
+    "lerim_git_status_short": "<dirty worktree; rerun from clean commit before launch>",
+    "machine": "arm64",
+    "platform": "macOS-26.4.1-arm64-arm-64bit",
+    "python": "3.12.12"
+  },
+  "generated_at": "2026-05-20T01:44:58.197461+00:00",
+  "publication_rules": [
+    "Say pinned upstream competitor artifact, not fresh local competitor rerun.",
+    "Do not compare latency winner claims across HTTP and local-store boundaries.",
+    "Do not claim Lerim beats a competitor until the benchmark boundary and provenance are visible."
+  ],
+  "results": [
+    {
+      "headline": {
+        "mrr": 0.8821431318681319,
+        "ndcg_at_10": 0.8785881269713454,
+        "recall_any_at_10": 0.986,
+        "recall_any_at_20": 0.994,
+        "recall_any_at_5": 0.952
+      },
+      "kind": "longmemeval_s_retrieval_only",
+      "mode": "hybrid",
+      "per_question_count": 500,
+      "per_type": {
+        "knowledge-update": {
+          "count": 78,
+          "recall_any_at_10": 1,
+          "recall_any_at_5": 0.9871794871794872
+        },
+        "multi-session": {
+          "count": 133,
+          "recall_any_at_10": 1,
+          "recall_any_at_5": 0.9774436090225563
+        },
+        "single-session-assistant": {
+          "count": 56,
+          "recall_any_at_10": 0.9821428571428571,
+          "recall_any_at_5": 0.9642857142857143
+        },
+        "single-session-preference": {
+          "count": 30,
+          "recall_any_at_10": 0.9666666666666667,
+          "recall_any_at_5": 0.8333333333333334
+        },
+        "single-session-user": {
+          "count": 70,
+          "recall_any_at_10": 0.9714285714285714,
+          "recall_any_at_5": 0.9
+        },
+        "temporal-reasoning": {
+          "count": 133,
+          "recall_any_at_10": 0.9774436090225563,
+          "recall_any_at_5": 0.9548872180451128
+        }
+      },
+      "questions": 500,
+      "source_path": "benchmark/data/longmemeval_results_hybrid.json"
+    },
+    {
+      "headline": {
+        "mrr": 0.7153796961208726,
+        "ndcg_at_10": 0.7302373205176367,
+        "recall_any_at_10": 0.946,
+        "recall_any_at_20": 0.986,
+        "recall_any_at_5": 0.862
+      },
+      "kind": "longmemeval_s_retrieval_only",
+      "mode": "bm25",
+      "per_question_count": 500,
+      "per_type": {
+        "knowledge-update": {
+          "count": 78,
+          "recall_any_at_10": 0.9871794871794872,
+          "recall_any_at_5": 0.9230769230769231
+        },
+        "multi-session": {
+          "count": 133,
+          "recall_any_at_10": 0.9624060150375939,
+          "recall_any_at_5": 0.8646616541353384
+        },
+        "single-session-assistant": {
+          "count": 56,
+          "recall_any_at_10": 0.9107142857142857,
+          "recall_any_at_5": 0.8035714285714286
+        },
+        "single-session-preference": {
+          "count": 30,
+          "recall_any_at_10": 0.8,
+          "recall_any_at_5": 0.6
+        },
+        "single-session-user": {
+          "count": 70,
+          "recall_any_at_10": 0.9571428571428572,
+          "recall_any_at_5": 0.9142857142857143
+        },
+        "temporal-reasoning": {
+          "count": 133,
+          "recall_any_at_10": 0.9473684210526315,
+          "recall_any_at_5": 0.8796992481203008
+        }
+      },
+      "questions": 500,
+      "source_path": "benchmark/data/longmemeval_results_bm25.json"
+    },
+    {
+      "cells": [
+        {
+          "C": 10,
+          "N": 1000,
+          "endpoint": "POST /agentmemory/remember",
+          "errors": 0,
+          "ops": 200,
+          "p50_ms": 577.435,
+          "p90_ms": 607.335,
+          "p99_ms": 675.269,
+          "throughput_per_sec": 17.38
+        },
+        {
+          "C": 10,
+          "N": 1000,
+          "endpoint": "POST /agentmemory/smart-search",
+          "errors": 0,
+          "ops": 200,
+          "p50_ms": 160.064,
+          "p90_ms": 185.608,
+          "p99_ms": 224.354,
+          "throughput_per_sec": 61.26
+        },
+        {
+          "C": 10,
+          "N": 1000,
+          "endpoint": "GET /agentmemory/memories?latest=true",
+          "errors": 0,
+          "ops": 200,
+          "p50_ms": 395.462,
+          "p90_ms": 475.714,
+          "p99_ms": 542.648,
+          "throughput_per_sec": 24.84
+        }
+      ],
+      "comparison_boundary": "AgentMemory load cells are HTTP endpoint measurements; Lerim's current latency artifact is local ContextStore.search, so they are not direct apples-to-apples latency comparisons.",
+      "generated_at": "2026-05-13T19:49:26.116Z",
+      "git_sha": "96c0ed0",
+      "kind": "agentmemory_http_load",
+      "matrix": {
+        "C": [
+          10
+        ],
+        "N": [
+          1000
+        ]
+      },
+      "notes": "Single-process load harness. Latency in milliseconds. Throughput is wall-clock ops/sec for the cell (concurrent in-flight = C).",
+      "ops_per_cell": 200,
+      "source_path": "benchmark/results/load-100k-96c0ed0.json"
+    }
+  ],
+  "schema_version": 1,
+  "source_artifacts": [
+    {
+      "local_path": "sources/longmemeval_results_hybrid.json",
+      "raw_url": "https://raw.githubusercontent.com/rohitg00/agentmemory/68fddd418e1bbcc41d32a1c61b7a78d91eb7c4dc/benchmark/data/longmemeval_results_hybrid.json",
+      "sha256": "4d65bea9e914c8eb98b7673bf1cd89215eabf30239f4fad1839b82c456e71ae8",
+      "source_path": "benchmark/data/longmemeval_results_hybrid.json"
+    },
+    {
+      "local_path": "sources/longmemeval_results_bm25.json",
+      "raw_url": "https://raw.githubusercontent.com/rohitg00/agentmemory/68fddd418e1bbcc41d32a1c61b7a78d91eb7c4dc/benchmark/data/longmemeval_results_bm25.json",
+      "sha256": "c2e4a207eae571b9fa806243da069f0699ba81940952dce876fb41b7db90e3ea",
+      "source_path": "benchmark/data/longmemeval_results_bm25.json"
+    },
+    {
+      "local_path": "sources/load-100k-96c0ed0.json",
+      "raw_url": "https://raw.githubusercontent.com/rohitg00/agentmemory/68fddd418e1bbcc41d32a1c61b7a78d91eb7c4dc/benchmark/results/load-100k-96c0ed0.json",
+      "sha256": "e41dda9164443c6066a13459a7e5ce561a752b9a9fa2a2dfd65b699d8652691b",
+      "source_path": "benchmark/results/load-100k-96c0ed0.json"
+    }
+  ]
+}

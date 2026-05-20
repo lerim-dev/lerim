@@ -15,11 +15,78 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install build tools
-        run: pip install build
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install test, docs, and lint dependencies
+        run: uv venv && uv pip install -e '.[test,docs,lint]'
+
+      - name: Validate release tag, package version, changelog, and PyPI availability
+        run: uv run python scripts/release_preflight.py --tag "$GITHUB_REF_NAME"
+
+      - name: Check generated diffs
+        run: git diff --check
+
+      - name: Lint release candidate
+        run: uv run ruff check src/ tests/ benchmarks/ scripts/release_preflight.py
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit -q --timeout=90 --timeout-method=thread
+
+      - name: Run offline integration tests
+        run: |
+          LERIM_INTEGRATION=1 uv run pytest \
+            tests/integration/cloud \
+            tests/integration/memory \
+            tests/integration/project_ingestion \
+            tests/integration/queue \
+            -q --timeout=90 --timeout-method=thread
+
+      - name: Collect gated live suites
+        run: uv run pytest tests/integration tests/smoke tests/e2e -q --collect-only
+
+      - name: Verify generated benchmark reports and assets
+        run: |
+          uv run python benchmarks/scripts/build_report_index.py
+          uv run python benchmarks/scripts/generate_benchmark_summary_svg.py
+          uv run python benchmarks/scripts/generate_support_boundary_svg.py
+          git diff --exit-code -- benchmarks/results/reports docs/assets/benchmark-summary.svg docs/assets/support-boundary.svg
+
+      - name: Build docs
+        run: uv run mkdocs build --strict
+
+      - name: Validate benchmark artifacts and release-critical tracking
+        run: uv run python benchmarks/scripts/validate_public_artifacts.py --require-clean --require-tracked-public-files
 
       - name: Build wheel and sdist
-        run: python -m build
+        run: uv run --with build python -m build
+
+      - name: Check wheel and sdist metadata
+        run: uv run --with twine twine check dist/*
+
+      - name: Clean install check
+        run: |
+          python -m venv /tmp/lerim-release-install
+          /tmp/lerim-release-install/bin/python -m pip install --upgrade pip
+          /tmp/lerim-release-install/bin/python -m pip install dist/*.whl
+          /tmp/lerim-release-install/bin/lerim --help
+          /tmp/lerim-release-install/bin/python -m lerim --help
+          /tmp/lerim-release-install/bin/lerim mcp --help
+          /tmp/lerim-release-install/bin/python - <<'PY'
+          import lerim
+          import lerim.mcp_server
+          import lerim.integrations.mcp_connect
+          print(f"import_ok {lerim.__version__}")
+          PY
+          /tmp/lerim-release-install/bin/python benchmarks/scripts/probe_mcp_stdio.py \
+            --command /tmp/lerim-release-install/bin/lerim \
+            --arg mcp
+          /tmp/lerim-release-install/bin/python benchmarks/scripts/probe_mcp_stdio.py \
+            --command /tmp/lerim-release-install/bin/lerim-mcp
+          /tmp/lerim-release-install/bin/python benchmarks/scripts/probe_mcp_stdio.py \
+            --command /tmp/lerim-release-install/bin/python \
+            --arg=-m \
+            --arg lerim.mcp_server
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -28,7 +95,10 @@ jobs:
           path: dist/
 
   publish:
-    needs: build
+    needs:
+      - build
+      - docker-smoke
+      - docker-multi-platform-build
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -43,9 +113,107 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
-  docker:
+  docker-smoke:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU (for multi-platform builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image for runtime smoke
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: lerim-cli-smoke:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test Docker runtime
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          docker run --rm -d --name lerim-smoke lerim-cli-smoke:${{ github.sha }}
+          cleanup() {
+            docker logs lerim-smoke || true
+            docker stop lerim-smoke || true
+          }
+          trap cleanup EXIT
+          payload=""
+          for _ in {1..60}; do
+            if payload="$(docker exec lerim-smoke python -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8765/api/health", timeout=2).read().decode())' 2>/dev/null)"; then
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$payload" ]; then
+            echo "container health endpoint did not become ready"
+            exit 1
+          fi
+          PAYLOAD="$payload" python - <<'PY'
+          import json
+          import os
+
+          payload = json.loads(os.environ["PAYLOAD"])
+          expected = os.environ["RELEASE_VERSION"]
+          if payload.get("status") != "ok":
+              raise SystemExit(f"unexpected health status: {payload}")
+          if payload.get("version") != expected:
+              raise SystemExit(
+                  f"container version {payload.get('version')!r} != tag {expected!r}"
+              )
+          print(f"docker_health_ok {payload}")
+          PY
+          docker stop lerim-smoke
+          trap - EXIT
+
+  docker-multi-platform-build:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU (for multi-platform builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build release Docker image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/lerim-dev/lerim-cli:${{ steps.version.outputs.version }}
+            ghcr.io/lerim-dev/lerim-cli:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  docker-push:
+    needs:
+      - publish
+    runs-on: ubuntu-latest
+    environment: pypi
     permissions:
       contents: read
       packages: write

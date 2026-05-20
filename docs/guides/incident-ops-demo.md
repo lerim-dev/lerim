@@ -1,17 +1,12 @@
 # Incident Ops Demo
 
-Incident examples live in the monorepo eval template, not in `lerim-cli`:
-
-```text
-lerim-cloud/evals/data/traces/
-lerim-cloud/evals/data/labels/
-lerim-cloud/evals/projects/vertical_samples/incident_ops/
-```
+This demo uses a tiny checked-in example trace to show the import shape. Replace
+it with your own cleaned incident-agent source session for real evaluation.
 
 Import an incident trace:
 
 ```bash
-lerim trace import ../lerim-cloud/evals/data/traces/incident_webhook_outage_002.jsonl \
+lerim trace import docs/examples/traces/incident-agent-run.jsonl \
   --source-name incident-agent \
   --source-profile ops \
   --scope-type domain \
@@ -29,6 +24,6 @@ Incident records should preserve confirmed root causes, rejected hypotheses,
 mitigations, failed paths, owner decisions, and source-of-truth facts only
 when the trace supports them.
 
-Do not put incident datasets, expected files, or converter outputs under
-`lerim-cli`. Stage conversion work under `lerim-cloud/evals/projects/vertical_samples/incident_ops`
-and promote release-ready traces/labels into `lerim-cloud/evals/data`.
+Do not put private incident datasets or converter outputs under public docs.
+Use team-owned storage for raw traces and commit only small sanitized examples
+when a public example is useful.

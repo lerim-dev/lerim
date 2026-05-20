@@ -38,8 +38,15 @@ from lerim.context.spec import (
 if TYPE_CHECKING:
     from lerim.context.retrieval import SearchHit
 
-SCHEMA_VERSION = "6"
+SCHEMA_VERSION = "7"
 LOGGER = logging.getLogger(__name__)
+RECORDS_INDEX_GENERATION_KEY = "records_index_generation"
+RECORDS_FTS_GENERATION_KEY = "records_fts_generation"
+RECORD_EMBEDDINGS_GENERATION_KEY = "record_embeddings_generation"
+RECORD_EMBEDDINGS_MODEL_KEY = "record_embeddings_model"
+RECORD_EMBEDDINGS_DIMS_KEY = "record_embeddings_dims"
+EMBEDDING_REFRESH_BATCH_SIZE = 64
+RECORD_INDEX_TEXT_MAX_CHARS = 128_000
 TIMESTAMP_COLUMNS = {
     "scopes": ("created_at", "updated_at"),
     "projects": ("created_at", "updated_at"),
@@ -133,6 +140,19 @@ def _normalize_optional_text(value: Any) -> str | None:
     """Normalize optional text fields to stripped strings or None."""
     text = str(value or "").strip()
     return text or None
+
+
+def _normalize_index_text(value: Any) -> str | None:
+    """Normalize hidden retrieval-only text with a defensive size bound."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if len(text) <= RECORD_INDEX_TEXT_MAX_CHARS:
+        return text
+    marker = "\n[...]\n"
+    head_chars = (RECORD_INDEX_TEXT_MAX_CHARS - len(marker)) // 2
+    tail_chars = RECORD_INDEX_TEXT_MAX_CHARS - len(marker) - head_chars
+    return f"{text[:head_chars].rstrip()}{marker}{text[-tail_chars:].lstrip()}"
 
 
 def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
@@ -240,6 +260,7 @@ class ContextStore:
                     source_session_id TEXT,
                     source_event_refs TEXT,
                     evidence_refs TEXT,
+                    index_text TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     valid_from TEXT NOT NULL,
@@ -277,6 +298,7 @@ class ContextStore:
                     source_session_id TEXT,
                     source_event_refs TEXT,
                     evidence_refs TEXT,
+                    index_text TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     valid_from TEXT NOT NULL,
@@ -354,13 +376,15 @@ class ContextStore:
                     decision,
                     why,
                     user_intent,
-                    what_happened
+                    what_happened,
+                    index_text
                 );
 
                 """
             )
             self._migrate_scope_schema(conn)
             self._ensure_record_reference_schema(conn)
+            self._ensure_record_index_text_schema(conn)
             self._ensure_secondary_indexes(conn)
             self._validate_schema(conn)
             conn.execute(
@@ -526,7 +550,7 @@ class ContextStore:
     def _ensure_records_fts_schema(self, conn: sqlite3.Connection) -> None:
         """Ensure the FTS table has scope columns, rebuilding from records if needed."""
         columns = self._table_columns(conn, "records_fts")
-        if columns and {"scope_type", "scope_id"} <= columns:
+        if columns and {"scope_type", "scope_id", "index_text"} <= columns:
             return
         conn.execute("DROP TABLE IF EXISTS records_fts")
         conn.execute(
@@ -542,18 +566,21 @@ class ContextStore:
                 decision,
                 why,
                 user_intent,
-                what_happened
+                what_happened,
+                index_text
             )
             """
         )
         if self._table_exists(conn, "records"):
             rows = conn.execute("SELECT * FROM records ORDER BY created_at ASC, record_id ASC").fetchall()
             for row in rows:
+                payload = self._record_row_to_dict(row)
+                payload["index_text"] = _row_value(row, "index_text")
                 self._upsert_fts(
                     conn,
                     project_id=_row_value(row, "project_id"),
                     record_id=str(row["record_id"]),
-                    payload=self._record_row_to_dict(row),
+                    payload=payload,
                 )
 
     def _table_columns(self, conn: sqlite3.Connection, table_name: str) -> set[str]:
@@ -571,6 +598,15 @@ class ContextStore:
                 conn.execute(f"ALTER TABLE {table_name} ADD COLUMN source_event_refs TEXT")
             if "evidence_refs" not in columns:
                 conn.execute(f"ALTER TABLE {table_name} ADD COLUMN evidence_refs TEXT")
+
+    def _ensure_record_index_text_schema(self, conn: sqlite3.Connection) -> None:
+        """Add hidden retrieval-only index text columns to older record tables."""
+        for table_name in ("records", "record_versions"):
+            columns = self._table_columns(conn, table_name)
+            if not columns:
+                continue
+            if "index_text" not in columns:
+                conn.execute(f"ALTER TABLE {table_name} ADD COLUMN index_text TEXT")
 
     def _column_expr(self, columns: set[str], name: str, default_sql: str) -> str:
         """Return a SELECT expression for an existing column or SQL default."""
@@ -709,6 +745,7 @@ class ContextStore:
                 source_session_id TEXT,
                 source_event_refs TEXT,
                 evidence_refs TEXT,
+                index_text TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 valid_from TEXT NOT NULL,
@@ -737,19 +774,20 @@ class ContextStore:
         source_profile = self._column_expr(columns, "source_profile", "NULL")
         source_event_refs = self._column_expr(columns, "source_event_refs", "NULL")
         evidence_refs = self._column_expr(columns, "evidence_refs", "NULL")
+        index_text = self._column_expr(columns, "index_text", "NULL")
         conn.execute(
             f"""
             INSERT INTO records(
                 record_id, project_id, scope_type, scope_id, scope_label,
                 source_name, source_profile, kind, title, body, status,
-                source_session_id, source_event_refs, evidence_refs, created_at, updated_at, valid_from,
+                source_session_id, source_event_refs, evidence_refs, index_text, created_at, updated_at, valid_from,
                 valid_until, superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes
             )
             SELECT
                 record_id, project_id, {scope_type}, {scope_id}, {scope_label},
                 {source_name}, {source_profile}, kind, title, body, status,
-                source_session_id, {source_event_refs}, {evidence_refs}, created_at, updated_at, valid_from,
+                source_session_id, {source_event_refs}, {evidence_refs}, {index_text}, created_at, updated_at, valid_from,
                 valid_until, superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes
             FROM {old_name}
@@ -813,6 +851,7 @@ class ContextStore:
                 source_session_id TEXT,
                 source_event_refs TEXT,
                 evidence_refs TEXT,
+                index_text TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 valid_from TEXT NOT NULL,
@@ -845,13 +884,14 @@ class ContextStore:
         source_profile = self._column_expr(columns, "source_profile", "NULL")
         source_event_refs = self._column_expr(columns, "source_event_refs", "NULL")
         evidence_refs = self._column_expr(columns, "evidence_refs", "NULL")
+        index_text = self._column_expr(columns, "index_text", "NULL")
         conn.execute(
             f"""
             INSERT INTO record_versions(
                 version_id, project_id, scope_type, scope_id, scope_label,
                 source_name, source_profile, record_id, version_no, kind,
                 title, body, status, source_session_id, source_event_refs, evidence_refs,
-                created_at, updated_at,
+                index_text, created_at, updated_at,
                 valid_from, valid_until, superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes,
                 change_kind, change_reason, changed_at, changed_by_session_id
@@ -860,7 +900,7 @@ class ContextStore:
                 version_id, project_id, {scope_type}, {scope_id}, {scope_label},
                 {source_name}, {source_profile}, record_id, version_no, kind,
                 title, body, status, source_session_id, {source_event_refs}, {evidence_refs},
-                created_at, updated_at,
+                {index_text}, created_at, updated_at,
                 valid_from, valid_until, superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes,
                 change_kind, change_reason, changed_at, changed_by_session_id
@@ -893,6 +933,7 @@ class ContextStore:
                 "status",
                 "source_event_refs",
                 "evidence_refs",
+                "index_text",
             },
             "record_versions": {
                 "version_id",
@@ -902,6 +943,7 @@ class ContextStore:
                 "version_no",
                 "source_event_refs",
                 "evidence_refs",
+                "index_text",
                 "change_kind",
             },
             "context_nodes": {
@@ -938,6 +980,7 @@ class ContextStore:
                 "why",
                 "user_intent",
                 "what_happened",
+                "index_text",
             },
         }
         for table_name, expected in required_columns.items():
@@ -995,6 +1038,8 @@ class ContextStore:
     def _ensure_record_embeddings_index(self, conn: sqlite3.Connection) -> bool:
         """Ensure record_embeddings uses sqlite-vec and return whether to rebuild rows."""
         provider = self.embedding_provider()
+        if self._record_embeddings_metadata_fresh(conn, provider=provider):
+            return False
         expected_fragment = f"float[{provider.embedding_dims}]"
         row = conn.execute(
             "SELECT sql FROM sqlite_master WHERE name = 'record_embeddings'"
@@ -1031,7 +1076,129 @@ class ContextStore:
         if embedding_count != record_count:
             rebuild = True
         rebuild = rebuild or self._stale_embedding_count(conn, provider_model=provider.model_id) > 0
+        if not rebuild:
+            self._mark_record_embeddings_fresh(conn, provider=provider)
         return rebuild
+
+    def _schema_meta_value(self, conn: sqlite3.Connection, key: str) -> str | None:
+        """Read one schema metadata value."""
+        row = conn.execute("SELECT value FROM schema_meta WHERE key = ?", (key,)).fetchone()
+        if row is None:
+            return None
+        return str(row["value"])
+
+    def _schema_meta_int(
+        self, conn: sqlite3.Connection, key: str, *, default: int = 0
+    ) -> int:
+        """Read one integer schema metadata value with a fallback."""
+        value = self._schema_meta_value(conn, key)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            return default
+
+    def _set_schema_meta_value(
+        self, conn: sqlite3.Connection, key: str, value: str | int
+    ) -> None:
+        """Write one schema metadata value."""
+        conn.execute(
+            """
+            INSERT INTO schema_meta(key, value)
+            VALUES(?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+            """,
+            (key, str(value)),
+        )
+
+    def _records_index_generation(self, conn: sqlite3.Connection) -> int:
+        """Return the current canonical-record index generation."""
+        return self._schema_meta_int(conn, RECORDS_INDEX_GENERATION_KEY, default=0)
+
+    def _bump_records_index_generation(self, conn: sqlite3.Connection) -> dict[str, Any]:
+        """Bump canonical-record generation and return prior index freshness."""
+        previous_generation = self._records_index_generation(conn)
+        target_generation = previous_generation + 1
+        refresh_context = {
+            "target_generation": target_generation,
+            "fts_was_fresh": (
+                self._schema_meta_int(conn, RECORDS_FTS_GENERATION_KEY, default=-1)
+                == previous_generation
+            ),
+            "embeddings_was_fresh": (
+                self._schema_meta_int(conn, RECORD_EMBEDDINGS_GENERATION_KEY, default=-1)
+                == previous_generation
+            ),
+        }
+        self._set_schema_meta_value(
+            conn, RECORDS_INDEX_GENERATION_KEY, target_generation
+        )
+        return refresh_context
+
+    def _records_fts_metadata_fresh(self, conn: sqlite3.Connection) -> bool:
+        """Return whether FTS metadata says it matches canonical records."""
+        generation = self._records_index_generation(conn)
+        if self._schema_meta_int(conn, RECORDS_FTS_GENERATION_KEY, default=-1) != generation:
+            return False
+        columns = self._table_columns(conn, "records_fts")
+        return {"record_id", "scope_type", "scope_id", "updated_at"} <= columns
+
+    def _mark_records_fts_fresh(
+        self, conn: sqlite3.Connection, *, generation: int | None = None
+    ) -> None:
+        """Mark derived FTS rows fresh for the current canonical generation."""
+        target_generation = self._records_index_generation(conn) if generation is None else generation
+        self._set_schema_meta_value(conn, RECORDS_FTS_GENERATION_KEY, target_generation)
+
+    def _record_embeddings_metadata_fresh(
+        self, conn: sqlite3.Connection, *, provider: Any | None = None
+    ) -> bool:
+        """Return whether embedding metadata says it matches canonical records."""
+        active_provider = provider or self.embedding_provider()
+        generation = self._records_index_generation(conn)
+        if (
+            self._schema_meta_int(conn, RECORD_EMBEDDINGS_GENERATION_KEY, default=-1)
+            != generation
+        ):
+            return False
+        if not self._record_embeddings_schema_matches(conn, provider=active_provider):
+            return False
+        if self._schema_meta_value(conn, RECORD_EMBEDDINGS_MODEL_KEY) != active_provider.model_id:
+            return False
+        stored_dims = self._schema_meta_int(conn, RECORD_EMBEDDINGS_DIMS_KEY, default=-1)
+        return stored_dims == int(active_provider.embedding_dims)
+
+    def _record_embeddings_schema_matches(
+        self, conn: sqlite3.Connection, *, provider: Any
+    ) -> bool:
+        """Return whether record_embeddings exists with the active vector shape."""
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'record_embeddings'"
+        ).fetchone()
+        sql = str(row["sql"] or "") if row else ""
+        expected_fragment = f"float[{provider.embedding_dims}]"
+        return "vec0" in sql.lower() and expected_fragment in sql
+
+    def _mark_record_embeddings_fresh(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        generation: int | None = None,
+        provider: Any | None = None,
+    ) -> None:
+        """Mark derived embedding rows fresh for the current canonical generation."""
+        active_provider = provider or self.embedding_provider()
+        target_generation = self._records_index_generation(conn) if generation is None else generation
+        self._set_schema_meta_value(
+            conn, RECORD_EMBEDDINGS_GENERATION_KEY, target_generation
+        )
+        self._set_schema_meta_value(
+            conn, RECORD_EMBEDDINGS_MODEL_KEY, active_provider.model_id
+        )
+        self._set_schema_meta_value(
+            conn, RECORD_EMBEDDINGS_DIMS_KEY, int(active_provider.embedding_dims)
+        )
 
     def register_project(self, identity: ProjectIdentity) -> dict[str, Any]:
         """Upsert one project row."""
@@ -1478,6 +1645,7 @@ class ContextStore:
         outcomes: str | None = None,
         source_event_refs: list[str] | str | None = None,
         evidence_refs: list[str] | str | None = None,
+        index_text: str | None = None,
         change_reason: str | None = None,
         scope_identity: ScopeIdentity | None = None,
         scope_type: str | None = None,
@@ -1533,6 +1701,8 @@ class ContextStore:
                 "source_profile": scope_fields["source_profile"],
             }
         )
+        payload["index_text"] = _normalize_index_text(index_text)
+        refresh_context: dict[str, Any] | None = None
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             self._upsert_scope_in_conn(conn, scope_fields=scope_fields)
@@ -1550,11 +1720,11 @@ class ContextStore:
                 INSERT INTO records(
                     record_id, project_id, scope_type, scope_id, scope_label,
                     source_name, source_profile, kind, title, body, status, source_session_id,
-                    source_event_refs, evidence_refs, created_at, updated_at,
+                    source_event_refs, evidence_refs, index_text, created_at, updated_at,
                     valid_from, valid_until, superseded_by_record_id,
                     decision, why, alternatives, consequences, user_intent, what_happened, outcomes
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record_id,
@@ -1571,6 +1741,7 @@ class ContextStore:
                     payload["source_session_id"],
                     payload["source_event_refs"],
                     payload["evidence_refs"],
+                    payload["index_text"],
                     payload["created_at"],
                     payload["updated_at"],
                     payload["valid_from"],
@@ -1595,7 +1766,10 @@ class ContextStore:
                 change_reason=change_reason,
                 changed_by_session_id=session_id,
             )
-        self._refresh_derived_indexes_after_write(record_ids=[record_id])
+            refresh_context = self._bump_records_index_generation(conn)
+        self._refresh_derived_indexes_after_write(
+            record_ids=[record_id], refresh_context=refresh_context
+        )
         return self.fetch_record(
             record_id,
             project_ids=[project_id] if project_id else None,
@@ -1614,6 +1788,7 @@ class ContextStore:
     ) -> dict[str, Any]:
         """Apply a partial update and append a version snapshot."""
         self.initialize()
+        refresh_context: dict[str, Any] | None = None
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             current = conn.execute("SELECT * FROM records WHERE record_id = ?", (record_id,)).fetchone()
@@ -1629,7 +1804,10 @@ class ContextStore:
                 change_reason=change_reason,
                 change_kind_override=change_kind_override,
             )
-        self._refresh_derived_indexes_after_write(record_ids=[record_id])
+            refresh_context = self._bump_records_index_generation(conn)
+        self._refresh_derived_indexes_after_write(
+            record_ids=[record_id], refresh_context=refresh_context
+        )
         return self.fetch_record(record_id, project_ids=project_ids, include_versions=True) or {}
 
     def _update_record_in_conn(
@@ -1646,6 +1824,7 @@ class ContextStore:
     ) -> dict[str, Any]:
         """Apply one record update inside the caller's active transaction."""
         merged = self._record_row_to_dict(current)
+        current_index_text = _row_value(current, "index_text")
         if project_ids is not None and merged["project_id"] not in project_ids:
             raise ValueError(f"record_out_of_scope:{record_id}")
         now = _utc_now()
@@ -1684,6 +1863,9 @@ class ContextStore:
                 "source_profile": merged.get("source_profile"),
             }
         )
+        payload["index_text"] = _normalize_index_text(
+            changes.get("index_text", current_index_text)
+        )
         meaningful_fields = (
             "kind",
             "title",
@@ -1701,8 +1883,10 @@ class ContextStore:
             "outcomes",
             "source_event_refs",
             "evidence_refs",
+            "index_text",
         )
-        if all(payload[field] == merged[field] for field in meaningful_fields):
+        merged_for_change_check = {**merged, "index_text": current_index_text}
+        if all(payload[field] == merged_for_change_check[field] for field in meaningful_fields):
             raise ValueError("no_changes")
         self._ensure_episode_uniqueness(
             conn,
@@ -1719,7 +1903,7 @@ class ContextStore:
             SET kind=?, title=?, body=?, status=?, updated_at=?, valid_from=?,
                 valid_until=?, superseded_by_record_id=?, decision=?, why=?,
                 alternatives=?, consequences=?, user_intent=?, what_happened=?, outcomes=?,
-                source_event_refs=?, evidence_refs=?
+                source_event_refs=?, evidence_refs=?, index_text=?
             WHERE record_id=?
             """,
             (
@@ -1740,6 +1924,7 @@ class ContextStore:
                 payload["outcomes"],
                 payload["source_event_refs"],
                 payload["evidence_refs"],
+                payload["index_text"],
                 record_id,
             ),
         )
@@ -1775,6 +1960,7 @@ class ContextStore:
     ) -> dict[str, Any]:
         """Archive an existing record."""
         self.initialize()
+        refresh_context: dict[str, Any] | None = None
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             current = conn.execute("SELECT * FROM records WHERE record_id = ?", (record_id,)).fetchone()
@@ -1806,7 +1992,10 @@ class ContextStore:
                 change_reason=reason or "archive_record",
                 change_kind_override="archive",
             )
-        self._refresh_derived_indexes_after_write(record_ids=[record_id])
+            refresh_context = self._bump_records_index_generation(conn)
+        self._refresh_derived_indexes_after_write(
+            record_ids=[record_id], refresh_context=refresh_context
+        )
         return self.fetch_record(record_id, project_ids=project_ids, include_versions=True) or {}
 
     def supersede_record(
@@ -1905,9 +2094,10 @@ class ContextStore:
                             OR COALESCE(f.title, '') != COALESCE(r.title, '')
                             OR COALESCE(f.body, '') != COALESCE(r.body, '')
                             OR COALESCE(f.decision, '') != COALESCE(r.decision, '')
-                            OR COALESCE(f.why, '') != COALESCE(r.why, '')
-                            OR COALESCE(f.user_intent, '') != COALESCE(r.user_intent, '')
-                            OR COALESCE(f.what_happened, '') != COALESCE(r.what_happened, '')
+	                       OR COALESCE(f.why, '') != COALESCE(r.why, '')
+	                       OR COALESCE(f.user_intent, '') != COALESCE(r.user_intent, '')
+	                       OR COALESCE(f.what_happened, '') != COALESCE(r.what_happened, '')
+	                       OR COALESCE(f.index_text, '') != COALESCE(r.index_text, '')
                         )
                         {stale_project_filter}
                         UNION ALL
@@ -2445,12 +2635,12 @@ class ContextStore:
                 version_id, project_id, scope_type, scope_id, scope_label,
                 source_name, source_profile, record_id, version_no, kind, title,
                 body, status, source_session_id, created_at, updated_at,
-                source_event_refs, evidence_refs, valid_from, valid_until,
+                source_event_refs, evidence_refs, index_text, valid_from, valid_until,
                 superseded_by_record_id, decision, why,
                 alternatives, consequences, user_intent, what_happened, outcomes,
                 change_kind, change_reason, changed_at, changed_by_session_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _new_id("ver"),
@@ -2471,6 +2661,7 @@ class ContextStore:
                 payload["updated_at"],
                 payload["source_event_refs"],
                 payload["evidence_refs"],
+                payload.get("index_text"),
                 payload["valid_from"],
                 payload["valid_until"],
                 payload["superseded_by_record_id"],
@@ -2499,7 +2690,28 @@ class ContextStore:
     ) -> None:
         """Refresh derived embedding storage for one record."""
         provider = self.embedding_provider()
-        vector = sqlite_vec.serialize_float32(provider.embed_document(text))
+        vector = provider.embed_document(text)
+        self._upsert_embedding_vector(
+            conn,
+            project_id=project_id,
+            record_id=record_id,
+            provider_model=provider.model_id,
+            vector=vector,
+            updated_at=updated_at,
+        )
+
+    def _upsert_embedding_vector(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        project_id: str | None,
+        record_id: str,
+        provider_model: str,
+        vector: list[float],
+        updated_at: str,
+    ) -> None:
+        """Write one already-computed embedding vector."""
+        serialized = sqlite_vec.serialize_float32(vector)
         conn.execute("DELETE FROM record_embeddings WHERE record_id = ?", (record_id,))
         conn.execute(
             """
@@ -2508,8 +2720,47 @@ class ContextStore:
             )
             VALUES (?, ?, ?, ?, ?)
             """,
-            (vector, project_id or "", record_id, provider.model_id, updated_at),
+            (serialized, project_id or "", record_id, provider_model, updated_at),
         )
+
+    def _upsert_embedding_rows(
+        self,
+        conn: sqlite3.Connection,
+        rows: list[sqlite3.Row],
+    ) -> None:
+        """Refresh derived embeddings for many canonical record rows in batches."""
+        if not rows:
+            return
+        provider = self.embedding_provider()
+        for start in range(0, len(rows), EMBEDDING_REFRESH_BATCH_SIZE):
+            batch = rows[start : start + EMBEDDING_REFRESH_BATCH_SIZE]
+            payloads: list[tuple[sqlite3.Row, dict[str, Any], str | None, str]] = []
+            for row in batch:
+                payload = self._record_row_to_dict(row)
+                index_text = _row_value(row, "index_text")
+                text = self._search_text(payload, index_text=index_text)
+                payloads.append((row, payload, index_text, text))
+            texts = [item[3] for item in payloads]
+            embed_documents = getattr(provider, "embed_documents", None)
+            if callable(embed_documents):
+                vectors = embed_documents(texts)
+            else:
+                vectors = [provider.embed_document(text) for text in texts]
+            if len(vectors) != len(payloads):
+                raise RuntimeError("embedding_batch_result_mismatch")
+            for (row, _payload, _index_text, _text), vector in zip(
+                payloads,
+                vectors,
+                strict=True,
+            ):
+                self._upsert_embedding_vector(
+                    conn,
+                    project_id=_row_value(row, "project_id"),
+                    record_id=str(row["record_id"]),
+                    provider_model=provider.model_id,
+                    vector=vector,
+                    updated_at=str(row["updated_at"]),
+                )
 
     def _upsert_fts(
         self,
@@ -2525,9 +2776,9 @@ class ContextStore:
             """
             INSERT INTO records_fts(
                 record_id, project_id, scope_type, scope_id, updated_at, title,
-                body, decision, why, user_intent, what_happened
+                body, decision, why, user_intent, what_happened, index_text
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id,
@@ -2541,26 +2792,20 @@ class ContextStore:
                 payload["why"] or "",
                 payload["user_intent"] or "",
                 payload["what_happened"] or "",
+                payload.get("index_text") or "",
             ),
         )
 
-    def _search_text(self, payload: dict[str, Any]) -> str:
+    def _search_text(self, payload: dict[str, Any], *, index_text: str | None = None) -> str:
         """Build canonical search text from one record payload."""
-        return record_search_text(payload)
+        return record_search_text(payload, index_text=index_text)
 
     def _rebuild_embeddings(self, conn: sqlite3.Connection) -> None:
         """Rebuild all derived embedding rows from canonical record text."""
         conn.execute("DELETE FROM record_embeddings")
         rows = conn.execute("SELECT * FROM records ORDER BY created_at ASC, record_id ASC").fetchall()
-        for row in rows:
-            payload = self._record_row_to_dict(row)
-            self._upsert_embedding(
-                conn,
-                project_id=_row_value(row, "project_id"),
-                record_id=str(row["record_id"]),
-                text=self._search_text(payload),
-                updated_at=str(row["updated_at"]),
-            )
+        self._upsert_embedding_rows(conn, rows)
+        self._mark_record_embeddings_fresh(conn)
 
     def _prepare_search_indexes(self, conn: sqlite3.Connection) -> None:
         """Ensure search sees fresh derived FTS and embedding tables."""
@@ -2575,6 +2820,8 @@ class ContextStore:
 
     def _prepare_search_fts(self, conn: sqlite3.Connection) -> None:
         """Ensure lexical search sees a fresh derived FTS table."""
+        if self._records_fts_metadata_fresh(conn):
+            return
         if self._ensure_records_fts_index(conn):
             self._rebuild_fts(conn)
 
@@ -2605,6 +2852,8 @@ class ContextStore:
 
     def _ensure_records_fts_index(self, conn: sqlite3.Connection) -> bool:
         """Return whether the derived FTS table should be rebuilt from records."""
+        if self._records_fts_metadata_fresh(conn):
+            return False
         record_count = int(conn.execute("SELECT COUNT(*) FROM records").fetchone()[0])
         fts_count = int(conn.execute("SELECT COUNT(*) FROM records_fts").fetchone()[0])
         if fts_count != record_count:
@@ -2626,6 +2875,7 @@ class ContextStore:
                        OR COALESCE(f.why, '') != COALESCE(r.why, '')
                        OR COALESCE(f.user_intent, '') != COALESCE(r.user_intent, '')
                        OR COALESCE(f.what_happened, '') != COALESCE(r.what_happened, '')
+                       OR COALESCE(f.index_text, '') != COALESCE(r.index_text, '')
                     UNION ALL
                     SELECT f.record_id
                     FROM records_fts AS f
@@ -2635,7 +2885,10 @@ class ContextStore:
                 """
             ).fetchone()[0]
         )
-        return stale_count > 0
+        rebuild = stale_count > 0
+        if not rebuild:
+            self._mark_records_fts_fresh(conn)
+        return rebuild
 
     def _rebuild_fts(self, conn: sqlite3.Connection) -> None:
         """Rebuild all derived FTS rows from canonical record text."""
@@ -2643,25 +2896,49 @@ class ContextStore:
         rows = conn.execute("SELECT * FROM records ORDER BY created_at ASC, record_id ASC").fetchall()
         for row in rows:
             payload = self._record_row_to_dict(row)
+            payload["index_text"] = _row_value(row, "index_text")
             self._upsert_fts(
                 conn,
                 project_id=str(row["project_id"]),
                 record_id=str(row["record_id"]),
                 payload=payload,
             )
+        self._mark_records_fts_fresh(conn)
 
-    def _refresh_derived_indexes_after_write(self, *, record_ids: list[str]) -> None:
+    def _refresh_derived_indexes_after_write(
+        self,
+        *,
+        record_ids: list[str],
+        refresh_context: dict[str, Any] | None = None,
+    ) -> None:
         """Best-effort refresh of derived indexes after canonical writes commit."""
-        self._refresh_fts_after_write(record_ids=record_ids)
-        self._refresh_embeddings_after_write(record_ids=record_ids)
+        self._refresh_fts_after_write(
+            record_ids=record_ids, refresh_context=refresh_context
+        )
+        self._refresh_embeddings_after_write(
+            record_ids=record_ids, refresh_context=refresh_context
+        )
 
-    def _refresh_fts_after_write(self, *, record_ids: list[str]) -> None:
+    def _refresh_fts_after_write(
+        self,
+        *,
+        record_ids: list[str],
+        refresh_context: dict[str, Any] | None = None,
+    ) -> None:
         """Best-effort refresh of derived FTS storage after canonical writes commit."""
         if not record_ids:
             return
         try:
             with self.connect() as conn:
-                if self._ensure_records_fts_index(conn):
+                target_generation = (
+                    int(refresh_context["target_generation"])
+                    if refresh_context is not None
+                    else self._records_index_generation(conn)
+                )
+                if not (
+                    refresh_context is not None
+                    and bool(refresh_context.get("fts_was_fresh"))
+                ) and self._ensure_records_fts_index(conn):
                     self._rebuild_fts(conn)
                     return
                 placeholders = ", ".join("?" for _ in record_ids)
@@ -2676,23 +2953,40 @@ class ContextStore:
                 ).fetchall()
                 for row in rows:
                     payload = self._record_row_to_dict(row)
+                    payload["index_text"] = _row_value(row, "index_text")
                     self._upsert_fts(
                         conn,
                         project_id=_row_value(row, "project_id"),
                         record_id=str(row["record_id"]),
                         payload=payload,
                     )
+                self._mark_records_fts_fresh(conn, generation=target_generation)
         except Exception:
             LOGGER.warning("record_fts_refresh_failed", exc_info=True)
 
-    def _refresh_embeddings_after_write(self, *, record_ids: list[str]) -> None:
+    def _refresh_embeddings_after_write(
+        self,
+        *,
+        record_ids: list[str],
+        refresh_context: dict[str, Any] | None = None,
+    ) -> None:
         """Best-effort refresh of derived embeddings after canonical writes commit."""
         if not record_ids:
             return
         try:
             with self.connect() as conn:
-                needs_embedding_rebuild = self._ensure_record_embeddings_index(conn)
-                if needs_embedding_rebuild:
+                provider = self.embedding_provider()
+                target_generation = (
+                    int(refresh_context["target_generation"])
+                    if refresh_context is not None
+                    else self._records_index_generation(conn)
+                )
+                can_target_refresh = (
+                    refresh_context is not None
+                    and bool(refresh_context.get("embeddings_was_fresh"))
+                    and self._record_embeddings_schema_matches(conn, provider=provider)
+                )
+                if not can_target_refresh and self._ensure_record_embeddings_index(conn):
                     self._rebuild_embeddings(conn)
                     return
                 placeholders = ", ".join("?" for _ in record_ids)
@@ -2705,15 +2999,10 @@ class ContextStore:
                     """,
                     tuple(record_ids),
                 ).fetchall()
-                for row in rows:
-                    payload = self._record_row_to_dict(row)
-                    self._upsert_embedding(
-                        conn,
-                        project_id=_row_value(row, "project_id"),
-                        record_id=str(row["record_id"]),
-                        text=self._search_text(payload),
-                        updated_at=str(row["updated_at"]),
-                    )
+                self._upsert_embedding_rows(conn, list(rows))
+                self._mark_record_embeddings_fresh(
+                    conn, generation=target_generation, provider=provider
+                )
         except Exception:
             LOGGER.warning("record_embedding_refresh_failed", exc_info=True)
 

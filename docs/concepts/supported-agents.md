@@ -1,62 +1,87 @@
-# Trace Sources & Workflow Adapters
+# Trace Sources, MCP Clients, And Workflow Adapters
 
-Lerim turns agent traces into reusable context for repeated workflows.
+Lerim supports agents in two different ways:
 
-The current wedge is coding agents plus support and incident operations. Other
-business workflows should start through custom clean trace folders, then become
-signal packs when their reusable signal is clear. Current adapters cover the
-supported coding-agent sources available today.
+1. **Native trace adapters** read completed local sessions and feed Lerim's trace-to-context compiler.
+2. **MCP client support** lets agents query Lerim context and submit completed sessions through `lerim_trace_submit`.
 
-## Current adapters
+Do not treat these as identical. Native adapters are the strongest ingestion path when an agent has a stable local session store. MCP is the universal access layer for recall and broad compatibility.
+
+## Support Matrix
+
+| Agent | Native trace ingestion | MCP config support | Config command | Notes |
+| --- | --- | --- | --- | --- |
+| Claude Code | Native adapter implemented | MCP config writer | `lerim connect claude-code --mode mcp` | Native adapter reads completed Claude project sessions. |
+| Codex CLI | Native adapter implemented | MCP config writer | `lerim connect codex --mode mcp` | Native adapter reads Codex JSONL sessions and prefers visible event messages. |
+| Cursor | Native DB adapter implemented | MCP config writer | `lerim connect cursor --mode mcp` | Native adapter reads Cursor's local storage and exports compact traces; local DB format can change. |
+| OpenCode | Native adapter implemented | MCP config writer | `lerim connect opencode --mode mcp` | Native adapter reads `opencode.db`; MCP uses OpenCode's top-level `mcp` config. |
+| Gemini CLI | Not implemented | MCP config writer, live tool-call verified | `lerim connect gemini-cli --mode mcp` | MCP recall is live-tool-call verified; completed-session capture still needs stable export. |
+| Cline VS Code | Not implemented | MCP config writer | `lerim connect cline --mode mcp` | MCP-first for VS Code agent workflows. |
+| Cline CLI | Not implemented | MCP config writer | `lerim connect cline-cli --mode mcp` | MCP-first for terminal Cline workflows. |
+| Claude Desktop | Not implemented | MCP config writer | `lerim connect claude-desktop --mode mcp` | Desktop recall and context answering. |
+| OpenClaw | Plugin planned | MCP config writer | `lerim connect openclaw --mode mcp` | MCP first; native plugin should add lifecycle capture later. |
+| Hermes | Plugin planned | MCP config writer | `lerim connect hermes --mode mcp` | MCP first; provider plugin should submit completed sessions later. |
+| pi | Native adapter implemented | No current MCP claim | `lerim connect pi` | Native adapter reads completed pi JSONL sessions from `~/.pi/agent/sessions/`; extension hooks remain planned. |
+| Goose | Not implemented | MCP config writer | `lerim connect goose --mode mcp` | MCP-first. |
+| Roo Code | Not implemented | MCP config writer | `lerim connect roo-code --mode mcp` | MCP-first. |
+| Kilo Code | Not implemented | MCP config writer | `lerim connect kilo-code --mode mcp` | MCP-first. |
+| Windsurf | Not implemented | MCP config writer | `lerim connect windsurf --mode mcp` | MCP-first. |
+| OpenHuman | Investigating | Experimental generic MCP config writer | `lerim connect openhuman --mode mcp` | Do not overclaim native support until OpenHuman's memory trait path is implemented and client-loading evidence exists. |
+| Custom trace folder | User-owned clean trace import | No | `lerim project add <path> --type custom` | Watches user-owned folders of already-clean canonical JSONL traces. |
+| Generic trace import / MCP submit | N/A; explicit trace import/MCP submission | Yes, through trace submit | `lerim trace import ...` or `lerim_trace_submit` | Best path for business agents and internal workflows that export JSONL, JSON arrays, JSON wrappers, or plain text transcripts. |
+
+## Native Adapter Job
+
+Each native adapter finds session traces and normalizes them into Lerim's internal trace shape.
+
+The adapter does not write durable context itself. It only feeds the BAML/LangGraph extraction flow.
+
+Current native adapters:
 
 - Claude Code
 - Codex CLI
 - Cursor
 - OpenCode
+- pi
 
-## Adapter job
+## MCP Tool Surface
 
-Each adapter finds session traces and normalizes them into Lerim's internal trace shape.
+`lerim mcp` exposes these tools:
 
-The adapter does not write durable context itself.
-It only feeds the extraction flow.
+- `lerim_context_brief`
+- `lerim_context_answer`
+- `lerim_context_search`
+- `lerim_records_list`
+- `lerim_trace_submit`
+- `lerim_ingest_status`
 
-## Custom and business-agent traces
+The MCP server intentionally avoids a broad `memory_save` primitive. Completed sessions should be submitted through `lerim_trace_submit`, then Lerim decides what should become durable context.
 
-For a custom agent, create a folder of already-clean Lerim canonical JSONL files
-and register it as a custom project:
+## Custom And Business-Agent Traces
+
+For a custom agent, create a folder of already-clean Lerim canonical JSONL files and register it as a custom project:
 
 ```bash
 lerim project add ~/lerim-traces/support-clean --type custom
 lerim ingest --agent custom
 ```
 
-Each `.jsonl` file is one completed agent or workflow session. Custom mode does
-not run a Lerim adapter and does not compact or normalize files. It reads the
-clean files directly and indexes them as `agent_type=custom`.
+Each `.jsonl` file is one completed agent or workflow session. Custom mode does not run a Lerim adapter and does not compact or normalize files. It reads the clean files directly and indexes them as `agent_type=custom`.
 
-For sensitive or very noisy traces, run a customer-owned cleaner before import.
-Lerim can filter reusable signal during ingestion, but it should not be treated
-as the only redaction, privacy, or retention-control layer for arbitrary custom
-source data.
+For explicit one-file imports, use:
 
-## Custom business trace cleaning
+```bash
+lerim trace import ./support-agent-run.jsonl \
+  --source-name support-agent \
+  --source-profile support \
+  --scope-type domain \
+  --scope support-ops
+```
 
-A customer-specific cleaner should preserve enough structure for Lerim to
-separate routine activity from reusable context.
+For MCP clients without a stable local trace store, use `lerim_trace_submit` with source metadata. Lerim will persist the submitted trace, normalize it, and run normal extraction.
 
-Useful fields include:
+## Scope Model
 
-- timestamp
-- actor or agent name
-- task, ticket, incident, account, or workflow id
-- source artifacts and tool outputs
-- evidence links or citations
-- decisions, assumptions, approvals, and open questions
-- customer, workspace, client, engagement, team, or project scope
-- review status, retention policy, and redaction requirements
+Sessions are matched to registered projects by path. When a session belongs to a registered project, Lerim writes records for that `project_id` into the global context database.
 
-## Scope model
-
-Sessions are matched to registered projects by path.
-When a session belongs to a registered project, Lerim writes records for that `project_id` into the global context database.
+Business workflows can also use explicit scopes such as `domain:support-ops`, `workspace:customer-success`, or `custom:<id>` when importing traces.

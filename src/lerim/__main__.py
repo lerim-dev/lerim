@@ -2,4 +2,4 @@
 
 from lerim.server.cli import main
 
-main()
+raise SystemExit(main())

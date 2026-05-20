@@ -17,14 +17,17 @@ The boundary is intentionally simple:
 2. Write your own cleaner that converts those raw traces into Lerim canonical
    JSONL.
 3. Put the cleaned `.jsonl` files in one folder.
-4. Register that folder as a custom project.
+4. Register that folder as a custom project with the right source profile.
 5. Run Lerim ingest. Lerim indexes the clean files and extracts reusable
    context.
 
 ```bash
 mkdir -p ~/lerim-traces/support-clean
 
-lerim project add ~/lerim-traces/support-clean --type custom
+lerim project add ~/lerim-traces/support-clean \
+  --type custom \
+  --source-profile support
+
 lerim ingest --agent custom
 ```
 
@@ -135,18 +138,25 @@ python clean_to_lerim_jsonl.py \
   --input ./raw-traces \
   --output ~/lerim-traces/support-clean
 
-lerim project add ~/lerim-traces/support-clean --type custom
+lerim project add ~/lerim-traces/support-clean \
+  --type custom \
+  --source-profile support
 lerim ingest --agent custom
 ```
 
+If your workflow needs its own focus/noise/evidence rules, register a custom
+profile first, then use its id with `--source-profile`. See
+[Customize Lerim For Your Use Case](custom-source-profiles.md).
+
 ## How This Differs From Supported Agents
 
-Supported sources such as Claude Code, Codex CLI, Cursor, and OpenCode use
+Supported sources such as Claude Code, Codex CLI, Cursor, OpenCode, and pi use
 Lerim adapters. Those adapters know where the source stores sessions, compact
 source-specific events, and place canonical files under Lerim's cache.
 
 Custom mode skips that adapter path. It reads your cleaned `.jsonl` files
 directly from the registered folder and indexes them as `agent_type=custom`.
+The project-level source profile controls extraction for those sessions.
 
 ## Operational Checks
 

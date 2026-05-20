@@ -116,7 +116,8 @@ def build_context_answerer_graph(
         )
         return {
             "result": ContextAnswerResult(
-                answer=str(answer_payload.get("answer") or "").strip()
+                answer=str(answer_payload.get("answer") or "").strip(),
+                supporting_record_ids=supporting_record_ids,
             ),
             "events": [
                 {

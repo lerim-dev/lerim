@@ -729,6 +729,73 @@ def index_new_sessions(
     return new_sessions if return_details else len(new_sessions)
 
 
+def index_session_by_run_id(
+    run_id: str,
+    *,
+    agents: list[str] | None = None,
+    projects: dict[str, str] | None = None,
+    skip_unscoped: bool = False,
+    stats: dict[str, int] | None = None,
+) -> IndexedSession | None:
+    """Discover and index one session by run id from connected adapters.
+
+    This supports hook-style ingestion where an agent passes the just-finished
+    session id before the general background indexer has seen it.
+    """
+    if not run_id:
+        return None
+    _ensure_sessions_db_initialized()
+    config = get_config()
+    connected_paths = adapter_registry.get_connected_platform_paths(
+        config.platforms_path
+    )
+    selected_agents = agents or adapter_registry.get_connected_agents(
+        config.platforms_path
+    )
+    known_ids = get_indexed_run_ids()
+    known_hashes = _get_indexed_content_hashes()
+
+    for agent_name in selected_agents:
+        if agent_name == PROJECT_TYPE_CUSTOM:
+            continue
+        adapter = adapter_registry.get_adapter(agent_name)
+        traces_dir = connected_paths.get(agent_name)
+        if adapter is None or traces_dir is None:
+            continue
+        try:
+            sessions = adapter.iter_sessions(
+                traces_dir=traces_dir,
+                known_run_ids=None,
+            )
+        except Exception as exc:
+            logger.warning(
+                "targeted session discovery failed | agent={} run_id={} error={}",
+                agent_name,
+                run_id,
+                str(exc),
+            )
+            continue
+        for session in sessions:
+            if session.run_id != run_id:
+                continue
+            if skip_unscoped:
+                if (
+                    not projects
+                    or match_session_project(session.repo_path, projects) is None
+                ):
+                    if stats is not None:
+                        stats["skipped_unscoped"] = (
+                            int(stats.get("skipped_unscoped") or 0) + 1
+                        )
+                    return None
+            return _index_discovered_session(
+                session=session,
+                known_ids=known_ids,
+                known_hashes=known_hashes,
+            )
+    return None
+
+
 def _index_discovered_session(
     *,
     session: Any,

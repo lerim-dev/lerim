@@ -432,6 +432,37 @@ class TestAnswerFlow:
         assert answer == "agent answered"
         assert captured["question"] == "what is the last memory"
 
+    def test_answer_appends_validated_sources_when_omitted(self, tmp_path, monkeypatch):
+        rt = _build_runtime(tmp_path, monkeypatch)
+
+        def _fake_run_context_answerer(**kwargs):
+            return ContextAnswerResult(
+                answer="Verify entitlement and latest invoice.",
+                supporting_record_ids=["rec_123", "rec_456"],
+            )
+
+        monkeypatch.setattr("lerim.server.runtime.run_context_answerer", _fake_run_context_answerer)
+        answer, _, _, _ = rt.answer("what should refund agents check?", repo_root=tmp_path)
+        assert answer == (
+            "Verify entitlement and latest invoice.\n\n"
+            "Sources: rec_123, rec_456"
+        )
+
+    def test_answer_does_not_duplicate_sources_already_in_text(
+        self, tmp_path, monkeypatch
+    ):
+        rt = _build_runtime(tmp_path, monkeypatch)
+
+        def _fake_run_context_answerer(**kwargs):
+            return ContextAnswerResult(
+                answer="Use the current policy from rec_123.",
+                supporting_record_ids=["rec_123"],
+            )
+
+        monkeypatch.setattr("lerim.server.runtime.run_context_answerer", _fake_run_context_answerer)
+        answer, _, _, _ = rt.answer("what policy applies?", repo_root=tmp_path)
+        assert answer == "Use the current policy from rec_123."
+
     def test_answer_can_return_debug_payload(self, tmp_path, monkeypatch):
         rt = _build_runtime(tmp_path, monkeypatch)
 

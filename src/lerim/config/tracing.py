@@ -133,7 +133,7 @@ def _raise_if_required(config: Config, message: str, exc: Exception | None = Non
 		return
 	error = RuntimeError(
 		f"{message} Start shared MLflow with: "
-		"cd /Users/kargarisaac/codes/personal/local-mlflow && docker compose up -d"
+		"cd ~/codes/personal/local-mlflow && docker compose up -d"
 	)
 	if exc is not None:
 		raise error from exc

@@ -47,11 +47,23 @@ class LlmResponseParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="CurateRecordHealthBatch", llm_response=llm_response, mode="request")
         return typing.cast(types.ContextCurationPlan, __result__)
 
+    def ExtractCodingStrategySlots(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> types.CodingStrategySlotRecords:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ExtractCodingStrategySlots", llm_response=llm_response, mode="request")
+        return typing.cast(types.CodingStrategySlotRecords, __result__)
+
     def FilterDurableSignal(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> types.SignalFilterResult:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="FilterDurableSignal", llm_response=llm_response, mode="request")
         return typing.cast(types.SignalFilterResult, __result__)
+
+    def GuardSynthesizedContextRecords(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> types.SynthesizedContextRecords:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GuardSynthesizedContextRecords", llm_response=llm_response, mode="request")
+        return typing.cast(types.SynthesizedContextRecords, __result__)
 
     def LinkContextRecords(
         self, llm_response: str, baml_options: BamlCallOptions = {},
@@ -70,6 +82,18 @@ class LlmResponseParser:
     ) -> types.ContextRetrievalPlan:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="PlanContextRetrieval", llm_response=llm_response, mode="request")
         return typing.cast(types.ContextRetrievalPlan, __result__)
+
+    def PolishCodingEvalContextRecords(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> types.CodingEvalPolishedContextRecords:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="PolishCodingEvalContextRecords", llm_response=llm_response, mode="request")
+        return typing.cast(types.CodingEvalPolishedContextRecords, __result__)
+
+    def PolishContextRecords(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> types.SynthesizedContextRecords:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="PolishContextRecords", llm_response=llm_response, mode="request")
+        return typing.cast(types.SynthesizedContextRecords, __result__)
 
     def ReviewContextGraphLinks(
         self, llm_response: str, baml_options: BamlCallOptions = {},
@@ -115,11 +139,23 @@ class LlmStreamParser:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="CurateRecordHealthBatch", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.ContextCurationPlan, __result__)
 
+    def ExtractCodingStrategySlots(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> stream_types.CodingStrategySlotRecords:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="ExtractCodingStrategySlots", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.CodingStrategySlotRecords, __result__)
+
     def FilterDurableSignal(
         self, llm_response: str, baml_options: BamlCallOptions = {},
     ) -> stream_types.SignalFilterResult:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="FilterDurableSignal", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.SignalFilterResult, __result__)
+
+    def GuardSynthesizedContextRecords(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> stream_types.SynthesizedContextRecords:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="GuardSynthesizedContextRecords", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.SynthesizedContextRecords, __result__)
 
     def LinkContextRecords(
         self, llm_response: str, baml_options: BamlCallOptions = {},
@@ -138,6 +174,18 @@ class LlmStreamParser:
     ) -> stream_types.ContextRetrievalPlan:
         __result__ = self.__options.merge_options(baml_options).parse_response(function_name="PlanContextRetrieval", llm_response=llm_response, mode="stream")
         return typing.cast(stream_types.ContextRetrievalPlan, __result__)
+
+    def PolishCodingEvalContextRecords(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> stream_types.CodingEvalPolishedContextRecords:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="PolishCodingEvalContextRecords", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.CodingEvalPolishedContextRecords, __result__)
+
+    def PolishContextRecords(
+        self, llm_response: str, baml_options: BamlCallOptions = {},
+    ) -> stream_types.SynthesizedContextRecords:
+        __result__ = self.__options.merge_options(baml_options).parse_response(function_name="PolishContextRecords", llm_response=llm_response, mode="stream")
+        return typing.cast(stream_types.SynthesizedContextRecords, __result__)
 
     def ReviewContextGraphLinks(
         self, llm_response: str, baml_options: BamlCallOptions = {},

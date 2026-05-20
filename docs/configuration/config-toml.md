@@ -57,6 +57,7 @@ mlx = "http://127.0.0.1:8000/v1"
 auto_unload = true
 
 [cloud]
+# Planned hosted/team endpoint. Local-only usage does not require cloud auth.
 endpoint = "https://api.lerim.dev"
 # token is usually set by `lerim auth` or LERIM_CLOUD_TOKEN.
 
@@ -72,6 +73,14 @@ endpoint = "https://api.lerim.dev"
 [project_types]
 # Optional. Omitted projects default to "supported".
 # my-custom-traces = "custom"
+
+[project_profiles]
+# Optional. Omitted projects default to the source agent type.
+# my-custom-traces = "support"
+
+[profiles]
+# Optional custom source-profile YAML files.
+# research = "~/lerim-profiles/research.yaml"
 ```
 
 ## Notes
@@ -84,3 +93,5 @@ endpoint = "https://api.lerim.dev"
 - API keys come from environment variables, not TOML
 - `curate_max_llm_calls` caps context-curator BAML calls; `answer_max_retrieval_actions` caps context-answerer retrieval actions
 - `[project_types]` marks custom clean-trace folders; accepted values are `supported` and `custom`
+- `[project_profiles]` gives a registered project a default source profile for extraction
+- `[profiles]` maps custom source-profile ids to YAML files; `lerim profile register <file.yaml>` writes this table

@@ -9,12 +9,15 @@ These work on local files, Docker, or config:
 - `lerim init`
 - `lerim project`
 - `lerim connect`
+- `lerim mcp`
 - `lerim up`
 - `lerim down`
 - `lerim logs`
 - `lerim trace import`
 - `lerim profile list`
 - `lerim profile show`
+- `lerim profile validate`
+- `lerim profile register`
 - `lerim query`
 - `lerim queue`
 - `lerim retry`

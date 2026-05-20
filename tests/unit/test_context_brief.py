@@ -631,6 +631,86 @@ def test_cli_status_json_reports_changed_records(
     assert payload["records_changed_since_generation"] == 1
 
 
+def test_cli_status_json_reports_missing_included_records(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    mock_embeddings,
+) -> None:
+    """A Context Brief is stale when its manifest cites records deleted from the DB."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config_path = write_test_config(tmp_path, projects={"repo": str(repo)})
+    monkeypatch.setenv("LERIM_CONFIG", str(config_path))
+    from lerim.config.settings import reload_config
+
+    cfg = reload_config()
+    store = ContextStore(cfg.context_db_path)
+    project_id = _register_seeded_project(store, repo)
+    missing_record_id = "rec_missing_context"
+    paths = context_brief_paths(cfg, project_id)
+    paths.current_dir.mkdir(parents=True)
+    paths.current_file.write_text("# Context Brief\n\nstale citation\n", encoding="utf-8")
+    paths.current_manifest.write_text(
+        json.dumps(
+                {
+                    "generated_at": "2100-01-01T00:00:00+00:00",
+                    "records_included": 1,
+                    "included_record_ids": [missing_record_id],
+                }
+            ),
+            encoding="utf-8",
+        )
+    monkeypatch.chdir(repo)
+
+    code, payload = run_cli_json(["context-brief", "status", "--json"])
+
+    assert code == 0
+    assert payload["availability"] == "stale"
+    assert payload["records_changed_since_generation"] == 0
+    assert payload["records_missing_since_generation"] == 1
+    assert "cites records no longer present" in payload["suggested_action"]
+
+
+def test_cli_show_reports_missing_included_records(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    mock_embeddings,
+) -> None:
+    """CLI show warns before printing a derived brief with missing cited records."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config_path = write_test_config(tmp_path, projects={"repo": str(repo)})
+    monkeypatch.setenv("LERIM_CONFIG", str(config_path))
+    from lerim.config.settings import reload_config
+
+    cfg = reload_config()
+    store = ContextStore(cfg.context_db_path)
+    project_id = _register_seeded_project(store, repo)
+    missing_record_id = "rec_missing_context"
+    paths = context_brief_paths(cfg, project_id)
+    paths.current_dir.mkdir(parents=True)
+    paths.current_file.write_text("# Context Brief\n\nstale citation\n", encoding="utf-8")
+    paths.current_manifest.write_text(
+        json.dumps(
+                {
+                    "generated_at": "2100-01-01T00:00:00+00:00",
+                    "records_included": 1,
+                    "included_record_ids": [missing_record_id],
+                }
+            ),
+            encoding="utf-8",
+        )
+    monkeypatch.chdir(repo)
+
+    code, output = run_cli(["context-brief", "show"])
+
+    assert code == 0
+    assert "- availability: stale" in output
+    assert "- db_records_missing_since_generation: 1" in output
+    assert "cites records no longer present" in output
+    assert "stale citation" in output
+
+
 def test_status_reports_error_when_manifest_missing(
     tmp_path,
     mock_embeddings,

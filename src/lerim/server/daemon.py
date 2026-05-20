@@ -16,6 +16,7 @@ from typing import Any, Callable
 from lerim.config.project_scope import match_session_project
 from lerim.config.logging import log_file_path, logger
 from lerim.config.settings import get_config, reload_config
+from lerim.profiles import list_signal_packs
 from lerim.server.runtime import LerimRuntime
 from lerim.sessions.catalog import (
     DEFAULT_RUNNING_JOB_LEASE_SECONDS,
@@ -28,6 +29,7 @@ from lerim.sessions.catalog import (
     clear_local_running_job,
     heartbeat_session_job,
     index_new_sessions,
+    index_session_by_run_id,
     note_local_running_job,
     reap_stale_running_jobs,
     record_service_run,
@@ -805,6 +807,7 @@ def _process_one_job(job: dict[str, Any]) -> dict[str, Any]:
                 "duration_ms": int((time.monotonic() - started_monotonic) * 1000),
             }
         agent = LerimRuntime(default_cwd=repo_path)
+        source_profile = _project_source_profile(repo_path)
         heartbeat_stop = _start_job_heartbeat(rid)
         try:
             result = agent.ingest(
@@ -813,6 +816,7 @@ def _process_one_job(job: dict[str, Any]) -> dict[str, Any]:
                 agent_type=str(
                     job.get("agent_type") or doc.get("agent_type") or "unknown"
                 ),
+                source_profile=source_profile,
                 session_meta={
                     "cwd": str(job.get("repo_path") or repo_path),
                     "started_at": str(
@@ -864,6 +868,29 @@ def _process_one_job(job: dict[str, Any]) -> dict[str, Any]:
         },
         "duration_ms": int((time.monotonic() - started_monotonic) * 1000),
     }
+
+
+def _project_source_profile(repo_path: str) -> str | None:
+    """Return a registered project's default source profile for extraction."""
+    text = str(repo_path or "").strip()
+    if not text:
+        return None
+    config = get_config()
+    match = match_session_project(text, config.projects)
+    if match is None:
+        return None
+    project_name, _project_path = match
+    profile = str(config.project_profiles.get(project_name) or "").strip().lower()
+    if not profile:
+        return None
+    known_profiles = {pack.id for pack in list_signal_packs()}
+    if profile not in known_profiles:
+        allowed = ", ".join(sorted(known_profiles))
+        raise ValueError(
+            f"project '{project_name}' uses unknown source profile '{profile}'. "
+            f"Known profiles: {allowed}"
+        )
+    return profile
 
 
 def _process_claimed_jobs(
@@ -1008,25 +1035,75 @@ def run_ingest_once(
         indexed_sessions = 0
         queued_sessions = 0
         skipped_unscoped = 0
+        skipped_agent_filter = 0
         if run_id:
             target_run_ids = [run_id]
             if not dry_run:
+                indexed_session: IndexedSession | None = None
                 session = fetch_session_doc(run_id)
+                if session is None:
+                    index_stats: dict[str, int] = {"skipped_unscoped": 0}
+                    indexed_session = index_session_by_run_id(
+                        run_id,
+                        agents=agent_filter,
+                        projects=config.projects,
+                        skip_unscoped=True,
+                        stats=index_stats,
+                    )
+                    indexed_sessions = 1 if indexed_session else 0
+                    skipped_unscoped = int(index_stats.get("skipped_unscoped") or 0)
+                    session = fetch_session_doc(run_id)
+                session_agent_type = (
+                    str(session.get("agent_type") or "")
+                    if session
+                    else str(indexed_session.agent_type or "")
+                    if indexed_session
+                    else ""
+                )
+                if (
+                    agent_filter
+                    and session_agent_type
+                    and session_agent_type not in set(agent_filter)
+                ):
+                    skipped_agent_filter = 1
+                    target_run_ids = []
+                    session = None
+                    indexed_session = None
                 session_repo_path = (
                     str(session.get("repo_path") or "") if session else ""
                 )
+                if not session_repo_path and indexed_session is not None:
+                    session_repo_path = str(indexed_session.repo_path or "")
                 match = match_session_project(
                     session_repo_path or None, config.projects
                 )
                 matched_path = str(match[1]) if match else None
-                if not matched_path:
+                if not matched_path and skipped_unscoped == 0:
                     skipped_unscoped = 1
-                else:
+                elif matched_path:
                     queued = enqueue_session_job(
                         run_id,
-                        agent_type=session.get("agent_type") if session else None,
-                        session_path=session.get("session_path") if session else None,
-                        start_time=session.get("start_time") if session else None,
+                        agent_type=(
+                            session.get("agent_type")
+                            if session
+                            else indexed_session.agent_type
+                            if indexed_session
+                            else None
+                        ),
+                        session_path=(
+                            session.get("session_path")
+                            if session
+                            else indexed_session.session_path
+                            if indexed_session
+                            else None
+                        ),
+                        start_time=(
+                            session.get("start_time")
+                            if session
+                            else indexed_session.start_time
+                            if indexed_session
+                            else None
+                        ),
                         trigger=trigger,
                         force=True,
                         repo_path=matched_path,
@@ -1070,7 +1147,7 @@ def run_ingest_once(
                 target_run_ids = [item.run_id for item in details]
 
         extracted = 0
-        skipped = 0
+        skipped = skipped_agent_filter
         failed = 0
         cost_usd = 0.0
         projects: set[str] = set()
@@ -1087,13 +1164,15 @@ def run_ingest_once(
             # makes waiting jobs look stale during long LLM calls.
             total_processed = 0
             while total_processed < claim_limit:
+                if run_id and not target_run_ids:
+                    break
                 reap_stale_running_jobs(
                     lease_seconds=RUNNING_JOB_LEASE_SECONDS,
                     retry_backoff_fn=_retry_backoff_seconds,
                 )
                 claimed = claim_session_jobs(
                     limit=1,
-                    run_ids=[run_id] if run_id else None,
+                    run_ids=target_run_ids if run_id else None,
                     claim_order="newest",
                 )
                 if not claimed:

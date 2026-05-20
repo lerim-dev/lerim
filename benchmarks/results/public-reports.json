@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "required_reports": [
+    {
+      "artifact": "longmemeval-hybrid-full",
+      "why": "Primary LongMemEval-S hybrid retrieval result used in public benchmark tables."
+    },
+    {
+      "artifact": "longmemeval-lexical-full",
+      "why": "LongMemEval-S lexical retrieval ablation used to show retrieval-mode impact."
+    },
+    {
+      "artifact": "context-budget-hybrid-full",
+      "why": "Context-budget result used in public efficiency tables."
+    },
+    {
+      "artifact": "retrieval-latency-longmemeval",
+      "why": "Retrieval latency result used in public performance tables."
+    },
+    {
+      "artifact": "trace-ingestion-cost-longmemeval-s-sample",
+      "why": "Trace-ingestion cost and call-count result used in public benchmark docs."
+    },
+    {
+      "artifact": "extraction-minimax-m27-full-47",
+      "why": "Private-source extraction-quality diagnostic published with Lerim-only scores."
+    },
+    {
+      "artifact": "false-positive-extraction-minimax-m27-negative-cases",
+      "why": "Private-source false-positive diagnostic published with Lerim-only scores."
+    },
+    {
+      "artifact": "mcp-integration-full",
+      "why": "Primary MCP integration acceptance result used in public integration docs."
+    },
+    {
+      "artifact": "mcp-gemini-live-tool-call",
+      "why": "Installed-client MCP tool-call acceptance result used in public integration docs."
+    },
+    {
+      "artifact": "agentmemory-pinned-baseline",
+      "why": "Imported market baseline source artifact used in public comparison tables."
+    }
+  ]
+}

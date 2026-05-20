@@ -326,6 +326,8 @@ class Config:
     agents: dict[str, str]
     projects: dict[str, str]
     project_types: dict[str, str]
+    project_profiles: dict[str, str]
+    profiles: dict[str, str]
     mlflow_tracking_uri: str = ""
     mlflow_experiment: str = "lerim"
     mlflow_required: bool = False
@@ -355,6 +357,8 @@ class Config:
             "connected_agents": sorted(self.agents),
             "project_names": sorted(self.projects),
             "project_types": dict(sorted(self.project_types.items())),
+            "project_profiles": dict(sorted(self.project_profiles.items())),
+            "profiles": sorted(self.profiles),
         }
 
 
@@ -440,6 +444,8 @@ _TOP_LEVEL_CONFIG_KEYS = {
     "agents",
     "projects",
     "project_types",
+    "project_profiles",
+    "profiles",
 }
 _DATA_KEYS = {"dir", "context_db_path"}
 _SEMANTIC_SEARCH_KEYS = {
@@ -574,6 +580,11 @@ def load_config() -> Config:
     agents = _parse_string_table(_ensure_dict(toml_data, "agents"), section="agents")
     projects = _parse_string_table(_ensure_dict(toml_data, "projects"), section="projects")
     project_types = _parse_project_types_table(_ensure_dict(toml_data, "project_types"))
+    project_profiles = _parse_string_table(
+        _ensure_dict(toml_data, "project_profiles"),
+        section="project_profiles",
+    )
+    profiles = _parse_string_table(_ensure_dict(toml_data, "profiles"), section="profiles")
 
     cloud_endpoint = _to_non_empty_string(os.environ.get("LERIM_CLOUD_ENDPOINT"))
     if not cloud_endpoint:
@@ -638,6 +649,8 @@ def load_config() -> Config:
         agents=agents,
         projects=projects,
         project_types=project_types,
+        project_profiles=project_profiles,
+        profiles=profiles,
         mlflow_tracking_uri=(
             _to_non_empty_string(os.environ.get("LERIM_MLFLOW_TRACKING_URI"))
             or _to_non_empty_string(os.environ.get("MLFLOW_TRACKING_URI"))

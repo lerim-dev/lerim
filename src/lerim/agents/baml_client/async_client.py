@@ -142,6 +142,21 @@ class BamlAsyncClient:
                 "run_instruction": run_instruction,"batch_id": batch_id,"records_json": records_json,
             })
             return typing.cast(types.ContextCurationPlan, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    async def ExtractCodingStrategySlots(self, run_instruction: str,source_profile_context: str,user_source_lines: str,durable_findings_summary: str,rejected_findings_summary: str,
+        baml_options: BamlCallOptions = {},
+    ) -> types.CodingStrategySlotRecords:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            # Use streaming internally when on_tick is provided
+            __stream__ = self.stream.ExtractCodingStrategySlots(run_instruction=run_instruction,source_profile_context=source_profile_context,user_source_lines=user_source_lines,durable_findings_summary=durable_findings_summary,rejected_findings_summary=rejected_findings_summary,
+                baml_options=baml_options)
+            return await __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="ExtractCodingStrategySlots", args={
+                "run_instruction": run_instruction,"source_profile_context": source_profile_context,"user_source_lines": user_source_lines,"durable_findings_summary": durable_findings_summary,"rejected_findings_summary": rejected_findings_summary,
+            })
+            return typing.cast(types.CodingStrategySlotRecords, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def FilterDurableSignal(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> types.SignalFilterResult:
@@ -157,6 +172,21 @@ class BamlAsyncClient:
                 "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
             })
             return typing.cast(types.SignalFilterResult, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    async def GuardSynthesizedContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> types.SynthesizedContextRecords:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            # Use streaming internally when on_tick is provided
+            __stream__ = self.stream.GuardSynthesizedContextRecords(run_instruction=run_instruction,source_profile_context=source_profile_context,episode_summary=episode_summary,durable_findings_summary=durable_findings_summary,implementation_summary=implementation_summary,existing_record_manifest=existing_record_manifest,rejected_findings_summary=rejected_findings_summary,draft_records_json=draft_records_json,
+                baml_options=baml_options)
+            return await __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="GuardSynthesizedContextRecords", args={
+                "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
+            })
+            return typing.cast(types.SynthesizedContextRecords, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
         baml_options: BamlCallOptions = {},
     ) -> types.ContextGraphPlan:
@@ -202,6 +232,36 @@ class BamlAsyncClient:
                 "question": question,"current_utc": current_utc,"hints": hints,
             })
             return typing.cast(types.ContextRetrievalPlan, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    async def PolishCodingEvalContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> types.CodingEvalPolishedContextRecords:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            # Use streaming internally when on_tick is provided
+            __stream__ = self.stream.PolishCodingEvalContextRecords(run_instruction=run_instruction,source_profile_context=source_profile_context,episode_summary=episode_summary,durable_findings_summary=durable_findings_summary,implementation_summary=implementation_summary,rejected_findings_summary=rejected_findings_summary,draft_records_json=draft_records_json,
+                baml_options=baml_options)
+            return await __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="PolishCodingEvalContextRecords", args={
+                "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
+            })
+            return typing.cast(types.CodingEvalPolishedContextRecords, __result__.cast_to(types, types, stream_types, False, __runtime__))
+    async def PolishContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> types.SynthesizedContextRecords:
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            # Use streaming internally when on_tick is provided
+            __stream__ = self.stream.PolishContextRecords(run_instruction=run_instruction,source_profile_context=source_profile_context,episode_summary=episode_summary,durable_findings_summary=durable_findings_summary,implementation_summary=implementation_summary,rejected_findings_summary=rejected_findings_summary,draft_records_json=draft_records_json,
+                baml_options=baml_options)
+            return await __stream__.get_final_response()
+        else:
+            # Original non-streaming code
+            __result__ = await self.__options.merge_options(baml_options).call_function_async(function_name="PolishContextRecords", args={
+                "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
+            })
+            return typing.cast(types.SynthesizedContextRecords, __result__.cast_to(types, types, stream_types, False, __runtime__))
     async def ReviewContextGraphLinks(self, run_instruction: str,records_json: str,proposed_links_json: str,
         baml_options: BamlCallOptions = {},
     ) -> types.ContextGraphPlan:
@@ -289,6 +349,18 @@ class BamlStreamClient:
           lambda x: typing.cast(types.ContextCurationPlan, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
+    def ExtractCodingStrategySlots(self, run_instruction: str,source_profile_context: str,user_source_lines: str,durable_findings_summary: str,rejected_findings_summary: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlStream[stream_types.CodingStrategySlotRecords, types.CodingStrategySlotRecords]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="ExtractCodingStrategySlots", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"user_source_lines": user_source_lines,"durable_findings_summary": durable_findings_summary,"rejected_findings_summary": rejected_findings_summary,
+        })
+        return baml_py.BamlStream[stream_types.CodingStrategySlotRecords, types.CodingStrategySlotRecords](
+          __result__,
+          lambda x: typing.cast(stream_types.CodingStrategySlotRecords, x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(types.CodingStrategySlotRecords, x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
     def FilterDurableSignal(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlStream[stream_types.SignalFilterResult, types.SignalFilterResult]:
@@ -299,6 +371,18 @@ class BamlStreamClient:
           __result__,
           lambda x: typing.cast(stream_types.SignalFilterResult, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.SignalFilterResult, x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
+    def GuardSynthesizedContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlStream[stream_types.SynthesizedContextRecords, types.SynthesizedContextRecords]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="GuardSynthesizedContextRecords", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
+        })
+        return baml_py.BamlStream[stream_types.SynthesizedContextRecords, types.SynthesizedContextRecords](
+          __result__,
+          lambda x: typing.cast(stream_types.SynthesizedContextRecords, x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(types.SynthesizedContextRecords, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
     def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
@@ -335,6 +419,30 @@ class BamlStreamClient:
           __result__,
           lambda x: typing.cast(stream_types.ContextRetrievalPlan, x.cast_to(types, types, stream_types, True, __runtime__)),
           lambda x: typing.cast(types.ContextRetrievalPlan, x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
+    def PolishCodingEvalContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlStream[stream_types.CodingEvalPolishedContextRecords, types.CodingEvalPolishedContextRecords]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="PolishCodingEvalContextRecords", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
+        })
+        return baml_py.BamlStream[stream_types.CodingEvalPolishedContextRecords, types.CodingEvalPolishedContextRecords](
+          __result__,
+          lambda x: typing.cast(stream_types.CodingEvalPolishedContextRecords, x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(types.CodingEvalPolishedContextRecords, x.cast_to(types, types, stream_types, False, __runtime__)),
+          __ctx__,
+        )
+    def PolishContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.BamlStream[stream_types.SynthesizedContextRecords, types.SynthesizedContextRecords]:
+        __ctx__, __result__ = self.__options.merge_options(baml_options).create_async_stream(function_name="PolishContextRecords", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
+        })
+        return baml_py.BamlStream[stream_types.SynthesizedContextRecords, types.SynthesizedContextRecords](
+          __result__,
+          lambda x: typing.cast(stream_types.SynthesizedContextRecords, x.cast_to(types, types, stream_types, True, __runtime__)),
+          lambda x: typing.cast(types.SynthesizedContextRecords, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
     def ReviewContextGraphLinks(self, run_instruction: str,records_json: str,proposed_links_json: str,
@@ -397,11 +505,25 @@ class BamlHttpRequestClient:
             "run_instruction": run_instruction,"batch_id": batch_id,"records_json": records_json,
         }, mode="request")
         return __result__
+    async def ExtractCodingStrategySlots(self, run_instruction: str,source_profile_context: str,user_source_lines: str,durable_findings_summary: str,rejected_findings_summary: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ExtractCodingStrategySlots", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"user_source_lines": user_source_lines,"durable_findings_summary": durable_findings_summary,"rejected_findings_summary": rejected_findings_summary,
+        }, mode="request")
+        return __result__
     async def FilterDurableSignal(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="FilterDurableSignal", args={
             "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
+        }, mode="request")
+        return __result__
+    async def GuardSynthesizedContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GuardSynthesizedContextRecords", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
         }, mode="request")
         return __result__
     async def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
@@ -423,6 +545,20 @@ class BamlHttpRequestClient:
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="PlanContextRetrieval", args={
             "question": question,"current_utc": current_utc,"hints": hints,
+        }, mode="request")
+        return __result__
+    async def PolishCodingEvalContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="PolishCodingEvalContextRecords", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
+        }, mode="request")
+        return __result__
+    async def PolishContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="PolishContextRecords", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
         }, mode="request")
         return __result__
     async def ReviewContextGraphLinks(self, run_instruction: str,records_json: str,proposed_links_json: str,
@@ -475,11 +611,25 @@ class BamlHttpStreamRequestClient:
             "run_instruction": run_instruction,"batch_id": batch_id,"records_json": records_json,
         }, mode="stream")
         return __result__
+    async def ExtractCodingStrategySlots(self, run_instruction: str,source_profile_context: str,user_source_lines: str,durable_findings_summary: str,rejected_findings_summary: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="ExtractCodingStrategySlots", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"user_source_lines": user_source_lines,"durable_findings_summary": durable_findings_summary,"rejected_findings_summary": rejected_findings_summary,
+        }, mode="stream")
+        return __result__
     async def FilterDurableSignal(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="FilterDurableSignal", args={
             "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,
+        }, mode="stream")
+        return __result__
+    async def GuardSynthesizedContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,existing_record_manifest: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="GuardSynthesizedContextRecords", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"existing_record_manifest": existing_record_manifest,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
         }, mode="stream")
         return __result__
     async def LinkContextRecords(self, run_instruction: str,cluster_id: str,records_json: str,candidate_pairs_json: str,existing_edges_json: str,
@@ -501,6 +651,20 @@ class BamlHttpStreamRequestClient:
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="PlanContextRetrieval", args={
             "question": question,"current_utc": current_utc,"hints": hints,
+        }, mode="stream")
+        return __result__
+    async def PolishCodingEvalContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="PolishCodingEvalContextRecords", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
+        }, mode="stream")
+        return __result__
+    async def PolishContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,
+        baml_options: BamlCallOptions = {},
+    ) -> baml_py.baml_py.HTTPRequest:
+        __result__ = await self.__options.merge_options(baml_options).create_http_request_async(function_name="PolishContextRecords", args={
+            "run_instruction": run_instruction,"source_profile_context": source_profile_context,"episode_summary": episode_summary,"durable_findings_summary": durable_findings_summary,"implementation_summary": implementation_summary,"rejected_findings_summary": rejected_findings_summary,"draft_records_json": draft_records_json,
         }, mode="stream")
         return __result__
     async def ReviewContextGraphLinks(self, run_instruction: str,records_json: str,proposed_links_json: str,

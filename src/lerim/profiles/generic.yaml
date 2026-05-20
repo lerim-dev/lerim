@@ -1,0 +1,22 @@
+id: generic
+display_name: Generic Agent Trace
+description: General-purpose completed agent sessions without a more specific bundled or custom profile.
+focus_rules:
+  - durable decisions, constraints, preferences, facts, and handoff rules that apply beyond one run
+  - accepted source-of-truth references, approval boundaries, and workflow rules
+  - rejected approaches or failed paths only when they are likely to prevent repeated work
+  - stable user, team, or domain preferences when the source states them clearly
+reject_as_noise:
+  - routine acknowledgements, progress chatter, and temporary planning notes
+  - tool logs, stack traces, and raw outputs without a reusable conclusion
+  - one-off personal details or sensitive identifiers without explicit durable value
+  - generic domain knowledge not established by the source session
+evidence_rules:
+  - preserve source references, dates, record ids, ticket ids, or URLs when they support the durable record
+  - distinguish confirmed facts and decisions from hypotheses or pending work
+  - attach direct trace evidence when possible
+  - avoid turning uncertain or provisional source text into a confident durable fact
+scope_rules:
+  - use the narrowest supplied scope that still matches future reuse
+  - use domain scope when a rule applies to a workflow rather than one project
+  - keep session-specific details in evidence or episode context unless they are reusable

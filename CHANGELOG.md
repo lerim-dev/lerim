@@ -5,7 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-05-20
+
+### Added
+- Added a Python-first MCP server with context brief, context answer, context
+  search, deterministic records listing, trace submission, and ingest/status
+  tools.
+- Added `lerim connect --mode mcp` config writers for Codex CLI, Claude Code,
+  Cursor, OpenCode, Gemini CLI, Cline, Claude Desktop, OpenClaw, Hermes, Goose,
+  Roo Code, Kilo Code, Windsurf, and OpenHuman, with dry-run, backup, and
+  verification support.
+- Added a native pi JSONL session adapter for `~/.pi/agent/sessions/`.
+- Added generic trace submission and retry plumbing for JSONL, JSON arrays,
+  message wrappers, and plain-text transcripts through `lerim trace import` and
+  MCP `lerim_trace_submit`.
+- Added public benchmark scripts, raw artifacts, generated reports, and docs for
+  LongMemEval-S retrieval, context budget, retrieval latency, MCP integration,
+  trace-ingestion cost/performance, and aggregate extraction diagnostics.
+- Added public integration docs, source-session context compiler docs, MCP versus
+  native-adapter boundary docs, custom trace examples, and a commercial boundary
+  document.
+
+### Changed
+- Moved the core project metadata, license text, and contribution guidance to
+  Apache-2.0.
+- Reworked retrieval indexing to store compact public records plus hidden
+  source-session index text, then rank with weighted reciprocal-rank fusion over
+  semantic and lexical signals.
+- Updated README and docs to position Lerim as a source-session context compiler
+  for agent workflows, not only coding-agent memory.
+- Updated MCP client config generation to use an absolute Python executable with
+  `-m lerim.mcp_server`, avoiding client startup failures when `lerim` is not on
+  the MCP client's `PATH`.
+- Split benchmark documentation into Lerim-only results and market-wide
+  comparison pages, with source/provenance boundaries for competitor rows.
+
+### Fixed
+- Hardened generic trace loading so empty trace files fail clearly instead of
+  flowing into extraction.
+- Preserved validated supporting record IDs in `lerim answer` output so CLI and
+  MCP users get explicit `Sources: rec_...` evidence pointers.
+- Corrected support wording so MCP config support is not presented as native
+  completed-session capture.
+- Removed stale public launch visuals and regenerated current public/private
+  release assets from checked source assets and transcripts.
+- Hardened release workflows with strict docs build, clean/tracked public
+  benchmark validation, PEP 517 build, `twine check`, clean install checks, and
+  MCP stdio probes before publishing.
 
 ## [0.2.1] - 2026-05-16
 

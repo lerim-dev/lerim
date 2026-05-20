@@ -10,7 +10,9 @@ import sqlite_vec
 
 from lerim.config.settings import get_config
 
-RRF_K = 60
+RRF_K = 2
+DEFAULT_SEMANTIC_RRF_WEIGHT = 0.7
+DEFAULT_LEXICAL_RRF_WEIGHT = 0.3
 
 
 @dataclass(frozen=True)
@@ -88,7 +90,12 @@ def search_records(
                 )
             except sqlite3.OperationalError:
                 lexical_rows = []
-        combined = rrf_fuse(semantic_rows=semantic_rows, lexical_rows=lexical_rows)
+        combined = rrf_fuse(
+            semantic_rows=semantic_rows,
+            lexical_rows=lexical_rows,
+            semantic_weight=DEFAULT_SEMANTIC_RRF_WEIGHT,
+            lexical_weight=DEFAULT_LEXICAL_RRF_WEIGHT,
+        )
         if not combined:
             return []
         top_ids = [record_id for record_id, _score, _sources in combined[:limit]]
@@ -263,15 +270,17 @@ def rrf_fuse(
     *,
     semantic_rows: list[tuple[str, float]],
     lexical_rows: list[tuple[str, float]],
+    semantic_weight: float = 1.0,
+    lexical_weight: float = 1.0,
 ) -> list[tuple[str, float, list[str]]]:
     """Fuse ranked lists with Reciprocal Rank Fusion."""
     scores: dict[str, float] = {}
     sources: dict[str, set[str]] = {}
     for rank, (record_id, _score) in enumerate(semantic_rows, start=1):
-        scores[record_id] = scores.get(record_id, 0.0) + 1.0 / (RRF_K + rank)
+        scores[record_id] = scores.get(record_id, 0.0) + semantic_weight / (RRF_K + rank)
         sources.setdefault(record_id, set()).add("semantic")
     for rank, (record_id, _score) in enumerate(lexical_rows, start=1):
-        scores[record_id] = scores.get(record_id, 0.0) + 1.0 / (RRF_K + rank)
+        scores[record_id] = scores.get(record_id, 0.0) + lexical_weight / (RRF_K + rank)
         sources.setdefault(record_id, set()).add("fts")
     combined = [
         (record_id, score, sorted(sources.get(record_id, set())))

@@ -7,8 +7,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ripgrep &&
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-# Install lerim from local source
-COPY . /build
+# Install lerim from the package surface only. Keep docs, private launch
+# material, benchmarks, specs, tests, and local configs out of the image.
+COPY pyproject.toml README.md LICENSE /build/
+COPY src /build/src
 RUN pip install --no-cache-dir --retries 10 --default-timeout 120 /build && rm -rf /build
 
 

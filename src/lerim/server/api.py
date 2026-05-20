@@ -55,6 +55,7 @@ from lerim.config.settings import (
     save_config_patch,
     _write_config_full,
 )
+from lerim.profiles import list_signal_packs
 from lerim.server.runtime import LerimRuntime
 from lerim.sessions.catalog import (
     count_all_session_state,
@@ -1338,6 +1339,7 @@ def api_project_list(*, include_paths: bool = True) -> list[dict[str, Any]]:
             "name": name,
             "project_id": resolve_project_identity(resolved).project_id,
             "type": config.project_types.get(name, PROJECT_TYPE_SUPPORTED),
+            "source_profile": config.project_profiles.get(name),
             "exists": resolved.exists(),
         }
         if include_paths:
@@ -1356,10 +1358,26 @@ def _project_config_name(resolved: Path, existing_projects: dict[str, str]) -> s
     return f"{base_name}-{suffix}"
 
 
+def _resolve_project_source_profile(source_profile: str | None) -> str | None:
+    """Validate and normalize an optional project default source profile."""
+    raw = str(source_profile or "").strip().lower()
+    if not raw:
+        return None
+    ids = {pack.id for pack in list_signal_packs()}
+    if raw not in ids:
+        allowed = ", ".join(sorted(ids))
+        raise ValueError(
+            f"unknown source profile: {source_profile}. "
+            f"Run `lerim profile list`; known profiles: {allowed}"
+        )
+    return raw
+
+
 def api_project_add(
     path_str: str,
     *,
     project_type: str = PROJECT_TYPE_SUPPORTED,
+    source_profile: str | None = None,
     include_paths: bool = True,
 ) -> dict[str, Any]:
     """Register a project directory and return status."""
@@ -1371,16 +1389,20 @@ def api_project_add(
         resolved_project_type = normalize_project_type(project_type)
     except ValueError as exc:
         return {"error": str(exc), "name": None}
+    try:
+        resolved_source_profile = _resolve_project_source_profile(source_profile)
+    except ValueError as exc:
+        return {"error": str(exc), "name": None}
 
     config = get_config()
     name = _project_config_name(resolved, config.projects or {})
-    # Update config
-    save_config_patch(
-        {
-            "projects": {name: str(resolved)},
-            "project_types": {name: resolved_project_type},
-        }
-    )
+    patch: dict[str, Any] = {
+        "projects": {name: str(resolved)},
+        "project_types": {name: resolved_project_type},
+    }
+    if resolved_source_profile is not None:
+        patch["project_profiles"] = {name: resolved_source_profile}
+    save_config_patch(patch)
     config = get_config()
     store = _context_store(config)
     identity = resolve_project_identity(resolved)
@@ -1390,6 +1412,7 @@ def api_project_add(
         "name": name,
         "project_id": identity.project_id,
         "type": resolved_project_type,
+        "source_profile": config.project_profiles.get(name),
     }
     if include_paths:
         payload["path"] = str(resolved)
@@ -1416,6 +1439,10 @@ def api_project_remove(name: str) -> dict[str, Any]:
     if isinstance(project_types, dict) and name in project_types:
         del project_types[name]
         existing["project_types"] = project_types
+    project_profiles = existing.get("project_profiles", {})
+    if isinstance(project_profiles, dict) and name in project_profiles:
+        del project_profiles[name]
+        existing["project_profiles"] = project_profiles
 
     # Write directly — save_config_patch would re-merge the deleted key
     _write_config_full(existing)

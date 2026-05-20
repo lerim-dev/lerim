@@ -107,6 +107,10 @@ class EmbeddingProvider:
         """Embed one record document into a normalized vector."""
         return self._embed_texts([str(document_text or "")])[0]
 
+    def embed_documents(self, document_texts: list[str]) -> list[list[float]]:
+        """Embed multiple record documents in one tokenizer/session batch."""
+        return self._embed_texts([str(text or "") for text in document_texts])
+
     def _embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Embed many texts with ONNX Runtime and return normalized vectors."""
         if not texts:
@@ -202,6 +206,7 @@ class EmbeddingProvider:
             snapshot_download(
                 repo_id=self.model_id,
                 allow_patterns=list(allow_patterns),
+                cache_dir=self.cache_dir / ".hf-cache",
                 local_dir=self.model_dir,
             )
         except Exception as exc:  # pragma: no cover - network/cache failure path

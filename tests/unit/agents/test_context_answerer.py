@@ -22,6 +22,7 @@ class TestContextAnswerResult:
         result = ContextAnswerResult(answer="some answer text")
         data = result.model_dump()
         assert data["answer"] == "some answer text"
+        assert data["supporting_record_ids"] == []
 
 
 class TestAnswerSystemPrompt:
@@ -120,6 +121,74 @@ class TestRunAnswerSignature:
             question="what do we know about X?",
         )
         assert result.answer == "There is 1 active decision."
+        assert result.supporting_record_ids == []
+
+    def test_returns_valid_supporting_record_ids(self, tmp_path, monkeypatch):
+        identity = ProjectIdentity(
+            project_id="proj_abc",
+            project_slug="test",
+            repo_path=tmp_path,
+        )
+        store = ContextStore(tmp_path / "context.sqlite3")
+        store.initialize()
+        store.register_project(identity)
+        store.upsert_session(
+            project_id=identity.project_id,
+            session_id="seed",
+            agent_type="test",
+            source_trace_ref="test",
+            repo_path=str(tmp_path),
+            cwd=str(tmp_path),
+            started_at="2026-05-15T00:00:00+00:00",
+            model_name="test/model",
+            instructions_text=None,
+            prompt_text=None,
+            metadata={},
+        )
+        created = store.create_record(
+            project_id=identity.project_id,
+            session_id="seed",
+            kind="fact",
+            title="Refund checks",
+            body="Refund agents must verify entitlement and latest invoice.",
+            status="active",
+            change_reason="test",
+        )
+
+        class FakeBamlRuntime:
+            def PlanContextRetrieval(self, **_kwargs):
+                return {
+                    "actions": [
+                        {
+                            "action_type": "list",
+                            "kind": "fact",
+                            "status": "active",
+                            "rationale": "List active facts.",
+                        }
+                    ],
+                    "rationale": "Use exact list.",
+                }
+
+            def AnswerFromContext(self, **_kwargs):
+                return {
+                    "answer": "Verify entitlement and latest invoice.",
+                    "supporting_record_ids": [created["record_id"], "not_a_real_record"],
+                }
+
+        monkeypatch.setattr(
+            "lerim.agents.context_answerer.graph.build_baml_client_for_role",
+            lambda **_kwargs: FakeBamlRuntime(),
+        )
+
+        result = run_context_answerer(
+            context_db_path=tmp_path / "context.sqlite3",
+            project_identity=identity,
+            project_ids=["proj_abc"],
+            session_id="sess_1",
+            question="what should refund agents check?",
+        )
+        assert result.answer == "Verify entitlement and latest invoice."
+        assert result.supporting_record_ids == [created["record_id"]]
 
     def test_can_return_debug_events(self, tmp_path, monkeypatch):
         identity = ProjectIdentity(

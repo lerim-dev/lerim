@@ -23,8 +23,8 @@ if command -v lerim >/dev/null 2>&1; then
   LERIM=(lerim)
 elif command -v uvx >/dev/null 2>&1; then
   LERIM=(uvx lerim)
-elif [ -x /Users/kargarisaac/.local/bin/uvx ]; then
-  LERIM=(/Users/kargarisaac/.local/bin/uvx lerim)
+elif [ -x "$HOME/.local/bin/uvx" ]; then
+  LERIM=("$HOME/.local/bin/uvx" lerim)
 else
   echo "Lerim is not runnable from this shell; install a command shim with: uv tool install lerim"
 fi

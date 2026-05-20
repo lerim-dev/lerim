@@ -121,6 +121,42 @@ class TestEmbeddingProviderInit:
         assert provider._tokenizer is None
         assert provider._session is None
 
+    def test_embed_documents_batches_texts(self, tmp_path, monkeypatch):
+        provider = EmbeddingProvider(model_id="test/model", cache_dir=tmp_path)
+        captured: list[list[str]] = []
+
+        def fake_embed_texts(texts: list[str]) -> list[list[float]]:
+            captured.append(texts)
+            return [[float(index), 0.0] for index, _text in enumerate(texts)]
+
+        monkeypatch.setattr(provider, "_embed_texts", fake_embed_texts)
+
+        assert provider.embed_documents(["a", "b", "c"]) == [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [2.0, 0.0],
+        ]
+        assert captured == [["a", "b", "c"]]
+
+    def test_download_uses_configured_cache_dir(self, tmp_path, monkeypatch):
+        provider = EmbeddingProvider(model_id="test/model", cache_dir=tmp_path)
+        captured: dict[str, object] = {}
+
+        def fake_snapshot_download(**kwargs):
+            captured.update(kwargs)
+            return str(provider.model_dir)
+
+        monkeypatch.setattr(
+            "lerim.context.embedding.snapshot_download",
+            fake_snapshot_download,
+        )
+
+        assert provider._download_model_files(allow_patterns=("config.json",)) == provider.model_dir
+        assert captured["repo_id"] == "test/model"
+        assert captured["allow_patterns"] == ["config.json"]
+        assert captured["cache_dir"] == tmp_path / ".hf-cache"
+        assert captured["local_dir"] == provider.model_dir
+
 
 class TestEmbeddingProviderDimsProperty:
     """Tests for EmbeddingProvider.embedding_dims."""

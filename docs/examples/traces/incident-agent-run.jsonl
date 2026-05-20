@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"Investigate webhook delivery failures for the EU billing queue."},"timestamp":"2026-05-16T11:00:00Z"}
+{"type":"assistant","message":{"role":"assistant","content":"The incident agent confirmed the carrier retried duplicate deliveries, disabled the stale route, and left follow-up work to add replay protection to the runbook."},"timestamp":"2026-05-16T11:08:00Z"}

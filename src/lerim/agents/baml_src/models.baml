@@ -15,7 +15,7 @@ client<llm> MiniMaxM27 {
     base_url "https://api.minimax.io/v1"
     api_key env.MINIMAX_API_KEY
     model "MiniMax-M2.7"
-    temperature 0.01
+    temperature 1.0
     http {
       connect_timeout_ms 10000
       time_to_first_token_timeout_ms 120000

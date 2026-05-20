@@ -339,11 +339,14 @@ def normalize_record_payload(
     return payload
 
 
-def record_search_text(payload: dict[str, Any]) -> str:
+def record_search_text(payload: dict[str, Any], *, index_text: str | None = None) -> str:
     """Build canonical search text from one normalized record payload."""
     parts: list[str] = [f"kind: {payload['kind']}"]
     for field_name in SEARCH_TEXT_FIELDS:
         text = str(payload.get(field_name) or "").strip()
         if text:
             parts.append(f"{field_name}: {text}")
+    extra = str(index_text or "").strip()
+    if extra:
+        parts.append(f"index_text: {extra}")
     return "\n".join(parts)

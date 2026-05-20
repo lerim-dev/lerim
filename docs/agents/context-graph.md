@@ -52,12 +52,12 @@ The persisted graph stores one durable cluster layer:
 
 - semantic clusters from mutual semantic-neighbor records
 
-The dashboard can derive Louvain communities and combined visual lenses from
-accepted graph links without adding transient visualization labels to the local
-runtime store.
+A planned hosted dashboard can derive Louvain communities and combined visual
+lenses from accepted graph links without adding transient visualization labels
+to the local runtime store.
 
 ## Output
 
 The graph projection is derived context. Durable records stay canonical.
-`context_nodes` and `context_edges` are refreshed from curated records and then
-shipped to the dashboard for clustered graph exploration.
+`context_nodes` and `context_edges` are refreshed from curated records and are
+kept ready for clustered graph exploration in the planned hosted product.

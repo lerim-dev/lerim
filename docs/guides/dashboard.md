@@ -1,6 +1,6 @@
 # Dashboard
 
-Lerim's hosted dashboard lives on Lerim Cloud.
+Lerim's hosted dashboard is planned for Lerim Cloud.
 
 This repo does not ship a full local web UI. The local runtime exposes:
 
@@ -23,21 +23,22 @@ The local API is available on port `8765` (default) when you run `lerim up` or `
 curl http://localhost:8765/api/health
 ```
 
-## Context Graph
+## Planned Hosted Context Graph
 
-The dashboard record view includes a Context Graph. It uses the learned graph
-projection produced after curation, not raw trace metadata. Nodes are curated
-records. Edges are reviewed relationships such as support, evidence, dependency,
-contradiction, supersession, and same-topic links.
+The planned hosted Lerim Cloud dashboard record view includes a Context Graph.
+It uses the learned graph projection produced after curation, not raw trace
+metadata. Nodes are curated records. Edges are reviewed relationships such as
+support, evidence, dependency, contradiction, supersession, and same-topic links.
 
-The graph view supports three cluster lenses:
+The planned graph view supports three cluster lenses:
 
 - semantic clusters persisted by the context graph phase
 - Louvain communities derived in the dashboard from accepted graph links
 - combined clusters derived from semantic and community groupings
 
-If the graph is empty, run the background service or a curate cycle so Lerim can
-refresh the derived graph projection and ship it to the dashboard.
+In the local open-source runtime, the graph projection is written for curation
+and future hosted visualization. The full interactive graph view is reserved for
+the hosted/cloud product.
 
 ## Related
 

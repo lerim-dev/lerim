@@ -22,6 +22,7 @@ from lerim.sessions.catalog import (
     fail_session_job,
     fetch_session_doc,
     get_indexed_run_ids,
+    index_session_by_run_id,
     index_session_for_fts,
     init_sessions_db,
     latest_service_run,
@@ -452,6 +453,111 @@ class TestFtsIndexing:
         assert details[0].run_id == "known-missing"
         assert details[0].changed is True
         assert fetch_session_doc("known-missing")["content_hash"] == "new-hash"
+
+    def test_index_session_by_run_id_discovers_single_connected_session(
+        self,
+        sessions_db,
+        tmp_path,
+        monkeypatch,
+    ):
+        traces_dir = tmp_path / "codex-sessions"
+        traces_dir.mkdir()
+
+        class FakeAdapter:
+            def iter_sessions(self, **kwargs):
+                assert kwargs["traces_dir"] == traces_dir
+                return [
+                    SessionRecord(
+                        run_id="target-run",
+                        agent_type="codex",
+                        session_path=str(traces_dir / "target-run.jsonl"),
+                        start_time="2026-05-19T10:00:00+00:00",
+                        repo_path=str(tmp_path),
+                        summaries=["target summary"],
+                        content_hash="target-hash",
+                    ),
+                    SessionRecord(
+                        run_id="other-run",
+                        agent_type="codex",
+                        session_path=str(traces_dir / "other-run.jsonl"),
+                        repo_path=str(tmp_path),
+                    ),
+                ]
+
+        monkeypatch.setattr(
+            "lerim.sessions.catalog.adapter_registry.get_connected_platform_paths",
+            lambda _path: {"codex": traces_dir},
+        )
+        monkeypatch.setattr(
+            "lerim.sessions.catalog.adapter_registry.get_connected_agents",
+            lambda _path: ["codex"],
+        )
+        monkeypatch.setattr(
+            "lerim.sessions.catalog.adapter_registry.get_adapter",
+            lambda name: FakeAdapter() if name == "codex" else None,
+        )
+
+        indexed = index_session_by_run_id(
+            "target-run",
+            agents=["codex"],
+            projects={"test": str(tmp_path)},
+            skip_unscoped=True,
+        )
+
+        assert indexed is not None
+        assert indexed.run_id == "target-run"
+        assert indexed.changed is False
+        doc = fetch_session_doc("target-run")
+        assert doc is not None
+        assert doc["agent_type"] == "codex"
+        assert doc["content_hash"] == "target-hash"
+        assert fetch_session_doc("other-run") is None
+
+    def test_index_session_by_run_id_counts_unscoped_match(
+        self,
+        sessions_db,
+        tmp_path,
+        monkeypatch,
+    ):
+        traces_dir = tmp_path / "codex-sessions"
+        traces_dir.mkdir()
+
+        class FakeAdapter:
+            def iter_sessions(self, **_kwargs):
+                return [
+                    SessionRecord(
+                        run_id="unscoped-run",
+                        agent_type="codex",
+                        session_path=str(traces_dir / "unscoped-run.jsonl"),
+                        repo_path=str(tmp_path / "other-project"),
+                    )
+                ]
+
+        monkeypatch.setattr(
+            "lerim.sessions.catalog.adapter_registry.get_connected_platform_paths",
+            lambda _path: {"codex": traces_dir},
+        )
+        monkeypatch.setattr(
+            "lerim.sessions.catalog.adapter_registry.get_connected_agents",
+            lambda _path: ["codex"],
+        )
+        monkeypatch.setattr(
+            "lerim.sessions.catalog.adapter_registry.get_adapter",
+            lambda name: FakeAdapter() if name == "codex" else None,
+        )
+        stats = {"skipped_unscoped": 0}
+
+        indexed = index_session_by_run_id(
+            "unscoped-run",
+            agents=["codex"],
+            projects={"test": str(tmp_path / "registered")},
+            skip_unscoped=True,
+            stats=stats,
+        )
+
+        assert indexed is None
+        assert stats["skipped_unscoped"] == 1
+        assert fetch_session_doc("unscoped-run") is None
 
     def test_update_session_extract_fields(self, sessions_db):
         _seed("upd-1")

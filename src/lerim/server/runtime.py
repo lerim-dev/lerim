@@ -232,6 +232,17 @@ def _build_answer_debug(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _answer_with_record_sources(answer: str, record_ids: list[str]) -> str:
+    """Append validated record-id sources when the answer text omitted them."""
+    cleaned_answer = answer.strip() or "(no response)"
+    cleaned_ids = [str(record_id).strip() for record_id in record_ids if str(record_id).strip()]
+    if not cleaned_ids:
+        return cleaned_answer
+    if all(record_id in cleaned_answer for record_id in cleaned_ids):
+        return cleaned_answer
+    return f"{cleaned_answer}\n\nSources: {', '.join(cleaned_ids)}"
+
+
 class LerimRuntime:
     """Runtime orchestrator for ingest and context agent flows."""
 
@@ -263,6 +274,7 @@ class LerimRuntime:
         trace_path: str | Path,
         session_id: str | None = None,
         agent_type: str = "unknown",
+        source_profile: str | None = None,
         session_meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Run record-write trace ingestion and return stable contract payload."""
@@ -277,6 +289,7 @@ class LerimRuntime:
             session_id=session_id,
             agent_type=agent_type,
             session_meta=session_meta or {},
+            source_profile=source_profile,
         )
 
     def ingest_imported_trace(
@@ -1150,11 +1163,21 @@ class LerimRuntime:
                 result_obj, events = result
                 result = result_obj
                 debug = _build_answer_debug(events)
-            response_text = (result.answer or "").strip() or "(no response)"
+            response_text = _answer_with_record_sources(
+                result.answer or "",
+                list(result.supporting_record_ids),
+            )
             finish_mlflow_run(
                 mlflow_run,
                 final_status="succeeded",
                 response_preview=response_text,
-                outputs={"answer": response_text},
+                outputs=(
+                    {
+                        "answer": response_text,
+                        "supporting_record_ids": list(result.supporting_record_ids),
+                    }
+                    if result.supporting_record_ids
+                    else {"answer": response_text}
+                ),
             )
             return response_text, resolved_session_id, 0.0, debug

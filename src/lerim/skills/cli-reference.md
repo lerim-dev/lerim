@@ -7,13 +7,14 @@ Canonical command:
 - `lerim`
 
 If `lerim` is not on `PATH`, resolve the runnable command in `SKILL.md` first.
-Common fallback: `uvx lerim` or `/Users/kargarisaac/.local/bin/uvx lerim`.
+Common fallback: `uvx lerim` or `$HOME/.local/bin/uvx lerim`.
 
 Durable Lerim context lives in the global SQLite DB under the active Lerim data dir (default: `~/.lerim/context.sqlite3`).
 Commands that call the HTTP API (`answer`, `ingest`, `curate`, `status`) require a
 running server (`lerim up` or `lerim serve`). `unscoped` also requires the running
 API. Most other commands are **host-only**
-(local files, Docker CLI, local SQLite state).
+(local files, Docker CLI, local SQLite state). `mcp` is also host-only; MCP
+clients launch it over stdio.
 `context-brief show`, `context-brief status`, and `context-brief path` are
 fast local reads. `context-brief refresh` runs local generation for the resolved
 project and records a service run.
@@ -40,6 +41,7 @@ project and records a service run.
 - `up` / `down` / `logs` (host-only)
 - `serve` (Docker entrypoint, or run directly)
 - `connect`
+- `mcp` (host-only stdio MCP server)
 - `ingest`
 - `curate`
 - context graph linking runs as part of `curate`
@@ -49,7 +51,7 @@ project and records a service run.
 - `answer`
 - `query`
 - `context` (`records`)
-- `profile` (`list`, `show`) (host-only)
+- `profile` (`list`, `show`, `validate`, `register`) (host-only)
 - `status`
 - `queue`
 - `unscoped`
@@ -86,7 +88,7 @@ context stays in `~/.lerim/context.sqlite3`.
 ```bash
 lerim project add ~/codes/my-app       # register a project
 lerim project add .                     # register current directory
-lerim project add ~/traces --type custom # register clean custom traces
+lerim project add ~/traces --type custom --source-profile support # clean custom traces
 lerim project list                      # show all registered projects
 lerim project remove my-app             # unregister a project
 ```
@@ -158,25 +160,68 @@ lerim serve --host 0.0.0.0 --port 8765  # custom bind
 
 ### `lerim connect`
 
-Register, list, or remove agent platform connections.
-Lerim reads session data from connected platforms to build context records.
+Register, list, or remove native trace adapters and MCP client config.
+Lerim reads session data from connected native platforms to build context
+records. MCP clients can query Lerim and submit completed sessions through the
+stdio server.
 
-Supported platforms: `claude`, `codex`, `cursor`, `opencode`
+Native adapter targets: `claude`, `codex`, `cursor`, `opencode`, `pi`.
+
+MCP config targets: `codex`, `claude-code`, `cursor`, `opencode`, `gemini-cli`,
+`cline`, `cline-cli`, `claude-desktop`, `openclaw`, `hermes`, `goose`,
+`roo-code`, `kilo-code`, `windsurf`, `openhuman`.
 
 ```bash
-lerim connect list                        # show all connected platforms
+lerim connect list                        # show connected native platforms
+lerim connect list --all                  # include MCP target status
 lerim connect                             # same as list
-lerim connect auto                        # auto-detect and connect all known platforms
+lerim connect auto                        # auto-detect and connect native adapters
 lerim connect claude                      # connect the Claude platform
+lerim connect pi                          # connect pi's native JSONL sessions
 lerim connect claude --path /custom/dir   # connect with custom session store path
+lerim connect auto --mode mcp --dry-run   # preview MCP config writes
+lerim connect auto --mode mcp             # write Lerim MCP config for detected targets
+lerim connect gemini-cli --mode mcp       # write one MCP target
+lerim connect codex --mode auto           # try native adapter and MCP setup
+lerim connect auto --mode auto --dry-run  # preview native and detected MCP setup
+lerim connect openclaw --mode plugin      # pending plugin status, no MCP fallback
+lerim connect doctor codex                # inspect one MCP target config
 lerim connect remove claude               # disconnect Claude
 ```
 
 | Flag | Description |
 |------|-------------|
-| `platform_name` | Optional action/platform: `list`, `auto`, `remove`, or a platform name. Omit to list connections |
+| `platform_name` | Optional action/platform: `list`, `auto`, `doctor`, `remove`, a native platform name, or an MCP target name. Omit to list connections |
 | `extra_arg` | Used with `remove` -- the platform to disconnect |
 | `--path` | Custom filesystem path to the platform's session store |
+| `--mode` | `adapter` for native trace registration, `mcp` for MCP client config, `auto` for both available paths, or `plugin` for planned plugin status |
+| `--dry-run` | Preview config changes without writing; in `--mode auto`, also preview native adapter registration |
+| `--force` | Rewrite an existing Lerim MCP entry |
+| `--all` | Include MCP targets in `connect list` |
+
+`--mode auto` reports native adapter and MCP results separately. Target-specific
+auto mode tries the native adapter when one exists and writes MCP config when the
+target is known. `lerim connect auto --mode auto` writes MCP config only for
+detected installed MCP targets. `--mode plugin` is intentionally pending for
+OpenClaw, Hermes, and pi; it returns nonzero and does not silently run MCP setup.
+
+### `lerim mcp` (host-only)
+
+Start Lerim's stdio MCP server. Agent clients normally launch this command from
+their MCP config.
+
+```bash
+lerim mcp
+```
+
+Exposed tools:
+
+- `lerim_context_brief`
+- `lerim_context_answer`
+- `lerim_context_search`
+- `lerim_records_list`
+- `lerim_trace_submit`
+- `lerim_ingest_status`
 
 ### `lerim ingest`
 
@@ -206,7 +251,7 @@ lerim ingest --max-sessions 100       # process up to 100 sessions
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--run-id` | -- | Target a single session by run ID (bypasses index scan) |
+| `--run-id` | -- | Target a single session by run ID; if it is not indexed yet, discover it through the selected connected adapter before queuing extraction |
 | `--agent` | all | Comma-separated platform filter (e.g. `claude,codex`) |
 | `--window` | config `ingest_window_days` (`7d`) | Relative time window (`30s`, `2m`, `1h`, `7d`, or `all`) |
 | `--since` | -- | ISO-8601 start bound (overrides `--window`) |
@@ -229,7 +274,9 @@ Import one JSON, JSONL, or text trace file into an explicit scope.
 For ongoing custom-agent workflows, prefer custom project folders:
 
 ```bash
-lerim project add ~/lerim-traces/support-clean --type custom
+lerim project add ~/lerim-traces/support-clean \
+  --type custom \
+  --source-profile support
 lerim ingest --agent custom
 ```
 
@@ -248,18 +295,50 @@ lerim trace import ./support-agent-run.jsonl \
 |------|-------------|
 | `path` | Trace file path. JSON, JSONL, and plain text are accepted |
 | `--source-name` | Source agent or system name, for example `support-bot` |
-| `--source-profile` | Source category, for example `support`, `research`, `web`, or `generic` |
+| `--source-profile` | Source profile, for example `coding`, `generic`, `support`, `ops`, or a registered custom profile |
 | `--scope-type` | One of `project`, `domain`, `user`, `session`, `workspace`, or `custom` |
 | `--scope` | Scope token. For `project`, pass the repository path |
 | `--scope-label` | Optional human-readable scope label |
 | `--session-id` | Optional stable session id. Defaults to the normalized trace id |
+| `--force` | Re-run extraction even when the same session id already has identical normalized trace content |
 
 The imported trace is copied to the Lerim workspace imports directory in compact
-canonical form, then ingested into the shared context store.
+canonical form, then ingested into the shared context store. If the same
+session id already points at identical normalized trace content, Lerim skips the
+duplicate unless `--force` is set.
 
 For sensitive or very noisy traces, run a customer-owned cleaner before import.
 Lerim filters for durable signal during ingestion, but it is not the only
 redaction, privacy, or compliance boundary for arbitrary custom traces.
+
+### `lerim trace submissions`
+
+List MCP-submitted trace manifests. This is the recovery surface for failed
+`lerim_trace_submit` calls.
+
+```bash
+lerim trace submissions
+lerim trace submissions --status failed --limit 10
+```
+
+| Flag | Description |
+|------|-------------|
+| `--status` | Filter by status such as `failed`, `imported`, `duplicate_skipped`, or `all` |
+| `--limit` | Maximum submitted traces to show |
+
+### `lerim trace retry`
+
+Retry an MCP-submitted trace using the saved sidecar metadata.
+
+```bash
+lerim trace retry ~/.lerim/workspace/mcp-submissions/2026/05/19/example.json
+lerim trace retry ~/.lerim/workspace/mcp-submissions/2026/05/19/example.json --force
+```
+
+`trace retry` uses the saved source name, source profile, scope, label, and
+session id from the `.lerim-submission.json` manifest. It reruns Lerim's normal
+generic importer and BAML/LangGraph extraction; it does not bypass extraction or
+save arbitrary memories.
 
 ### `lerim curate`
 
@@ -420,28 +499,35 @@ lerim query sessions list --order-by created_at --limit 20
 
 ### `lerim profile`
 
-Discover records by source profile and optionally by record kind.
+Inspect bundled source profiles, register custom YAML profiles, and review
+records by profile.
 
-Use this when you want to understand which records are being attributed to a profile and
-what record mix it currently has.
+Use this when you want to customize what Lerim remembers for a vertical or
+understand which records are being attributed to a profile.
 
 ```bash
 lerim profile list
 lerim profile show support
 lerim profile show support --kind decision
 lerim profile show support --kind fact --limit 30
+lerim profile validate ./research.yaml
+lerim profile register ./research.yaml
 ```
 
 | Subcommand | Description |
 |------------|-------------|
-| `list` | Show all source profiles with record counts |
+| `list` | Show bundled and registered source profiles with record counts |
 | `show` | Show profile record mix and recent records |
+| `validate` | Validate a custom source-profile YAML file without changing config |
+| `register` | Add a custom source-profile YAML file to `[profiles]` in config |
 
 | Flag | Description |
 |------|-------------|
-| `name` | Source profile to inspect, for example `support`, `ops`, or `coding` |
+| `name` | Source profile to inspect, for example `support`, `ops`, `generic`, or `coding` |
+| `path` | YAML file path for `validate` or `register` |
 | `--kind` | Filter records by kind (`decision`, `fact`, `episode`, `constraint`, `preference`) |
 | `--limit` | Max records to inspect (default: `20`) |
+| `--force` | Replace an existing custom profile registration for the same id |
 
 ### `lerim context records`
 
@@ -456,7 +542,7 @@ lerim context records --source-profile support --type fact --project my-repo --l
 
 | Flag | Description |
 |------|-------------|
-| `--profile` | Filter by source profile, for example `support`, `ops`, or `coding` |
+| `--profile` | Filter by source profile, for example `support`, `ops`, `generic`, or `coding` |
 | `--source-profile` | Backward-compatible alias for `--profile` |
 | `--type` | Filter by durable record kind (`fact`, `constraint`, `episode`, `preference`, etc.) |
 | `--status` | Filter by storage record status, for example `active` or `archived` |

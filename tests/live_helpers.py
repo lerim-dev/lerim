@@ -15,6 +15,8 @@ from lerim.config.settings import Config, get_config, reload_config
 from lerim.context.spec import RECORD_KIND_SPECS
 
 REQUIRED_CONTEXT_TABLES = {
+    "context_edges",
+    "context_nodes",
     "projects",
     "records",
     "record_embeddings",

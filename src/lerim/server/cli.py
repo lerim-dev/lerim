@@ -23,9 +23,17 @@ from lerim import __version__
 from lerim.adapters.registry import (
     KNOWN_PLATFORMS,
     connect_platform,
+    default_path_for,
     list_platforms,
     load_platforms,
     remove_platform,
+)
+from lerim.integrations.mcp_connect import (
+    connect_mcp_target,
+    doctor_mcp_target,
+    installed_mcp_targets,
+    known_mcp_targets,
+    resolve_mcp_target,
 )
 
 from lerim.server.api import (
@@ -62,11 +70,23 @@ from lerim.server.cli_api_client import (
 from lerim.config.providers import PROVIDER_SETUP_CHOICES
 from lerim.config.logging import configure_logging
 from lerim.cloud.auth import cmd_auth, cmd_auth_logout, cmd_auth_status
-from lerim.config.settings import get_config, get_user_config_path, get_user_env_path
+from lerim.config.settings import (
+    get_config,
+    get_user_config_path,
+    get_user_env_path,
+    save_config_patch,
+)
 from lerim.config.tracing import configure_tracing
 from lerim.context import ContextStore
 from lerim.context.query_spec import QUERY_ENTITIES, QUERY_MODES, QUERY_ORDER_FIELDS
-from lerim.profiles import get_signal_pack, list_signal_packs, normalize_signal_pack_id
+from lerim.profiles import (
+    bundled_signal_pack_ids,
+    get_signal_pack,
+    list_signal_packs,
+    load_signal_pack_file,
+    normalize_signal_pack_id,
+    reload_signal_packs,
+)
 from lerim.context_brief import (
     resolve_context_brief_project,
     status_to_dict,
@@ -81,6 +101,33 @@ _LEGACY_COMMAND_ALIASES = {
     "working-memory": "context-brief",
 }
 _LEGACY_COMMAND_REMOVAL_VERSION = "v0.3.0"
+_PLANNED_PLUGIN_TARGETS = {
+    "openclaw": {
+        "display_name": "OpenClaw",
+        "kind": "native plugin",
+        "current_path": "Use --mode mcp for current MCP support.",
+    },
+    "hermes": {
+        "display_name": "Hermes",
+        "kind": "provider plugin",
+        "current_path": "Use --mode mcp for current MCP support.",
+    },
+    "pi": {
+        "display_name": "pi",
+        "kind": "extension",
+        "current_path": "Use --mode adapter for current native session ingestion.",
+    },
+}
+_PLANNED_PLUGIN_ALIASES = {
+    "open-claw": "openclaw",
+    "hermes-agent": "hermes",
+}
+_MCP_TARGET_NATIVE_ADAPTERS = {
+    "claude-code": "claude",
+    "codex": "codex",
+    "cursor": "cursor",
+    "opencode": "opencode",
+}
 
 
 def _daemon_last_run_after_attempt(
@@ -191,9 +238,42 @@ def _cmd_connect(args: argparse.Namespace) -> int:
     config = get_config()
     platforms_path = config.platforms_path
     action = getattr(args, "platform_name", None)
+    mode = str(getattr(args, "mode", "adapter") or "adapter")
+
+    if mode == "auto":
+        return _cmd_connect_auto(args)
+
+    if mode == "plugin":
+        return _cmd_connect_plugin(args)
+
+    if action == "doctor":
+        return _cmd_connect_doctor(args)
+
+    if mode == "mcp":
+        return _cmd_connect_mcp(args)
 
     if action == "list" or action is None:
         entries = list_platforms(platforms_path)
+        if getattr(args, "all", False):
+            if getattr(args, "json", False):
+                payload = {
+                    "platforms": entries,
+                    "mcp_targets": [
+                        doctor_mcp_target(target) for target in known_mcp_targets()
+                    ],
+                }
+                _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+                return 0
+            _emit("MCP targets:")
+            for target in known_mcp_targets():
+                status = doctor_mcp_target(target)
+                configured = "configured" if status["configured"] else "not configured"
+                detected = "detected" if status["detected"] else "not detected"
+                _emit(
+                    f"- {target.name}: {status['config_path']} ({configured}, {detected})"
+                )
+            if entries:
+                _emit("")
         if not entries:
             _emit("No platforms connected.")
             return 0
@@ -260,6 +340,321 @@ def _cmd_connect(args: argparse.Namespace) -> int:
         api_up(build_local=current_compose_uses_local_build())
         _emit("Done.")
     return 0
+
+
+def _cmd_connect_auto(args: argparse.Namespace) -> int:
+    """Connect every available integration path for the requested target."""
+    action = getattr(args, "platform_name", None)
+    dry_run = bool(getattr(args, "dry_run", False))
+    force = bool(getattr(args, "force", False))
+    adapter_results = _connect_auto_adapters(args, dry_run=dry_run)
+    mcp_results = _connect_auto_mcp_targets(action, dry_run=dry_run, force=force)
+    payload = {
+        "mode": "auto",
+        "target": action or "list",
+        "adapters": adapter_results,
+        "mcp_targets": [item.to_dict() for item in mcp_results],
+    }
+    if not adapter_results and not mcp_results and action not in {None, "list", "auto"}:
+        _emit(f"Unknown connect target for auto mode: {action}", file=sys.stderr)
+        _emit(
+            "Known native adapters: " + ", ".join(KNOWN_PLATFORMS),
+            file=sys.stderr,
+        )
+        _emit(
+            "Known MCP targets: "
+            + ", ".join(target.name for target in known_mcp_targets()),
+            file=sys.stderr,
+        )
+        return 2
+    if getattr(args, "json", False):
+        _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        return _auto_connect_exit_code(payload)
+    _emit("Auto connection summary")
+    _emit("Native adapters:")
+    if adapter_results:
+        for result in adapter_results:
+            _emit(_format_adapter_auto_result(result))
+    else:
+        _emit("- none")
+    _emit("MCP targets:")
+    if mcp_results:
+        for result in mcp_results:
+            _emit(_format_mcp_connect_result(result.to_dict()))
+    else:
+        _emit("- none detected")
+    return _auto_connect_exit_code(payload)
+
+
+def _connect_auto_adapters(
+    args: argparse.Namespace,
+    *,
+    dry_run: bool,
+) -> list[dict[str, Any]]:
+    """Connect native adapters selected by ``--mode auto``."""
+    config = get_config()
+    action = getattr(args, "platform_name", None)
+    if action in {None, "list"}:
+        return []
+    names = _native_adapter_names_for_auto(action)
+    results: list[dict[str, Any]] = []
+    for name in names:
+        if name not in KNOWN_PLATFORMS:
+            continue
+        custom_path = None if action == "auto" else getattr(args, "path", None)
+        if dry_run:
+            results.append(_dry_run_adapter_auto_result(name, custom_path))
+            continue
+        result = connect_platform(
+            config.platforms_path,
+            name,
+            custom_path=custom_path,
+        )
+        results.append({**result, "dry_run": False})
+    return results
+
+
+def _native_adapter_names_for_auto(action: str | None) -> tuple[str, ...]:
+    """Resolve target-specific ``--mode auto`` native adapter names."""
+    if action == "auto":
+        return KNOWN_PLATFORMS
+    if not action:
+        return ()
+    name = str(action)
+    if name in KNOWN_PLATFORMS:
+        return (name,)
+    target = resolve_mcp_target(name)
+    mapped = _MCP_TARGET_NATIVE_ADAPTERS.get(target.name) if target else None
+    return (mapped,) if mapped else ()
+
+
+def _dry_run_adapter_auto_result(
+    name: str,
+    custom_path: str | None,
+) -> dict[str, Any]:
+    """Return a non-mutating native adapter auto-connect preview."""
+    resolved = Path(custom_path).expanduser().resolve() if custom_path else default_path_for(name)
+    exists = bool(resolved and resolved.exists())
+    return {
+        "name": name,
+        "path": str(resolved) if resolved else None,
+        "session_count": 0,
+        "connected_at": None,
+        "status": "would_connect" if exists else "path_not_found",
+        "dry_run": True,
+    }
+
+
+def _connect_auto_mcp_targets(
+    action: str | None,
+    *,
+    dry_run: bool,
+    force: bool,
+) -> list[Any]:
+    """Connect MCP targets selected by ``--mode auto``."""
+    if action in {None, "list"}:
+        return []
+    if action == "auto":
+        targets = installed_mcp_targets()
+    else:
+        target = resolve_mcp_target(str(action))
+        targets = [target] if target is not None else []
+    return [
+        connect_mcp_target(target, dry_run=dry_run, force=force)
+        for target in targets
+    ]
+
+
+def _auto_connect_exit_code(payload: dict[str, Any]) -> int:
+    """Return an exit code for a composite auto-connect payload."""
+    mcp_failed = any(
+        item.get("status") == "verification_failed"
+        for item in payload.get("mcp_targets", [])
+        if isinstance(item, dict)
+    )
+    return 1 if mcp_failed else 0
+
+
+def _format_adapter_auto_result(payload: dict[str, Any]) -> str:
+    """Render one native adapter auto-connect result for humans."""
+    lines = [
+        f"- {payload.get('name')}: {payload.get('status')}",
+        f"  Path: {payload.get('path')}",
+        f"  Dry run: {payload.get('dry_run', False)}",
+    ]
+    if payload.get("session_count") is not None:
+        lines.append(f"  Sessions: {payload.get('session_count')}")
+    return "\n".join(lines)
+
+
+def _cmd_connect_plugin(args: argparse.Namespace) -> int:
+    """Report planned native plugin support without falling back to MCP."""
+    action = getattr(args, "platform_name", None)
+    target_name = getattr(args, "extra_arg", None) if action == "doctor" else action
+    if action in {None, "list"}:
+        payload = {
+            "mode": "plugin",
+            "plugins": [_plugin_pending_payload(name) for name in _PLANNED_PLUGIN_TARGETS],
+        }
+        if getattr(args, "json", False):
+            _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        else:
+            _emit("Planned plugin targets:")
+            for item in payload["plugins"]:
+                _emit(_format_plugin_pending(item))
+        return 0
+    if action == "auto":
+        payload = {
+            "mode": "plugin",
+            "plugins": [_plugin_pending_payload(name) for name in _PLANNED_PLUGIN_TARGETS],
+        }
+        if getattr(args, "json", False):
+            _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        else:
+            _emit("Plugin mode is planned but not implemented.")
+            for item in payload["plugins"]:
+                _emit(_format_plugin_pending(item))
+        return 1
+    if not target_name:
+        _emit("Usage: lerim connect <openclaw|hermes|pi> --mode plugin", file=sys.stderr)
+        return 2
+    normalized = str(target_name).strip().lower().replace("_", "-")
+    normalized = _PLANNED_PLUGIN_ALIASES.get(normalized, normalized)
+    if normalized not in _PLANNED_PLUGIN_TARGETS:
+        _emit(f"Plugin mode is not planned for: {target_name}", file=sys.stderr)
+        _emit(
+            "Planned plugin targets: "
+            + ", ".join(_PLANNED_PLUGIN_TARGETS.keys()),
+            file=sys.stderr,
+        )
+        return 2
+    payload = _plugin_pending_payload(normalized)
+    if getattr(args, "json", False):
+        _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+    else:
+        _emit(_format_plugin_pending(payload))
+    return 1
+
+
+def _plugin_pending_payload(name: str) -> dict[str, Any]:
+    """Return the documented pending plugin status for one target."""
+    target = _PLANNED_PLUGIN_TARGETS[name]
+    return {
+        "name": name,
+        "display_name": target["display_name"],
+        "kind": target["kind"],
+        "status": "planned_not_implemented",
+        "installed": False,
+        "message": (
+            f"{target['display_name']} {target['kind']} support is planned, "
+            f"but not implemented yet. {target['current_path']}"
+        ),
+    }
+
+
+def _format_plugin_pending(payload: dict[str, Any]) -> str:
+    """Render one pending plugin status for humans."""
+    return "\n".join(
+        [
+            f"{payload['display_name']} {payload['kind']}: {payload['status']}",
+            f"- Kind: {payload['kind']}",
+            f"- {payload['message']}",
+        ]
+    )
+
+
+def _cmd_connect_mcp(args: argparse.Namespace) -> int:
+    """Install Lerim's MCP server into an external agent config."""
+    action = getattr(args, "platform_name", None)
+    dry_run = bool(getattr(args, "dry_run", False))
+    force = bool(getattr(args, "force", False))
+
+    if action == "list" or action is None:
+        targets = known_mcp_targets()
+        if getattr(args, "json", False):
+            payload = [doctor_mcp_target(target) for target in targets]
+            _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+            return 0
+        _emit(f"Known MCP targets: {len(targets)}")
+        for target in targets:
+            status = doctor_mcp_target(target)
+            configured = "configured" if status["configured"] else "not configured"
+            detected = "detected" if status["detected"] else "not detected"
+            _emit(f"- {target.name}: {configured}, {detected}")
+        return 0
+
+    if action == "auto":
+        targets = installed_mcp_targets()
+        if not targets:
+            _emit("No installed MCP targets detected.")
+            return 0
+        results = [
+            connect_mcp_target(target, dry_run=dry_run, force=force)
+            for target in targets
+        ]
+        if getattr(args, "json", False):
+            _emit(json.dumps([item.to_dict() for item in results], indent=2, ensure_ascii=True))
+            return 0
+        for result in results:
+            _emit(_format_mcp_connect_result(result.to_dict()))
+        return 0
+
+    target = resolve_mcp_target(str(action))
+    if target is None:
+        _emit(f"Unknown MCP target: {action}", file=sys.stderr)
+        _emit(
+            "Known MCP targets: "
+            + ", ".join(target.name for target in known_mcp_targets()),
+            file=sys.stderr,
+        )
+        return 2
+    result = connect_mcp_target(target, dry_run=dry_run, force=force)
+    payload = result.to_dict()
+    if getattr(args, "json", False):
+        _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+    else:
+        _emit(_format_mcp_connect_result(payload))
+    return 1 if result.status == "verification_failed" else 0
+
+
+def _cmd_connect_doctor(args: argparse.Namespace) -> int:
+    """Show read-only connection diagnostics for one target."""
+    target_name = getattr(args, "extra_arg", None)
+    if not target_name:
+        _emit("Usage: lerim connect doctor <agent>", file=sys.stderr)
+        return 2
+    target = resolve_mcp_target(str(target_name))
+    if target is None:
+        _emit(f"Unknown MCP target: {target_name}", file=sys.stderr)
+        return 2
+    payload = doctor_mcp_target(target)
+    if getattr(args, "json", False):
+        _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        return 0
+    _emit(f"{payload['display_name']} MCP")
+    _emit(f"- Config: {payload['config_path']}")
+    _emit(f"- Exists: {payload['config_exists']}")
+    _emit(f"- Detected: {payload['detected']}")
+    _emit(f"- Configured: {payload['configured']}")
+    if payload.get("parse_error"):
+        _emit(f"- Parse error: {payload['parse_error']}")
+    if payload.get("docs_url"):
+        _emit(f"- Docs: {payload['docs_url']}")
+    return 0
+
+
+def _format_mcp_connect_result(payload: dict[str, Any]) -> str:
+    """Render an MCP connection result for humans."""
+    lines = [
+        f"{payload['display_name']}: {payload['status']}",
+        f"- Config: {payload['config_path']}",
+        f"- Dry run: {payload['dry_run']}",
+    ]
+    if payload.get("backup_path"):
+        lines.append(f"- Backup: {payload['backup_path']}")
+    if payload.get("message"):
+        lines.append(f"- {payload['message']}")
+    return "\n".join(lines)
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
@@ -372,6 +767,10 @@ def _cmd_context_brief(args: argparse.Namespace) -> int:
                     "- db_records_changed_since_generation: "
                     f"{status['records_changed_since_generation']}"
                 ),
+                (
+                    "- db_records_missing_since_generation: "
+                    f"{status['records_missing_since_generation']}"
+                ),
                 f"- suggested_action: {context_brief_show_action(status)}",
                 "",
                 "---",
@@ -451,6 +850,8 @@ def _cmd_context_brief(args: argparse.Namespace) -> int:
 def context_brief_show_action(status: dict[str, Any]) -> str:
     """Return a contextual action for the already-running show command."""
     if status.get("availability") == "stale":
+        if int(status.get("records_missing_since_generation") or 0) > 0:
+            return "Refresh because this Context Brief cites records no longer present in the live DB."
         return "Refresh if newest persisted DB context matters."
     if status.get("availability") == "available":
         return "Continue with this startup context; inspect sources or query deeper if needed."
@@ -474,9 +875,108 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    """Run Lerim's MCP stdio server."""
+    del args
+    from lerim.mcp_server import run_mcp_server
+
+    run_mcp_server()
+    return 0
+
+
 def _cmd_trace(args: argparse.Namespace) -> int:
     """Handle host-only generic trace commands."""
     action = getattr(args, "trace_action", None)
+    if action == "submissions":
+        from lerim.traces.submissions import (
+            list_submission_manifests,
+            submission_status_counts,
+        )
+
+        rows = list_submission_manifests(
+            root=get_config().global_data_dir,
+            status=getattr(args, "status", None),
+            limit=int(getattr(args, "limit", 20) or 20),
+        )
+        payload = {
+            "error": False,
+            "count": len(rows),
+            "status_counts": submission_status_counts(rows),
+            "rows": rows,
+        }
+        if args.json:
+            _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        else:
+            _emit("Trace submissions.")
+            if not rows:
+                _emit("- no submitted traces found")
+            for row in rows:
+                _emit(
+                    "- "
+                    f"{row.get('status', 'unknown')} "
+                    f"{row.get('trace_path', '')} "
+                    f"(attempts: {row.get('attempt_count', 0)})"
+                )
+                if row.get("last_error"):
+                    error = row["last_error"]
+                    _emit(
+                        f"  error: {error.get('type', 'Error')}: "
+                        f"{error.get('message', '')}"
+                    )
+                if row.get("retry_command"):
+                    _emit(f"  retry: {row['retry_command']}")
+        return 0
+
+    if action == "retry":
+        from lerim.traces.submissions import (
+            load_submission_manifest,
+            retry_submitted_trace,
+        )
+
+        try:
+            result = retry_submitted_trace(
+                Path(args.path),
+                force=bool(getattr(args, "force", False)),
+            )
+            manifest = load_submission_manifest(Path(args.path))
+        except Exception as exc:
+            if args.json:
+                _emit(
+                    json.dumps(
+                        {"error": True, "message": str(exc), "type": type(exc).__name__},
+                        indent=2,
+                        ensure_ascii=True,
+                    )
+                )
+            else:
+                _emit(f"Trace submission retry failed: {exc}", file=sys.stderr)
+            return 1
+
+        payload = {
+            "error": False,
+            "trace_id": result.trace_id,
+            "session_id": result.session_id,
+            "submitted_trace_path": manifest.get("trace_path"),
+            "submission_manifest_path": manifest.get("manifest_path"),
+            "retry_command": manifest.get("retry_command"),
+            "attempt_count": manifest.get("attempt_count"),
+            "normalized_trace_path": str(result.normalized_trace_path),
+            "scope_type": result.scope_identity.scope_type,
+            "scope_id": result.scope_identity.scope_id,
+            "scope_label": result.scope_identity.label,
+            **result.ingest_result,
+        }
+        if args.json:
+            _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        else:
+            _emit("Trace submission retried.")
+            _emit(f"- trace_id: {result.trace_id}")
+            _emit(f"- scope: {result.scope_identity.scope_key}")
+            _emit(f"- normalized_trace_path: {result.normalized_trace_path}")
+            _emit(f"- records_created: {payload.get('records_created', 0)}")
+            _emit(f"- attempts: {payload.get('attempt_count', 0)}")
+        return 0
+
     if action != "import":
         _emit("Usage: lerim trace import <path>", file=sys.stderr)
         return 2
@@ -491,6 +991,7 @@ def _cmd_trace(args: argparse.Namespace) -> int:
             scope=str(args.scope),
             scope_label=getattr(args, "scope_label", None),
             session_id=getattr(args, "session_id", None),
+            force=bool(getattr(args, "force", False)),
         )
     except Exception as exc:
         if args.json:
@@ -1191,7 +1692,12 @@ def _cmd_project(args: argparse.Namespace) -> int:
         for p in projects:
             status = "ok" if p["exists"] else "missing"
             project_type = str(p.get("type") or "supported")
-            _emit(f"  {p['name']}: {p['path']} ({project_type}, {status})")
+            profile = str(p.get("source_profile") or "").strip()
+            profile_text = f", profile={profile}" if profile else ""
+            _emit(
+                f"  {p['name']}: {p['path']} "
+                f"({project_type}, {status}{profile_text})"
+            )
         return 0
 
     if action == "add":
@@ -1202,12 +1708,19 @@ def _cmd_project(args: argparse.Namespace) -> int:
         result = api_project_add(
             path_str,
             project_type=str(getattr(args, "project_type", "supported") or "supported"),
+            source_profile=getattr(args, "source_profile", None),
         )
         if result.get("error"):
             _emit(result["error"], file=sys.stderr)
             return 1
+        profile_text = (
+            f', source_profile={result["source_profile"]}'
+            if result.get("source_profile")
+            else ""
+        )
         _emit(
-            f'Added project "{result["name"]}" ({result["path"]}, type={result["type"]})'
+            f'Added project "{result["name"]}" '
+            f'({result["path"]}, type={result["type"]}{profile_text})'
         )
         return _restart_docker_for_project_change(
             "Restarting Lerim to mount new project..."
@@ -1334,11 +1847,101 @@ def _parse_refs(raw: Any) -> list[str]:
     return [str(parsed).strip()] if str(parsed).strip() else []
 
 
+def _cmd_profile_validate(args: argparse.Namespace) -> int:
+    """Validate one source-profile YAML file without changing config."""
+    path = Path(str(getattr(args, "path", ""))).expanduser()
+    try:
+        resolved_path = path.resolve(strict=True)
+        pack = load_signal_pack_file(resolved_path)
+    except (OSError, ValueError) as exc:
+        _emit(f"Invalid source profile: {exc}", file=sys.stderr)
+        return 1
+
+    reserved = pack.id in bundled_signal_pack_ids()
+    payload = {
+        "source_profile": pack.id,
+        "display_name": pack.display_name,
+        "description": pack.description,
+        "source": pack.source,
+        "path": str(resolved_path),
+        "reserved_bundled_id": reserved,
+        "focus_rules": list(pack.focus_rules),
+        "reject_as_noise": list(pack.reject_as_noise),
+        "evidence_rules": list(pack.evidence_rules),
+        "scope_rules": list(pack.scope_rules),
+    }
+    if getattr(args, "json", False):
+        _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        return 0 if not reserved else 1
+    _emit(f"Source profile YAML: {pack.id}")
+    _emit(f"- Name: {pack.display_name}")
+    _emit(f"- Description: {pack.description}")
+    _emit(f"- Path: {resolved_path}")
+    if reserved:
+        _emit("- Status: invalid for registration; id is bundled", file=sys.stderr)
+        return 1
+    _emit("- Status: valid")
+    return 0
+
+
+def _cmd_profile_register(args: argparse.Namespace) -> int:
+    """Register one custom source-profile YAML file in Lerim config."""
+    path = Path(str(getattr(args, "path", ""))).expanduser()
+    try:
+        resolved_path = path.resolve(strict=True)
+        pack = load_signal_pack_file(resolved_path)
+    except (OSError, ValueError) as exc:
+        _emit(f"Invalid source profile: {exc}", file=sys.stderr)
+        return 1
+
+    if pack.id in bundled_signal_pack_ids():
+        _emit(
+            f"Cannot register '{pack.id}': bundled profile ids are reserved.",
+            file=sys.stderr,
+        )
+        return 1
+
+    config = get_config()
+    existing = config.profiles.get(pack.id)
+    if existing:
+        existing_path = Path(existing).expanduser().resolve()
+        if existing_path != resolved_path and not getattr(args, "force", False):
+            _emit(
+                f"Profile '{pack.id}' is already registered at {existing_path}. "
+                "Use --force to replace it.",
+                file=sys.stderr,
+            )
+            return 1
+
+    save_config_patch({"profiles": {pack.id: str(resolved_path)}})
+    reload_signal_packs()
+
+    payload = {
+        "source_profile": pack.id,
+        "display_name": pack.display_name,
+        "path": str(resolved_path),
+        "config_path": str(get_user_config_path()),
+    }
+    if getattr(args, "json", False):
+        _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        return 0
+    _emit(f"Registered source profile: {pack.id}")
+    _emit(f"- Name: {pack.display_name}")
+    _emit(f"- Path: {resolved_path}")
+    _emit(f"- Config: {get_user_config_path()}")
+    _emit(f"Use it with: lerim trace import <trace.jsonl> --source-profile {pack.id}")
+    return 0
+
+
 def _cmd_profile(args: argparse.Namespace) -> int:
     """Show source-profile discoverability and statistics from stored records."""
     action = getattr(args, "profile_action", None)
+    if action == "validate":
+        return _cmd_profile_validate(args)
+    if action == "register":
+        return _cmd_profile_register(args)
     if action not in {"list", "show"}:
-        _emit("Usage: lerim profile {list,show}", file=sys.stderr)
+        _emit("Usage: lerim profile {list,show,validate,register}", file=sys.stderr)
         return 2
 
     config = get_config()
@@ -1370,6 +1973,8 @@ def _cmd_profile(args: argparse.Namespace) -> int:
                 "source_profile": pack.id,
                 "display_name": pack.display_name,
                 "description": pack.description,
+                "source": pack.source,
+                "path": pack.path,
                 "record_count": counts.get(pack.id, 0),
                 "focus_rules": list(pack.focus_rules),
             }
@@ -1380,9 +1985,10 @@ def _cmd_profile(args: argparse.Namespace) -> int:
             return 0
         _emit("Source profiles:")
         for row in profiles:
+            source = f" [{row['source']}]" if row.get("source") else ""
             _emit(
                 f"- {row['source_profile']}: {row['display_name']} "
-                f"({row['record_count']} records)"
+                f"({row['record_count']} records){source}"
             )
         return 0
 
@@ -1430,6 +2036,8 @@ def _cmd_profile(args: argparse.Namespace) -> int:
         "source_profile": requested_profile,
         "display_name": pack.display_name,
         "description": pack.description,
+        "source": pack.source,
+        "path": pack.path,
         "focus_rules": list(pack.focus_rules),
         "kind": kind_filter,
         "records": len(rows),
@@ -1454,6 +2062,9 @@ def _cmd_profile(args: argparse.Namespace) -> int:
     _emit(f"Source profile: {requested_profile}")
     _emit(f"- Name: {pack.display_name}")
     _emit(f"- Description: {pack.description}")
+    _emit(f"- Source: {pack.source}")
+    if pack.path:
+        _emit(f"- Path: {pack.path}")
     if pack.focus_rules:
         _emit("- Focus rules:")
         for rule in pack.focus_rules:
@@ -1987,8 +2598,9 @@ def _add_ingest_args(parser: argparse.ArgumentParser, *, config: Any) -> None:
     """Add ingest-compatible session discovery arguments to *parser*."""
     parser.add_argument(
         "--run-id",
-        help="Target a single session by its run ID. Bypasses the normal index scan "
-        "and fetches this session directly. Use with --force to re-extract.",
+        help="Target a single session by its run ID. If it is not already indexed, "
+        "discover it through the selected connected adapter first. Use with --force "
+        "to re-extract.",
     )
     parser.add_argument(
         "--agent",
@@ -2097,11 +2709,12 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=_F,
         help="Manage connected agent platforms",
         description=(
-            "Register, list, or remove agent platform connections.\n\n"
-            "Examples:\n"
-            "  lerim connect auto              # auto-detect all platforms\n"
-            "  lerim connect claude             # connect Claude"
-        ),
+	            "Register, list, or remove agent platform connections.\n\n"
+	            "Examples:\n"
+	            "  lerim connect auto --mode auto    # connect native traces and detected MCP configs\n"
+	            "  lerim connect claude              # connect Claude traces\n"
+	            "  lerim connect gemini-cli --mode mcp --dry-run"
+	        ),
     )
     connect.add_argument(
         "platform_name",
@@ -2118,7 +2731,44 @@ def build_parser() -> argparse.ArgumentParser:
         "--path",
         help="Custom filesystem path to the platform's session store (overrides auto-detected path)",
     )
+    connect.add_argument(
+        "--mode",
+        choices=["adapter", "mcp", "auto", "plugin"],
+        default="adapter",
+        help=(
+            "Connection mode: adapter registers local trace stores; "
+            "mcp writes agent MCP config; auto tries both; plugin reports "
+            "planned native plugin support."
+        ),
+    )
+    connect.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview MCP config changes without writing files.",
+    )
+    connect.add_argument(
+        "--force",
+        action="store_true",
+        help="Rewrite an existing Lerim MCP entry.",
+    )
+    connect.add_argument(
+        "--all",
+        action="store_true",
+        help="With list, show native adapters and MCP targets.",
+    )
     connect.set_defaults(func=_cmd_connect)
+
+    mcp = sub.add_parser(
+        "mcp",
+        formatter_class=_F,
+        help="Run Lerim as an MCP stdio server",
+        description=(
+            "Start Lerim's MCP stdio server for agent clients.\n\n"
+            "For client configs, use the command written by `lerim connect`: "
+            "/absolute/path/to/python -m lerim.mcp_server"
+        ),
+    )
+    mcp.set_defaults(func=_cmd_mcp)
 
     # ── ingest ───────────────────────────────────────────────────────
     ingest = sub.add_parser(
@@ -2160,7 +2810,7 @@ def build_parser() -> argparse.ArgumentParser:
             "scoped context records.\n\n"
             "Example:\n"
             "  lerim trace import trace.jsonl --source-name support-bot "
-            "--source-profile generic --scope-type domain --scope support"
+            "--source-profile support --scope-type domain --scope support"
         ),
     )
     trace_sub = trace.add_subparsers(dest="trace_action")
@@ -2178,7 +2828,10 @@ def build_parser() -> argparse.ArgumentParser:
     trace_import.add_argument(
         "--source-profile",
         required=True,
-        help="Source profile/category, for example generic, support, research, or web.",
+        help=(
+            "Source profile/category, for example coding, generic, support, "
+            "ops, or a registered custom profile."
+        ),
     )
     trace_import.add_argument(
         "--scope-type",
@@ -2199,8 +2852,48 @@ def build_parser() -> argparse.ArgumentParser:
         "--session-id",
         help="Optional stable session id. Defaults to the normalized trace id.",
     )
+    trace_import.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run extraction even when the same session id already has identical normalized trace content.",
+    )
+    trace_retry = trace_sub.add_parser(
+        "retry",
+        formatter_class=_F,
+        help="Retry a failed MCP-submitted trace using saved metadata",
+    )
+    trace_retry.add_argument(
+        "path",
+        help=(
+            "Path returned as submitted_trace_path, or the matching "
+            ".lerim-submission.json manifest path."
+        ),
+    )
+    trace_retry.add_argument(
+        "--force",
+        action="store_true",
+        help="Force re-extraction even when the submitted trace was already imported.",
+    )
+    trace_submissions = trace_sub.add_parser(
+        "submissions",
+        formatter_class=_F,
+        help="List recent MCP-submitted trace manifests",
+    )
+    trace_submissions.add_argument(
+        "--status",
+        default="all",
+        help="Filter by status such as failed, imported, duplicate_skipped, or all.",
+    )
+    trace_submissions.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum submitted traces to show.",
+    )
     trace.set_defaults(func=_cmd_trace)
     trace_import.set_defaults(func=_cmd_trace)
+    trace_retry.set_defaults(func=_cmd_trace)
+    trace_submissions.set_defaults(func=_cmd_trace)
 
     # ── curate ───────────────────────────────────────────────────────
     curate = sub.add_parser(
@@ -2413,17 +3106,19 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=_F,
         help="List source profiles and profile-specific record stats",
         description=(
-            "Inspect source profiles discovered from extracted records.\n\n"
+            "Inspect and register source profiles used by trace extraction.\n\n"
             "Examples:\n"
             "  lerim profile list\n"
-            "  lerim profile show support"
+            "  lerim profile show support\n"
+            "  lerim profile validate ./research.yaml\n"
+            "  lerim profile register ./research.yaml"
         ),
     )
     profile_sub = profile.add_subparsers(dest="profile_action")
     profile_sub.add_parser(
         "list",
         formatter_class=_F,
-        help="List profiles discovered from records",
+        help="List bundled and registered source profiles",
     )
     profile_show = profile_sub.add_parser(
         "show",
@@ -2440,6 +3135,36 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=20,
         help="Maximum number of records to inspect and report (default: 20).",
+    )
+    profile_validate = profile_sub.add_parser(
+        "validate",
+        formatter_class=_F,
+        help="Validate a custom source-profile YAML file",
+        description=(
+            "Validate a custom source-profile YAML file without changing Lerim config."
+        ),
+    )
+    profile_validate.add_argument(
+        "path",
+        help="Path to a custom source-profile YAML file.",
+    )
+    profile_register = profile_sub.add_parser(
+        "register",
+        formatter_class=_F,
+        help="Register a custom source-profile YAML file",
+        description=(
+            "Validate a custom source-profile YAML file and register it in "
+            "the active Lerim config under [profiles]."
+        ),
+    )
+    profile_register.add_argument(
+        "path",
+        help="Path to a custom source-profile YAML file.",
+    )
+    profile_register.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing registration for the same source-profile id.",
     )
     profile.set_defaults(func=_cmd_profile)
 
@@ -2570,8 +3295,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="supported",
         help=(
             "Project source type. Use 'supported' for normal projects connected to "
-            "Claude/Codex/Cursor/OpenCode adapters; use 'custom' for folders of "
+            "Claude/Codex/Cursor/OpenCode/pi adapters; use 'custom' for folders of "
             "already-clean Lerim canonical JSONL traces."
+        ),
+    )
+    proj_add.add_argument(
+        "--source-profile",
+        help=(
+            "Default source profile for this project. Useful for custom trace "
+            "folders that should always extract through one registered profile."
         ),
     )
 

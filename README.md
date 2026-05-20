@@ -2,7 +2,7 @@
   <img src="assets/lerim.png" alt="Lerim Logo" width="160">
 </p>
 
-<h3 align="center">Trace-to-context compiler for AI agent workflows.</h3>
+<h3 align="center">Source-session context compiler for AI agent workflows.</h3>
 
 <p align="center">
   Lerim turns completed agent runs into evidence-backed context records so the next agent starts with trusted operating context instead of another raw transcript.
@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://pypi.org/project/lerim/"><img src="https://img.shields.io/pypi/v/lerim?style=flat-square&color=245f46" alt="PyPI version"></a>
   <a href="https://pypi.org/project/lerim/"><img src="https://img.shields.io/pypi/pyversions/lerim?style=flat-square" alt="Python versions"></a>
-  <a href="https://github.com/lerim-dev/lerim-cli/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSL--1.1-a55f3f?style=flat-square" alt="License"></a>
+  <a href="https://github.com/lerim-dev/lerim-cli/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License"></a>
   <a href="https://github.com/lerim-dev/lerim-cli/actions"><img src="https://img.shields.io/github/actions/workflow/status/lerim-dev/lerim-cli/ci.yml?style=flat-square&label=tests" alt="Tests"></a>
   <a href="https://github.com/lerim-dev/lerim-cli"><img src="https://img.shields.io/github/stars/lerim-dev/lerim-cli?style=flat-square" alt="GitHub stars"></a>
 </p>
@@ -21,14 +21,30 @@
   ·
   <a href="https://docs.lerim.dev">Docs</a>
   ·
+  <a href="docs/benchmarks/index.md">Benchmarks</a>
+  ·
+  <a href="docs/examples/index.md">Examples</a>
+  ·
   <a href="https://pypi.org/project/lerim/">PyPI</a>
   ·
   <a href="https://github.com/lerim-dev/lerim-cli/blob/main/LICENSE">License</a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/lerim-trace-to-answer.gif" alt="Lerim imports a completed trace, extracts durable context, and answers with cited records" width="860">
+</p>
+
+<p align="center">
+  <em>Trace to answer: support trace input, Lerim CLI import, MiniMax/BAML extraction, stored context, and cited answer.</em>
+</p>
+
+<p align="center">
+  <strong>Completed session in</strong> -> <strong>durable context out</strong> -> <strong>the next agent starts with evidence</strong>
+</p>
+
 # Lerim
 
-Lerim is a post-trace learning compiler for AI agent workflows.
+Lerim is a source-session context compiler for AI agent workflows.
 
 Observability shows what happened. Lerim decides what was worth learning from it.
 
@@ -42,6 +58,40 @@ Instead of replaying raw traces or losing what happened after each run, Lerim ke
 - facts
 - handoffs
 - evidence linked back to the source session
+
+## What The Demo Shows
+
+| Moment | Lerim does | Future agents get |
+| --- | --- | --- |
+| A completed agent run lands | Imports a source session from an adapter, MCP submit, or clean custom JSONL | A stable source boundary instead of a transcript paste |
+| The trace is noisy | Compacts the run and filters for reusable decisions, constraints, facts, preferences, and handoffs | Durable context, not another log index |
+| Someone asks later | Retrieves relevant records and answers with citations back to stored evidence | A shorter start with less re-explaining |
+
+## Quick Install
+
+```bash
+pip install lerim
+lerim init
+lerim connect auto --mode auto
+lerim project add .
+lerim up
+```
+
+Native adapters let Lerim ingest completed local sessions where a stable trace
+store exists. MCP setup writes Lerim tool entries for compatible agents; live
+recall or trace-submit acceptance is claimed only where the integration matrix
+lists installed-client/tool-call evidence:
+
+```bash
+lerim connect auto --mode mcp --dry-run
+lerim connect auto --mode mcp
+```
+
+Then ask Lerim what a future agent should know:
+
+```bash
+lerim answer "What context should I know before working in this project?"
+```
 
 ## Why Lerim
 
@@ -58,7 +108,9 @@ Without a durable context layer:
 
 Lerim fixes that by turning raw traces into reusable context records and making them queryable from agent tools and product workflows.
 
-The current package focuses on three paths:
+Lerim is meant for any trace-producing agent workflow. Today, native source
+adapters are strongest for coding agents, and documented custom-trace paths cover
+support and incident workflows:
 
 - coding agents: repo conventions, architecture decisions, setup facts, failed paths, test lessons, release handoffs
 - support operations: customer constraints, known fixes, failed fixes, escalation reasons, policy evidence, handoffs
@@ -68,27 +120,162 @@ The current package focuses on three paths:
 
 - Trace-to-context extraction. `ingest` reads supported sources and custom clean-trace folders, extracts reusable signal, and can archive routine runs without creating noisy durable records.
 - Shared context across agents. What one agent learns can become useful context for a different agent or workflow later.
+- MCP access for compatible agents. `lerim mcp` exposes context tools, and `lerim connect <agent> --mode mcp` writes client config with backups and verification.
 - Context curation. Lerim consolidates overlap, archives weak records, and keeps the context layer compact.
-- Living context graph. Lerim links related decisions, constraints, evidence, facts, and handoffs so teams can inspect how reusable context connects.
+- Derived context graph. Lerim links related decisions, constraints, evidence, facts, and handoffs for curation and future/hosted visualization.
 - Query and startup context. Agents can ask questions against accumulated context or start from a compact context brief.
 - Evidence-backed memory. Useful decisions, constraints, preferences, facts, and handoffs stay linked to the work that produced them.
-- Source profiles and signal packs. Coding, support, and incident workflows share one compiler, but each profile defines focus, noise, evidence, and scope rules.
+- Custom source profiles. Coding, support, and incident workflows share one compiler, and teams can register YAML profiles for their own verticals with focus, noise, evidence, and scope rules.
+
+## What Lerim Is Not
+
+- Not a raw transcript replay tool.
+- Not a broad `memory_save` bucket for agents to write arbitrary memories.
+- Not a replacement for observability. Observability keeps the trace; Lerim compiles reusable context from completed source sessions.
+- Not a claim that every listed agent has native completed-session ingestion. MCP recall is useful, but it is different from native trace ingestion.
+
+## How It Works
+
+Lerim is intentionally selective:
+
+<p align="center">
+  <img src="docs/assets/lerim-architecture.svg" alt="Lerim source-session context compiler architecture" width="860">
+</p>
+
+1. Read a completed source session from a native adapter, custom trace folder, or MCP `lerim_trace_submit`.
+2. Normalize and compact the trace while preserving source evidence.
+3. Extract only reusable decisions, constraints, preferences, facts, handoffs, and episodes.
+4. Make that context available through CLI, MCP tools, context briefs, and retrieval-backed answers.
+
+Most routine traces should produce no durable record. Lerim's value is compact,
+cited context, not more logs.
+
+```mermaid
+flowchart LR
+    source[Completed source session] --> adapter[Native adapter or trace submit]
+    adapter --> normalized[Canonical trace]
+    normalized --> extractor[BAML / LangGraph extraction]
+    extractor --> records[Evidence-backed context records]
+    records --> curate[Curate and link]
+    curate --> tools[CLI and MCP tools]
+    tools --> agent[Future agent]
+```
+
+## Agent Support
+
+Lerim has two integration layers:
+
+- **Native trace adapters** read completed local sessions and feed Lerim's compiler.
+- **MCP support** lets compatible agents query Lerim context and submit completed sessions through `lerim_trace_submit`.
+
+| Support level | Agents and sources |
+| --- | --- |
+| Native adapter plus MCP config writer | Claude Code, Codex CLI, Cursor, OpenCode |
+| MCP config writer; live recall/submit only where verified | Gemini CLI, Cline, Claude Desktop, OpenClaw, Hermes, Goose, Roo Code, Kilo Code, Windsurf |
+| Native adapter, no MCP claim | pi |
+| Experimental or user-owned path | OpenHuman, custom JSONL, generic MCP trace submit |
+
+MCP support is not the same as native trace ingestion. Native adapters are best
+when the agent has a stable local session store. MCP config entries expose
+Lerim tools; live recall or completed-session submission is claimed only where
+the matrix lists installed-client/tool-call evidence. See the
+[integration matrix](docs/integrations/matrix.md) for the exact public support
+boundary and evidence level per agent.
+
+<p align="center">
+  <img src="docs/assets/support-boundary.svg" alt="Agent integration boundary" width="860">
+</p>
+
+## MCP Quickstart
+
+Install Lerim and register your project:
+
+```bash
+pip install lerim
+lerim init
+lerim connect auto
+lerim project add .
+```
+
+Install Lerim into an MCP client:
+
+```bash
+lerim connect gemini-cli --mode mcp --dry-run
+lerim connect gemini-cli --mode mcp
+```
+
+Or use a generic MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "lerim": {
+      "command": "/absolute/path/to/python",
+      "args": ["-m", "lerim.mcp_server"]
+    }
+  }
+}
+```
+
+`lerim connect` writes the absolute Python command automatically. That avoids
+client startup failures when an MCP client launches with a smaller `PATH` than
+your shell.
+
+Available MCP tools:
+
+- `lerim_context_brief`
+- `lerim_context_answer`
+- `lerim_context_search`
+- `lerim_records_list`
+- `lerim_trace_submit`
+- `lerim_ingest_status`
+
+Lerim intentionally does not expose a broad `memory_save` primitive. Completed sessions go through `lerim_trace_submit`, then Lerim's extraction pipeline decides what is durable.
+
+## Benchmarks
+
+Benchmark numbers live in docs, not in a marketing scoreboard inside the README.
+Start with [Benchmark Overview](docs/benchmarks/index.md) for the map and
+reporting rules:
+
+- [Benchmark Suite](docs/benchmarks/benchmark-suite.md): plain-English explanation of each benchmark surface and boundary.
+- [Lerim Results](docs/benchmarks/lerim-results.md): first-party raw artifacts, commands, and boundaries.
+- [Market Comparison](docs/benchmarks/market-comparison.md): source-backed market rows with provenance for each external number.
+
+Current development artifacts are backed by raw `report.json` files, but they
+are not launch-grade until rerun from a clean commit. Retrieval and
+context-budget artifacts are retrieval-only, not official LongMemEval QA scores.
+The extraction artifact is an aggregate-only diagnostic from an internal
+MiniMax M2.7 run, not a public market-comparison score.
+
+| Surface | Current evidence |
+| --- | --- |
+| LongMemEval-S retrieval | Full 500-question hybrid and lexical retrieval-only artifacts |
+| Context budget | Full 500-question context-selection artifact with recall beside token reduction |
+| Retrieval latency | Local search timing over LongMemEval-S sessions |
+| Trace ingestion cost/performance | Small public-trace sample with measured LLM calls and unavailable-cost disclosure |
+| MCP integration | Config writers, local stdio probes, trace-submit extraction probe, and one Gemini CLI live context-tool call |
+| Extraction quality | Aggregate-only 47-case diagnostic report; competitors not run on this private eval |
+
+Before publishing a benchmark claim, require the exact command, git commit,
+dataset snapshot, raw `report.json`, generated report, model/provider,
+hardware/runtime metadata, and failure count.
 
 ## Focused Workflows
 
-- Support operations: preserve triage decisions, escalation evidence, policy-backed facts, known fixes, and customer constraints.
-- Operations and incidents: preserve root causes, mitigations, rejected hypotheses, runbook gaps, owner decisions, and follow-up risks.
+- Support operations: documented custom-trace path; preserve triage decisions, escalation evidence, policy-backed facts, known fixes, and customer constraints.
+- Operations and incidents: documented custom-trace path; preserve root causes, mitigations, rejected hypotheses, runbook gaps, owner decisions, and follow-up risks.
 - Coding agents: retain architecture decisions, failed paths, repo conventions, setup facts, release handoffs, and constraints.
 
-Research, revenue, security, and other verticals can use the same custom-trace path later, but the first product wedge is coding plus support and incident operations.
+Research, revenue, security, and other verticals can use the same custom-trace path today when the user owns export, cleaning, and redaction. The first product wedge and strongest examples are coding plus support and incident operations.
 
 ## Custom Agent Traces
 
 Built-in `connect` adapters monitor the supported sources available today:
-Claude Code, Codex CLI, Cursor, and OpenCode.
+Claude Code, Codex CLI, Cursor, OpenCode, and pi.
 
-For another agent or business workflow, create a folder of already-clean Lerim
-canonical JSONL traces and register it as a custom project:
+For another agent or business workflow, register already-clean Lerim canonical
+JSONL traces:
 
 ```bash
 python clean_to_lerim_jsonl.py \
@@ -107,15 +294,13 @@ canonical user or assistant event:
 {"type":"assistant","message":{"role":"assistant","content":"Agent found approval is required above EUR 500."},"timestamp":"2026-05-16T09:02:00Z"}
 ```
 
-Custom mode has no Lerim adapter and no compaction step. The user or customer
-owns the exporter, cleaner, redaction, and retention boundary before files enter
-the custom folder. See the custom trace folder guide for the pasteable prompt
-that helps a coding agent generate that cleaner.
+Custom mode has no Lerim adapter and no compaction step. The source owner owns
+export, cleaning, redaction, and retention before files enter the custom folder.
 
 For explicit business traces, import with a source profile and domain scope:
 
 ```bash
-lerim trace import ../lerim-cloud/evals/data/traces/support_refund_escalation_001.jsonl \
+lerim trace import docs/examples/traces/support-agent-run.jsonl \
   --source-name support-agent \
   --source-profile support \
   --scope-type domain \
@@ -124,208 +309,6 @@ lerim trace import ../lerim-cloud/evals/data/traces/support_refund_escalation_00
 lerim context records --profile support
 lerim context records --profile support --type fact
 ```
-
-## Quick Start
-
-Install Lerim:
-
-```bash
-pip install lerim
-```
-
-Initialize and register the current workspace:
-
-```bash
-lerim init
-lerim connect auto
-lerim project add .
-```
-
-Start the service:
-
-```bash
-lerim up
-```
-
-Check status:
-
-```bash
-lerim status
-lerim status --live
-```
-
-Answer a question:
-
-```bash
-lerim answer "What sources supported our last competitor-pricing assumption?"
-```
-
-## What the Commands Do
-
-### `lerim up`
-
-Starts Lerim in the background so it can watch your workflow and process context jobs.
-
-### `lerim status`
-
-Shows service health and current status.
-
-### `lerim status --live`
-
-Shows live status updates. This is useful for demos and for watching background extraction happen.
-
-### `lerim ingest`
-
-Indexes supported trace sessions and extracts durable context from recent work. When Lerim is running in the background, ingest work is scheduled from your configured intervals.
-
-### `lerim curate`
-
-Improves context quality over time by merging duplicates, archiving weak records, refreshing the derived context graph, and keeping useful context selective instead of turning every trace into permanent memory.
-
-### `lerim answer`
-
-Lets you answer questions against accumulated project context.
-
-```bash
-lerim answer "What evidence supports the latest compliance decision?"
-```
-
-### `lerim context-brief`
-
-Reads or refreshes a generated Markdown startup context for the current project.
-This is the fast path an agent can read at the start of work without running
-retrieval or synthesis in real time.
-
-```bash
-lerim context-brief show
-lerim context-brief status
-lerim context-brief refresh
-```
-
-## Configuration
-
-`lerim init` creates the default local configuration. You can override settings in:
-
-```text
-~/.lerim/config.toml
-```
-
-API keys are read from environment variables, stored by default in:
-
-```text
-~/.lerim/.env
-```
-
-Example `.env`:
-
-```bash
-MINIMAX_API_KEY=your-key
-OPENROUTER_API_KEY=your-key
-OPENAI_API_KEY=your-key
-ZAI_API_KEY=your-key
-LERIM_MLFLOW=true
-MLFLOW_TRACKING_URI=http://127.0.0.1:5050
-LERIM_MLFLOW_EXPERIMENT=lerim
-LERIM_MLFLOW_REQUIRED=1
-```
-
-Example provider config:
-
-```toml
-[roles.agent]
-provider = "minimax"
-model = "MiniMax-M2.7"
-temperature = 1.0
-curate_max_llm_calls = 50
-answer_max_retrieval_actions = 20
-```
-
-## How It Works
-
-Lerim has seven internal phases:
-
-1. `trace_ingestor`
-   Reads new supported traces/session metadata and prepares trace windows.
-
-2. `durable_signal_filter`
-   Separates reusable signal from implementation evidence and trace noise.
-
-3. `context_writer`
-   Writes exactly one episode plus zero or more durable records.
-
-4. `context_curator`
-   Refines existing records by merging overlap and retiring low-value stale records.
-
-5. `context_graph`
-   Builds a sparse, evidence-backed graph of related records after curation.
-
-6. `context_answerer`
-   Retrieves relevant records and answers a question using the current context layer.
-
-7. `context_brief_compiler`
-   Generates a compact, cited Markdown view from recent durable records so agents
-   can start with fast context before querying deeper.
-
-In practice, this means Lerim becomes the shared precedent store behind your agent workflows.
-
-The trace-to-context pipeline is intentionally selective:
-
-```text
-raw trace -> evidence -> durable signal -> context graph -> future agent
-```
-
-Most routine traces should produce no new durable record. Lerim's value is compact, cited context, not more logs.
-
-Records have two dimensions:
-
-- `kind` is the durable record shape: fact, decision, preference, constraint, or episode.
-- `source_profile` records where the signal came from, such as coding, support, or ops.
-
-Retrieval blends semantic and lexical signals so agents get compact, relevant
-context instead of a raw trace dump.
-
-## Implementation Details
-
-### Technical Storage Model
-
-Global Lerim state lives under `~/.lerim/`:
-
-- `context.sqlite3` — canonical durable context store
-- `index/sessions.sqlite3` — session catalog and queue
-- `workspace/` — ingest and curate run artifacts
-- `workspace/current/<project_id>/CONTEXT_BRIEF.md` — generated current Context Brief view
-- `cache/traces/` — compacted agent trace cache
-- `models/embeddings/` — local embedding model cache
-- `models/huggingface/` — Hugging Face library cache
-- `config.toml` — user config
-- `platforms.json` — connected platform paths
-- `logs/YYYY/MM/DD/` — dated runtime logs (`lerim.log`, `lerim.jsonl`, and `activity.log`)
-
-Project registration only stores host paths in config.
-Project separation happens inside the database by `project_id`.
-
-There is no per-project durable store on disk.
-
-### Agent Runtime
-
-The runtime lives under `src/lerim/agents/`.
-The trace ingestion flow reads deterministic trace windows, observes typed
-findings, filters durable signal aggressively, writes one final context payload,
-and persists it for later retrieval. Routine sessions can produce only an
-archived episode and no durable records.
-
-The context curator builds semantic-neighbor clusters from active records,
-reviews clusters, reviews remaining records for single-record health issues,
-and applies validated store operations.
-
-The context graph agent runs after curation, reviews semantic candidate pairs,
-keeps only useful grounded links, and persists sparse relationships between
-records for graph exploration and downstream context navigation.
-
-The context answerer plans exact count/list/search retrieval actions, executes
-read-only context queries, and synthesizes the answer from retrieved records
-only. The context-brief compiler uses the same pattern to write cited
-startup context from bounded candidate records.
 
 ## Common Commands
 
@@ -370,16 +353,42 @@ tests/run_tests.sh e2e
 
 Before release, verify the affected path with the relevant suites:
 
-- `tests/smoke/` — quick real-LLM extract sanity
-- `tests/integration/` — real extract, curate, and semantic answer coverage
+- `tests/smoke/` — short LLM-backed runtime checks; not benchmark evidence
+- `tests/integration/` — LLM-backed extract, curate, and semantic answer coverage
 - `tests/e2e/` — full runtime-cycle checks over ingest, curate, and answer
+
+Release-readiness checks:
+
+- `uv run python scripts/release_preflight.py --version <version>` after the version and changelog are updated
+- `uv run pytest tests/unit -q`
+- `uv run mkdocs build --strict`
+- `uv build`
+- `uv run python benchmarks/scripts/validate_public_artifacts.py`
+- `uv run python benchmarks/scripts/validate_public_artifacts.py --require-clean` before launch-grade benchmark claims
+- `uv run python benchmarks/scripts/validate_public_artifacts.py --require-tracked-public-files` before release packaging
+- clean-environment install and `lerim mcp` startup check
+- README/docs/asset review for unsupported benchmark, support, or comparison claims
 
 Start here if you want to read the codebase:
 
 - [src/lerim/README.md](src/lerim/README.md)
 - [src/lerim/skills/cli-reference.md](src/lerim/skills/cli-reference.md)
+- [docs/concepts/source-session-context-compiler.md](docs/concepts/source-session-context-compiler.md)
+- [docs/concepts/mcp-vs-native-adapters.md](docs/concepts/mcp-vs-native-adapters.md)
 - [docs/concepts/how-it-works.md](docs/concepts/how-it-works.md)
 - [docs/concepts/context-model.md](docs/concepts/context-model.md)
+
+## License And Commercial Boundary
+
+Lerim core is Apache-2.0. The local CLI, runtime, MCP server, native adapters,
+context DB schema, benchmark scripts, and integration docs should remain useful
+without a paid account.
+
+The planned commercial path is hosted/team infrastructure: sync, hosted private
+MCP, dashboards, review workflows, governance, SSO, audit logs, managed
+retention, evaluation monitoring, private deployments, and enterprise support.
+
+See [COMMERCIAL.md](COMMERCIAL.md) for the open-core boundary.
 
 ## Contributing
 

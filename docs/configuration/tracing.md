@@ -30,8 +30,8 @@ When tracing is enabled, MLflow records:
 ## Setup
 
 MLflow ships as a Lerim dependency, so `pip install lerim` already includes the
-client library. The recommended local server is the shared Docker MLflow service
-under `/Users/kargarisaac/codes/personal/local-mlflow`.
+client library. A common local setup is a small Docker Compose MLflow service
+outside the Lerim repo, for example under `~/codes/personal/local-mlflow`.
 
 !!! info "No account needed"
 	The shared MLflow server is local. No authentication, external account, or
@@ -97,7 +97,7 @@ MLflow has two separate roles in Lerim:
 Start the shared MLflow server:
 
 ```bash
-cd /Users/kargarisaac/codes/personal/local-mlflow
+cd ~/codes/personal/local-mlflow
 docker compose up -d --build
 ```
 
@@ -174,7 +174,7 @@ Important files:
 If Lerim says MLflow is required but unavailable, start the shared server:
 
 ```bash
-cd /Users/kargarisaac/codes/personal/local-mlflow
+cd ~/codes/personal/local-mlflow
 docker compose up -d --build
 ```
 

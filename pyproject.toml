@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lerim"
-version = "0.2.1"
-description = "Trace-to-context layer for AI agent workflows."
+version = "0.3.0"
+description = "Source-session context compiler for AI agent workflows."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "BUSL-1.1"
+license = "Apache-2.0"
 dependencies = [
     "pydantic==2.12.5",
     "baml-py==0.222.0",
@@ -26,6 +26,9 @@ dependencies = [
     "huggingface-hub>=0.35.0",
     "tokenizers>=0.21.0",
     "sqlite-vec>=0.1.6",
+    "mcp==1.26.0",
+    "tomlkit>=0.13.2",
+    "json5>=0.13.0",
 ]
 
 [project.urls]
@@ -56,6 +59,7 @@ docs = [
 
 [project.scripts]
 lerim = "lerim.server.cli:main"
+lerim-mcp = "lerim.mcp_server:run_mcp_server"
 
 [tool.setuptools.packages.find]
 where = ["src"]

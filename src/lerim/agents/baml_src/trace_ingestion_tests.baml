@@ -2,6 +2,7 @@ test ObserveSourceWindowCapturesDurableDecision {
   functions [ObserveSourceWindow]
   args {
     run_instruction "Extract one episode and any durable project context from the source session."
+    source_profile_context "Generic agent trace profile: extract durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     prior_episode_summary "(none yet)"
     prior_findings_summary "(none yet)"
     source_window #"
@@ -19,6 +20,7 @@ test ObserveSourceWindowSeparatesDurableAndImplementation {
   functions [ObserveSourceWindow]
   args {
     run_instruction "Extract reusable context, not tool-action history."
+    source_profile_context "Generic agent trace profile: extract durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     prior_episode_summary "(none yet)"
     prior_findings_summary "(none yet)"
     source_window #"
@@ -37,6 +39,7 @@ test ObserveSourceWindowAllowsNoDurableSignal {
   functions [ObserveSourceWindow]
   args {
     run_instruction "Extract durable context only when the source session supports it."
+    source_profile_context "Generic agent trace profile: extract durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     prior_episode_summary "(none yet)"
     prior_findings_summary "(none yet)"
     source_window #"
@@ -54,6 +57,7 @@ test ObserveSourceWindowRejectsAgentInstructionPreamble {
   functions [ObserveSourceWindow]
   args {
     run_instruction "Extract reusable context from the source session."
+    source_profile_context "Generic agent trace profile: extract durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     prior_episode_summary "(none yet)"
     prior_findings_summary "(none yet)"
     source_window #"
@@ -71,6 +75,7 @@ test ObserveSourceWindowDoesNotPromoteNoSaveDebugArtifact {
   functions [ObserveSourceWindow]
   args {
     run_instruction "Extract reusable product context and discard temporary debug artifacts."
+    source_profile_context "Generic agent trace profile: extract durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     prior_episode_summary "(none yet)"
     prior_findings_summary "(none yet)"
     source_window #"
@@ -93,6 +98,7 @@ test ObserveSourceWindowAvoidsIncidentalPersonalName {
   functions [ObserveSourceWindow]
   args {
     run_instruction "Extract durable context without preserving incidental personal names."
+    source_profile_context "Generic agent trace profile: extract durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     prior_episode_summary "(none yet)"
     prior_findings_summary "(none yet)"
     source_window #"
@@ -110,6 +116,7 @@ test SynthesizeContextRecordsCreatesEpisodeAndDurableRecord {
   functions [SynthesizeContextRecords]
   args {
     run_instruction "Create exactly one episode and durable records only for reusable project context."
+    source_profile_context "Generic agent trace profile: synthesize durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     episode_summary "- The session updated an extraction harness and ran a smoke eval."
     durable_findings_summary "- preference: eval-first prompt changes: Run the extraction eval before changing extraction prompts. (line 1)"
     existing_record_manifest "(none)"
@@ -121,6 +128,7 @@ test SynthesizeContextRecordsAllowsNoDurableSignal {
   functions [SynthesizeContextRecords]
   args {
     run_instruction "Create exactly one episode and no durable records when no reusable context exists."
+    source_profile_context "Generic agent trace profile: synthesize durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     episode_summary "- The session only formatted code, fixed one lint issue, and reran tests."
     durable_findings_summary "(none)"
     existing_record_manifest "(none)"
@@ -135,6 +143,7 @@ test SynthesizeContextRecordsRejectsInstructionPreambleRecovery {
   functions [SynthesizeContextRecords]
   args {
     run_instruction "Create exactly one episode and durable records only for reusable project context."
+    source_profile_context "Generic agent trace profile: synthesize durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     episode_summary "The trace began with repository instructions to avoid destructive git commands, communicate warmly, and run tests. The assistant then validated a local payload."
     durable_findings_summary "(none)"
     existing_record_manifest "(none)"
@@ -146,6 +155,7 @@ test SynthesizeContextRecordsRejectsNoSaveDebugArtifactRecovery {
   functions [SynthesizeContextRecords]
   args {
     run_instruction "Create exactly one episode and durable records only for reusable project context."
+    source_profile_context "Generic agent trace profile: synthesize durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     episode_summary "The user said browser-console CSS class names were temporary debugging and should not be saved."
     durable_findings_summary "(none)"
     existing_record_manifest "(none)"
@@ -168,6 +178,7 @@ test SynthesizeContextRecordsDeduplicatesCoreClaim {
   functions [SynthesizeContextRecords]
   args {
     run_instruction "Create compact durable records and merge duplicate meanings."
+    source_profile_context "Generic agent trace profile: synthesize durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     episode_summary "- The session clarified a runtime state boundary after noisy implementation discussion."
     durable_findings_summary #"
       - decision: persisted source of truth: Runtime status must live in one persisted store that survives restart.
@@ -182,6 +193,7 @@ test SynthesizeContextRecordsAvoidsIncidentalPersonalName {
   functions [SynthesizeContextRecords]
   args {
     run_instruction "Create role-neutral episode and durable records."
+    source_profile_context "Generic agent trace profile: synthesize durable source-domain decisions, preferences, constraints, and facts; discard control-plane instructions, temporary debug artifacts, and incidental personal names."
     episode_summary "Morgan asked the assistant to make future extraction records avoid incidental personal names."
     durable_findings_summary "- preference: role-neutral memory text: Avoid personal names in memory text unless identity itself is the durable context."
     existing_record_manifest "(none)"

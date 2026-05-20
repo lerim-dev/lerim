@@ -24,6 +24,7 @@ from lerim.context.spec import (
 from lerim.profiles import normalize_signal_pack_id
 
 MAX_INGESTED_EPISODE_BODY_CHARS = 420
+MAX_INGESTED_EPISODE_TITLE_CHARS = 72
 
 
 @dataclass(frozen=True)
@@ -325,7 +326,7 @@ def _prepare_episode(
         episode["body"] = _episode_body_from_structured_fields(episode)
     return {
         "kind": "episode",
-        "title": _compact_text(episode.get("title"), MAX_RECORD_TITLE_CHARS),
+        "title": _compact_text(episode.get("title"), MAX_INGESTED_EPISODE_TITLE_CHARS),
         "body": _compact_text(
             episode.get("body"),
             min(MAX_EPISODE_BODY_CHARS, MAX_INGESTED_EPISODE_BODY_CHARS),

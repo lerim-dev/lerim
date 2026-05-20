@@ -16,3 +16,5 @@ class SignalPack:
     reject_as_noise: tuple[str, ...]
     evidence_rules: tuple[str, ...]
     scope_rules: tuple[str, ...]
+    source: str = "bundled"
+    path: str = ""

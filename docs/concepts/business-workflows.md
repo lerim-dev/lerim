@@ -12,8 +12,9 @@ The pattern is:
 5. the next agent starts with compact, cited context instead of a raw transcript
 
 The first product wedge is coding agents plus support and incident operations.
-Research, revenue, security, and other workflows are future signal-pack
-extensions, not separate pipelines today.
+Research, revenue, security, and other workflows can use custom clean traces
+today when the source owner handles export, redaction, and retention. Dedicated
+signal packs for those verticals are future extensions, not separate pipelines.
 
 ## Support operations
 
@@ -23,7 +24,7 @@ escalation reasons, policy-backed facts, source-of-truth evidence, and handoffs.
 Example import:
 
 ```bash
-lerim trace import ../lerim-cloud/evals/data/traces/support_refund_escalation_001.jsonl \
+lerim trace import docs/examples/traces/support-agent-run.jsonl \
   --source-name support-agent \
   --source-profile support \
   --scope-type domain \

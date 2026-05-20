@@ -37,7 +37,7 @@ flowchart TD
     H --> G
 
     G --> O["Context Graph"]
-    O --> P["Graph dashboard and linked context"]
+    O --> P["Linked context projection"]
 
     G --> I["Answer"]
     I --> J["lerim answer / agent tools"]
@@ -114,8 +114,8 @@ record should be superseded rather than silently rewritten into the new truth.
 Context graph linking runs after curation. It loads active durable records,
 builds semantic candidate pairs, proposes sparse relationships, reviews those
 links, assigns persisted semantic clusters, and writes the graph projection for
-inspection and cloud sync. The dashboard derives Louvain and combined visual
-lenses from those accepted links.
+curation and planned cloud sync. The planned hosted dashboard can derive Louvain
+and combined visual lenses from those accepted links.
 
 The context answerer follows a small retrieval plan:
 

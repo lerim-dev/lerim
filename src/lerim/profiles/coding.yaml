@@ -3,20 +3,54 @@ display_name: Coding Agents
 description: Software engineering agent traces and repository workflow sessions.
 focus_rules:
   - stable user preferences and repository conventions
-  - explicit architecture or workflow decisions with source-supported rationale
-  - durable runtime, setup, dependency, path, or environment facts
+  - explicit user corrections about silent scope, model, provider, architecture, or cost-tier changes
+  - user cost, subscription, hardware-locality, and cloud-vs-local role preferences when they guide future implementation choices
+  - local-model benchmark strategy, including costly-provider avoidance, owned subscription/provider preferences, and teacher-model choices when source-stated by the user
+  - project role-split decisions that assign local models and cloud providers to different agent roles
+  - temporary role splits between orchestration roles and extraction/summarization roles while local/fine-tuned models are not ready
+  - explicit architecture, migration, eval, release, or workflow decisions with source-supported rationale
+  - durable contracts and standing rules that future agents must follow across sessions
+  - model, prompt, adapter, or runtime configuration decisions only when they were accepted to stabilize agent behavior or define an evaluation contract
+  - prompt restructuring or model-behavior decisions over lower-level adapter diagnostics when both explain the same reliability work
+  - one merged adapter or prompt decision when root cause, fallback behavior, normalization, retry, and prompt-format changes all support the same accepted stabilization approach
+  - coding eval/debug records centered on accepted future behavior: runtime/model setting, adapter choice, prompt-structure choice, fixture-validity rule, or deferred design choice
+  - in coding eval/debug sessions, the durable set should favor validated model setting, adopted adapter approach, adopted prompt-structure choice, fixture-validity rule, and explicitly deferred design over lower-level mechanics
+  - evaluation fixture validity rules when they change how future failures should be interpreted
+  - fixture-adequacy constraints over path-specific fixture replacement facts when both are present
+  - explicitly deferred or rejected designs when future agents are likely to propose the same path again
+  - runtime, setup, dependency, path, or environment facts only when they are stable interfaces, sources of truth, or still-open future actions
   - failed paths only when they prevent likely repeated work
   - release or handoff details only when they preserve a still-open future action
 reject_as_noise:
   - raw command output without a reusable lesson
   - one-off debug steps
   - temporary implementation details
+  - local server/CLI workaround steps when a broader user/project strategy record or upstream bug/report fact preserves the reusable lesson
+  - model repository inventory when the durable lesson is a user correction, local model-size priority, or provider choice
+  - exact XML/parser tag names, angle-bracketed prompt examples, malformed-output examples, ReAct loop internals, retry-restart mechanics, one-tool-per-iteration mechanics, trajectory-contamination diagnostics, prompt-internal section-removal details, output-format-block details, fallback-configuration records, timeout numbers, or pass/fail counts unless promoted into a standing public contract
+  - completed local refactor inventory, module layout inventory, moved-file lists, and code cleanup notes
+  - class names, function names, signatures, test names, command flags, config values, metrics, or cost numbers unless the source makes them a durable contract or source of truth
+  - parser field names, prompt tag names, code line numbers, config attribute names, or implementation snippets unless they are stable APIs, eval contracts, migration targets, sources of truth, or still-open future actions
+  - low-level diagnostics when a higher-level accepted decision or evaluation rule preserves the reusable lesson
+  - standalone root-cause records when the accepted fix already carries the root cause and future behavior
+  - source-local architecture inventory about where a helper, adapter, class, or config is instantiated unless the user made that boundary a future rule
+  - implementation-plan routing about which file or method should receive a change unless the user made that boundary a standing rule
+  - assistant-only implementation-location conclusions unless the user confirmed them as standing future boundaries or stable public interfaces
+  - adjacent model parameters that were mentioned but not applied or validated as the active future rule
+  - official-doc, provider-default, framework-default, or companion-parameter claims unless the source explicitly states the exact claim
+  - exact smoke-test pass/fail counts or raw test-result numbers in durable memory
+  - benchmark percentages, candidate counts, token speeds, timings, and model-comparison tables in durable memory
+  - semantic claims whose only supporting source line is cleared, redacted, truncated, or hidden
   - branch-local cleanup
   - stale status observations
 evidence_rules:
-  - keep file or command evidence when it supports a future-facing rule
+  - keep file, command, identifier, metric, or config evidence only when it supports a future-facing rule; otherwise leave it out of durable record text
+  - preserve source uncertainty; do not turn may/might/likely/hypothesis language into certain facts
+  - describe XML prompt structure semantically without angle-bracketed tag names
+  - when UI choice content is cleared or redacted, do not claim a specific selected option unless later visible source text confirms it
   - attach trace line references when available
   - prefer source-of-truth docs over local observations
+  - compress long implementation sessions into the smallest set of user-level decisions, standing constraints, and reusable project facts
 scope_rules:
   - default to project scope for repository records
   - use domain scope only for non-repo workflow traces

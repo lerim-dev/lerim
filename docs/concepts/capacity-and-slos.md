@@ -11,11 +11,27 @@ open-source runtime on one machine, not a hosted multi-tenant service.
 - Embedding model download and first-time warmup are outside steady-state SLOs.
 - LLM answer generation time is tracked separately from local retrieval time.
 
+## Current Measured Baseline
+
+The current pre-release benchmark artifact is local hybrid retrieval over
+LongMemEval-S session windows. It is not an official hosted service SLO, it was
+generated before the final clean release-candidate rerun, and it does not yet
+cover 10k-100k record scale.
+
+| Corpus size | Measured local retrieval |
+| --- | --- |
+| 100 records | p50 8.7 ms, p99 9.7 ms |
+| 1,000 records | p50 32.4 ms, p99 54.5 ms |
+
+See [Retrieval Latency](../benchmarks/lerim-results.md#retrieval-latency)
+for the benchmark boundary and raw artifact.
+
 ## SLO targets
 
 | Area | Target |
 | --- | --- |
-| `answer` retrieval latency | p50 under 500 ms, p95 under 2 s for a warm local index up to 100k records/project. |
+| Current `answer` retrieval latency claim | Publish only measured benchmark numbers. Current measured LongMemEval-S local artifact is sub-second through 1,000 records; do not extrapolate that to 10k-100k records until benchmarked. |
+| Tuned retrieval latency target | p50 under 500 ms, p95 under 2 s for a warm local index up to 100k records/project after retrieval/index optimization. |
 | `answer` end-to-end latency | p95 under 8 s for normal questions when the answer model is available locally or through a responsive API. |
 | Ingest throughput | Drain normal agent-session traces at 5-20 MB/minute, bounded mostly by extraction/model time rather than SQLite writes. |
 | Queue recovery | After a crash or restart, queued ingest work resumes without manual cleanup; duplicate processing must be idempotent. |

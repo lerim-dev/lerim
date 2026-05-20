@@ -23,6 +23,8 @@ from lerim.server.docker_runtime import (
 )
 from tests.helpers import make_config
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
 
 @pytest.fixture(autouse=True)
 def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -48,6 +50,38 @@ def test_build_local_uses_build_directive(monkeypatch: pytest.MonkeyPatch) -> No
     assert f"image: {LOCAL_IMAGE}" in content
     assert f"build: {fake_root}" in content
     assert f"{RUNTIME_SOURCE_ENV}=local-build" in content
+
+
+def test_dockerignore_excludes_private_and_generated_paths() -> None:
+    """Docker build context must not include private or generated local paths."""
+    dockerignore = (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
+    required_patterns = {
+        ".env",
+        ".local/",
+        ".private/",
+        ".mcp.json",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "site/",
+        "specs/",
+        "tests/",
+        "evals/dataset/traces/",
+        "benchmarks/results/raw/mcp-integration-live/",
+        "benchmarks/results/reports/*-live.md",
+    }
+
+    missing = sorted(pattern for pattern in required_patterns if pattern not in dockerignore)
+
+    assert not missing
+
+
+def test_dockerfile_copies_only_package_inputs() -> None:
+    """Docker release image should install from package inputs, not repo root."""
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY . /build" not in dockerfile
+    assert "COPY pyproject.toml README.md LICENSE /build/" in dockerfile
+    assert "COPY src /build/src" in dockerfile
 
 
 def test_build_local_no_dockerfile_raises(monkeypatch: pytest.MonkeyPatch) -> None:

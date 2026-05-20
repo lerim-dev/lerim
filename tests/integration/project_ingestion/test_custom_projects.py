@@ -122,6 +122,7 @@ def test_custom_project_folder_indexes_and_queues_clean_traces(
             "name": "support-traces",
             "project_id": added["project_id"],
             "type": "custom",
+            "source_profile": None,
             "exists": True,
             "path": str(trace_root.resolve()),
         }

@@ -127,6 +127,8 @@ function CurateRecordHealthBatch(
     Hard health rules:
     - A durable record is not healthy when title/body make the review, discussion, audit, exploration, or investigation the main subject and only later mention the reusable fact/decision. Revise it; this is not cosmetic churn.
     - Good typed fields do not rescue process-centered title/body when the title/body read like a review report, audit report, exploration recap, or investigation recap.
+    - Judge the reader-facing record first: if a future retrieval result would teach the user that a review or investigation happened before it teaches the reusable rule, return REVISE even when decision/why are already correct.
+    - In that case, keep the reusable decision and why, but patch title/body so the reusable rule is the subject instead of the source activity.
     - Returning no action for a report-shaped durable record is incorrect when title/body center the process instead of the reusable claim.
     - One-time review findings, eval misses, bug-hunt notes, dashboard-check findings, and subagent assessments are not healthy durable records unless they state a stable product rule, customer-facing invariant, user preference, or source-of-truth rule.
     - For advisory findings, the stable rule must come from a user-authored acceptance, correction, or decision. Do not treat assistant, spawned-agent, reviewer, QA, eval, scorecard, or dashboard-check language as self-elevating.

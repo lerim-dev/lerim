@@ -11,16 +11,21 @@ history.
 Lerim sits after trace systems and before future agents. Observability shows
 what happened; Lerim decides what was worth learning from it.
 
-The focused wedge is coding agents plus two non-coding profiles: support
-operations and operations/incidents. Other workflows can be added later as
-signal packs, not separate pipelines.
+The strongest native capture path today is coding agents. Support operations
+and operations/incidents have documented custom-trace paths and source profiles,
+not separate pipelines.
 
 If you are evaluating Lerim, start with the workflow: traces in, durable context
 out, cited answers and startup context for future agents.
 
+Public support and benchmark claims are intentionally artifact-backed. The
+integration matrix separates config support from native trace capture, and the
+benchmark pages name the raw `report.json` evidence behind each number.
+
 The operating model is simple:
 
 - capture traces from supported agent work
+- expose context to MCP-compatible agents
 - filter noisy execution history into durable signal
 - curate overlap so context stays compact
 - link related context into a navigable graph
@@ -43,10 +48,13 @@ The operating model is simple:
 
 - [Installation](installation.md)
 - [Quickstart](quickstart.md)
+- [Source-Session Context Compiler](concepts/source-session-context-compiler.md)
+- [Integration Matrix](integrations/matrix.md)
+- [Benchmarks](benchmarks/index.md)
 - [Business Workflows](concepts/business-workflows.md)
-- [Signal Packs](concepts/signal-packs.md)
-- [Context Records](concepts/context-records.md)
+- [Commercial Boundary](concepts/commercial-boundary.md)
 - [Custom Trace Folders](guides/custom-trace-folders.md)
-- [How It Works](concepts/how-it-works.md)
-- [Context Brief](concepts/context-brief.md)
+- [Submit A Custom Agent Trace](guides/submit-custom-agent-trace.md)
+- [Examples](examples/index.md)
+- [MCP Quickstart](guides/mcp-quickstart.md)
 - [CLI Overview](cli/overview.md)

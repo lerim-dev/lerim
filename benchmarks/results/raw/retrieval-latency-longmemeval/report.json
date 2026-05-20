@@ -1,0 +1,123 @@
+{
+  "batch_indexing": true,
+  "benchmark": "longmemeval_s_retrieval_latency",
+  "command": "benchmarks/lerim_evidence/retrieval_latency.py --local-files-only --sizes 100,1000 --query-count 25 --iterations 3 --output-dir benchmarks/results/raw/retrieval-latency-longmemeval",
+  "cost_estimate": {
+    "embedding_api_usd": 0.0,
+    "external_llm_usd": 0.0,
+    "notes": "Retrieval-only local embedding benchmark; no external LLM or embedding API calls."
+  },
+  "dataset": {
+    "abstention_excluded": 0,
+    "cache_ref": "huggingface-cache:snapshots/98d7416c24c778c2fee6e6f3006e7a073259d48f/longmemeval_s_cleaned.json",
+    "evaluated_entries": 25,
+    "filename": "longmemeval_s_cleaned.json",
+    "filtered_entries": 500,
+    "raw_entries": 500,
+    "repo_id": "xiaowu0162/longmemeval-cleaned",
+    "requested_revision": null,
+    "snapshot": "98d7416c24c778c2fee6e6f3006e7a073259d48f"
+  },
+  "environment": {
+    "git_commit": "36e806a89a3ccd6b20d2ffb1435a84016e4af35b",
+    "git_dirty": true,
+    "git_status_short": "<dirty worktree; rerun from clean commit before launch>",
+    "hardware": {
+      "machine": "arm64",
+      "platform": "macOS-26.4.1-arm64-arm-64bit",
+      "processor": "arm"
+    },
+    "lerim_version": "0.2.1",
+    "machine": "arm64",
+    "platform": "macOS-26.4.1-arm64-arm-64bit",
+    "processor": "arm",
+    "python": "3.12.12"
+  },
+  "generated_at": "2026-05-19T07:32:59.889546+00:00",
+  "is_full_filtered_run": false,
+  "iterations": 3,
+  "limit": null,
+  "methodology": {
+    "episode_schema_limits": {
+      "body_chars": 1200,
+      "outcomes_chars": 300,
+      "user_intent_chars": 300,
+      "what_happened_chars": 1000
+    },
+    "gold_target": "answer_session_ids",
+    "hybrid_fusion": {
+      "lexical_weight": 0.3,
+      "method": "weighted_reciprocal_rank_fusion",
+      "rrf_k": 2,
+      "semantic_weight": 0.7
+    },
+    "index_unit": "one compact Lerim episode record per haystack session, with hidden retrieval-only index_text containing the source session transcript",
+    "lerim_extra_metrics": [
+      "recall_any_at_1",
+      "recall_any_at_3",
+      "latency"
+    ],
+    "llm_in_loop": false,
+    "metric_k_values": [
+      1,
+      3,
+      5,
+      10,
+      20
+    ],
+    "official_longmemeval_qa_score": false,
+    "retrieval_compatible_metrics": [
+      "recall_any_at_5",
+      "recall_any_at_10",
+      "recall_any_at_20",
+      "ndcg_at_10",
+      "mrr"
+    ],
+    "retrieval_only": true,
+    "semantic_judge_in_loop": false
+  },
+  "model_provider": {
+    "embedding_model": "mixedbread-ai/mxbai-embed-xsmall-v1",
+    "llm_model": "none",
+    "llm_provider": "none"
+  },
+  "offset": 0,
+  "prompt_config_version": "not_applicable_retrieval_only",
+  "query_count": 25,
+  "question_type": null,
+  "results": {
+    "100": {
+      "avg_hit_count": 20.0,
+      "avg_ms": 8.653590505321821,
+      "max_ms": 9.704458003398031,
+      "min_ms": 7.833082985598594,
+      "ops": 75,
+      "p50_ms": 8.653416996821761,
+      "p90_ms": 9.150041965767741,
+      "p95_ms": 9.43887501489371,
+      "p99_ms": 9.704458003398031
+    },
+    "1000": {
+      "avg_hit_count": 20.0,
+      "avg_ms": 32.8339071610632,
+      "max_ms": 54.47212501894683,
+      "min_ms": 30.584749998524785,
+      "ops": 75,
+      "p50_ms": 32.40458300570026,
+      "p90_ms": 34.17237498797476,
+      "p95_ms": 35.485416010487825,
+      "p99_ms": 54.47212501894683
+    }
+  },
+  "retrieval_limit": 20,
+  "retrieval_mode": "hybrid",
+  "runtime": {
+    "failure_count": 0,
+    "wall_clock_ms": 58298.65370801417
+  },
+  "schema_version": 1,
+  "sizes": [
+    100,
+    1000
+  ]
+}

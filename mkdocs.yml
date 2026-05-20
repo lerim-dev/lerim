@@ -76,6 +76,9 @@ markdown_extensions:
 plugins:
   - search
 
+not_in_nav: |
+  assets/README.md
+
 extra_css:
   - stylesheets/extra.css
 
@@ -94,25 +97,31 @@ nav:
     - Installation: installation.md
     - Quickstart: quickstart.md
   - Concepts:
+    - Source-Session Context Compiler: concepts/source-session-context-compiler.md
     - Business Workflows: concepts/business-workflows.md
     - Signal Packs: concepts/signal-packs.md
+    - Commercial Boundary: concepts/commercial-boundary.md
     - Context Records: concepts/context-records.md
     - How It Works: concepts/how-it-works.md
     - Context Model: concepts/context-model.md
     - Trace Sources & Adapters: concepts/supported-agents.md
+    - MCP vs Native Adapters: concepts/mcp-vs-native-adapters.md
     - Ingest & Curate: concepts/ingest-curate.md
     - Context Brief: concepts/context-brief.md
+    - Capacity and SLOs: concepts/capacity-and-slos.md
   - CLI Reference:
     - Overview: cli/overview.md
     - lerim init: cli/init.md
     - lerim project: cli/project.md
     - lerim connect: cli/connect.md
+    - lerim mcp: cli/mcp.md
     - lerim up / down / logs: cli/up-down-logs.md
     - lerim ingest: cli/ingest.md
     - lerim curate: cli/curate.md
     - lerim context-brief: cli/context-brief.md
     - lerim answer: cli/answer.md
     - lerim trace: cli/trace.md
+    - lerim profile: cli/profile.md
     - lerim query: cli/query.md
     - lerim queue: cli/queue.md
     - lerim unscoped: cli/unscoped.md
@@ -123,7 +132,7 @@ nav:
     - lerim serve: cli/serve.md
     - Background loop: cli/daemon.md
     - lerim dashboard: cli/dashboard.md
-  - Agent Architecture:
+  - Internals:
     - Trace Ingestion: agents/trace-ingestion.md
     - Context Curator: agents/context-curator.md
     - Context Graph: agents/context-graph.md
@@ -136,10 +145,41 @@ nav:
     - Tracing: configuration/tracing.md
   - Guides:
     - Connecting Agents: guides/connecting-agents.md
+    - MCP Quickstart: guides/mcp-quickstart.md
+    - Customize Lerim For Your Use Case: guides/custom-source-profiles.md
     - Custom Trace Folders: guides/custom-trace-folders.md
+    - Submit A Custom Agent Trace: guides/submit-custom-agent-trace.md
     - Support Ops Demo: guides/support-ops-demo.md
     - Incident Ops Demo: guides/incident-ops-demo.md
     - Evaluate Extraction Quality: guides/evaluate-extraction-quality.md
     - Dashboard: guides/dashboard.md
     - Querying Context: guides/querying-context.md
-  - Contributing: contributing/getting-started.md
+  - Examples:
+    - Overview: examples/index.md
+  - Integrations:
+    - Overview: integrations/index.md
+    - Matrix: integrations/matrix.md
+    - Verification: integrations/verification.md
+    - Claude Code: integrations/claude-code.md
+    - Codex CLI: integrations/codex-cli.md
+    - Cursor: integrations/cursor.md
+    - OpenCode: integrations/opencode.md
+    - Gemini CLI: integrations/gemini-cli.md
+    - Cline: integrations/cline.md
+    - Roo Code: integrations/roo-code.md
+    - Kilo Code: integrations/kilo-code.md
+    - Goose: integrations/goose.md
+    - Windsurf: integrations/windsurf.md
+    - Claude Desktop: integrations/claude-desktop.md
+    - OpenClaw: integrations/openclaw.md
+    - Hermes: integrations/hermes.md
+    - pi: integrations/pi.md
+    - OpenHuman: integrations/openhuman.md
+  - Benchmarks:
+    - Overview: benchmarks/index.md
+    - Benchmark Suite: benchmarks/benchmark-suite.md
+    - Lerim Results: benchmarks/lerim-results.md
+    - Market Comparison: benchmarks/market-comparison.md
+  - Contributing:
+    - Getting Started: contributing/getting-started.md
+    - Engineering Rules: simple-coding-rules.md

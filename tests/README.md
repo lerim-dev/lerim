@@ -12,7 +12,8 @@ The maintained test surface is DB-first.
 
 What we test:
 
-- unit tests for config, adapters, store, CLI, API, daemon, runtime, and generated Context Brief
+- unit tests for config, adapters, store, CLI, API, daemon, runtime, benchmarks, and generated Context Brief
+- unit tests for release metadata preflight checks that gate package publishing
 - smoke tests for quick real-LLM trace-ingestion sanity
 - integration tests for real trace ingestion, context curation, context answering, context briefs, cloud ingest state, and multi-project scope flows
 - integration tests for runtime/API/DB boundaries like workspace artifact layout, queue processing, custom project ingestion, memory reset, and cloud sync state
@@ -112,7 +113,7 @@ For grouped live suites, rerun the affected cluster after the focused case is st
 
 Unit tests live in `tests/unit/` and mirror the source tree. Each `src/lerim/<package>/` has a corresponding `tests/unit/<package>/` with one test file per source module.
 
-Subpackages: `agents/`, `adapters/`, `config/`, `context/`, `server/`, `sessions/`, `cloud/`, `skills/`.
+Subpackages: `agents/`, `adapters/`, `benchmarks/`, `config/`, `context/`, `integrations/`, `server/`, `sessions/`, `cloud/`, `skills/`.
 
 Rules:
 
@@ -130,7 +131,11 @@ Rules:
 - session catalog tests cover process-local active-job leases that avoid false stale queue health during transient heartbeat write failures
 - daemon ingest tests cover one-at-a-time job claiming to avoid false stale-running queue state
 - config tests cover provider capability validation, provider-specific model normalization, strict config parsing, MLflow env/tracing configuration, and SDK log-noise filters
+- profile tests cover bundled signal packs, registered custom YAML profiles, and project-level default source profiles
 - Context Brief tests cover cwd project resolution, freshness counts, markdown citations, CLI local reads, and artifact writes without live LLM calls
+- MCP integration tests cover client config writers, dry-run/backup behavior, exposed MCP tool registration, in-process context search/brief calls, and trace-submit importer routing
+- Context store search tests cover derived-index generation metadata, fast-path retrieval, and stale-index repair without live LLM calls
+- Benchmark doc tests cover README launch links, public benchmark table values, artifact-path wording, and positioning guardrails for non-coding workflows
 
 ## Testing rules
 

@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "updated": "2026-05-20",
+  "notes": [
+    "This manifest backs third-party numeric rows in docs/benchmarks/market-comparison.md.",
+    "Rows marked as not normalized locally are source citations, not fresh local reruns."
+  ],
+  "sources": [
+    {
+      "id": "agentmemory-pinned-longmemeval",
+      "source_type": "pinned_upstream_raw_artifact",
+      "url": "https://github.com/rohitg00/agentmemory/blob/68fddd418e1bbcc41d32a1c61b7a78d91eb7c4dc/benchmark/LONGMEMEVAL.md",
+      "accessed": "2026-05-19",
+      "normalized_artifact": "benchmarks/results/raw/agentmemory-pinned-baseline/report.json",
+      "claims": [
+        {
+          "system": "AgentMemory",
+          "metric": "LongMemEval-S hybrid retrieval",
+          "value": "R@5 95.2%, R@10 98.6%, NDCG@10 87.9%, MRR 88.2%",
+          "market_page_text": "Hybrid R@5 95.2%, R@10 98.6%, NDCG@10 87.9%, MRR 88.2%"
+        },
+        {
+          "system": "AgentMemory",
+          "metric": "LongMemEval-S BM25 retrieval",
+          "value": "R@5 86.2%, R@10 94.6%, NDCG@10 73.0%, MRR 71.5%",
+          "market_page_text": "BM25 R@5 86.2%, R@10 94.6%, NDCG@10 73.0%, MRR 71.5%"
+        }
+      ]
+    },
+    {
+      "id": "mempalace-pinned-benchmarks",
+      "source_type": "pinned_public_docs",
+      "url": "https://github.com/MemPalace/mempalace/blob/1b94f4efb4949765d6965936476c236df13fd108/benchmarks/BENCHMARKS.md",
+      "accessed": "2026-05-20",
+      "claims": [
+        {
+          "system": "MemPalace",
+          "metric": "LongMemEval retrieval recall citation",
+          "value": "raw ChromaDB full-500 R@5 96.6%; held-out-450 hybrid_v4 no-rerank R@5 98.4%, R@10 99.8%",
+          "market_page_text": "Pinned public docs report raw ChromaDB full-500 R@5 96.6%; later held-out-450 hybrid_v4 no-rerank R@5 98.4%, R@10 99.8%"
+        }
+      ]
+    },
+    {
+      "id": "mem0-official-evaluation-docs",
+      "source_type": "official_docs",
+      "url": "https://docs.mem0.ai/core-concepts/memory-evaluation",
+      "accessed": "2026-05-19",
+      "claims": [
+        {
+          "system": "Mem0",
+          "metric": "Official evaluation docs",
+          "value": "LongMemEval overall 93.4 and LoCoMo overall 91.6",
+          "market_page_text": "Official Mem0 docs report LongMemEval overall 93.4 and LoCoMo overall 91.6"
+        }
+      ]
+    },
+    {
+      "id": "letta-locomo-blog",
+      "source_type": "official_blog_post",
+      "url": "https://www.letta.com/blog/benchmarking-ai-agent-memory",
+      "accessed": "2026-05-19",
+      "claims": [
+        {
+          "system": "Letta",
+          "metric": "LoCoMo filesystem-agent result",
+          "value": "74.0",
+          "market_page_text": "Official Letta post reports a filesystem LoCoMo result of 74.0"
+        }
+      ]
+    },
+    {
+      "id": "agent-memory-dev-feature-snapshot",
+      "source_type": "competitor_maintained_market_table",
+      "url": "https://www.agent-memory.dev/",
+      "accessed": "2026-05-19",
+      "claims": [
+        {
+          "system": "AgentMemory",
+          "metric": "Feature snapshot retrieval R@5",
+          "value": "95.2%",
+          "market_page_text": "| AgentMemory | 95.2% | 0 | 121 | 51 | 12 | 6 | Yes, Apache-2.0 |"
+        },
+        {
+          "system": "Mem0",
+          "metric": "Feature snapshot retrieval R@5",
+          "value": "81.4%",
+          "market_page_text": "| Mem0 | 81.4% | 2 (Qdrant, Neo4j) | Not reported | 12 | 0 | Not reported | Yes |"
+        },
+        {
+          "system": "Letta",
+          "metric": "Feature snapshot retrieval R@5",
+          "value": "73.8%",
+          "market_page_text": "| Letta | 73.8% | 1 (Postgres) | Not reported | 18 | 0 | Not reported | Yes |"
+        },
+        {
+          "system": "Cognee",
+          "metric": "Feature snapshot retrieval R@5",
+          "value": "78.1%",
+          "market_page_text": "| Cognee | 78.1% | 1 (Neo4j) | Not reported | 9 | 0 | Not reported | Yes |"
+        }
+      ]
+    }
+  ]
+}

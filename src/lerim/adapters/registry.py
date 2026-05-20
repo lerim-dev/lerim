@@ -14,9 +14,10 @@ _ADAPTER_MODULES: dict[str, str] = {
     "codex": "lerim.adapters.codex",
     "opencode": "lerim.adapters.opencode",
     "cursor": "lerim.adapters.cursor",
+    "pi": "lerim.adapters.pi",
 }
 
-_AUTO_SEED_PLATFORMS = ("claude", "codex", "opencode", "cursor")
+_AUTO_SEED_PLATFORMS = ("claude", "codex", "opencode", "cursor", "pi")
 
 KNOWN_PLATFORMS = tuple(_ADAPTER_MODULES.keys())
 

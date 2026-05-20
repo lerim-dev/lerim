@@ -13,23 +13,14 @@ non-duplicate context records:
 - expected record kind alignment
 - future reuse
 
-Use the existing `lerim-cloud/evals` template. Do not create a second eval
-harness under `lerim-cli`.
+Keep extraction eval data separate from the public package unless the traces are
+small, sanitized examples. A publishable eval needs:
 
-From the monorepo root:
+- source-session trace files
+- labels for expected durable records and no-signal cases
+- a runner that feeds traces into Lerim
+- a judge or deterministic scorer with saved raw outputs
+- sanitized public reports that exclude raw private trace text
 
-```bash
-cd lerim-cloud
-env -u VIRTUAL_ENV uv run python -m evals.run_context_system
-env -u VIRTUAL_ENV uv run python -m evals.run_extraction --case support_refund_escalation_001
-env -u VIRTUAL_ENV uv run python -m evals.run_extraction --case incident_webhook_outage_002
-```
-
-Dataset artifacts stay under the shared eval tree, never under `lerim-cli`:
-
-```text
-lerim-cloud/evals/data/traces/
-lerim-cloud/evals/data/labels/
-lerim-cloud/evals/projects/vertical_samples/support_ops/
-lerim-cloud/evals/projects/vertical_samples/incident_ops/
-```
+The public benchmark reports in this repo are generated artifacts. The private
+source traces and judge details are intentionally not shipped with the package.
