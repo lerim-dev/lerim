@@ -1010,9 +1010,9 @@ def _compress_coding_slot(record: dict[str, Any], field: str) -> None:
     why = _first_sentence(record.get("why"))
     body = _brief_claim(record.get("body"), title)
     if field == "model_setting_fact":
-        record["body"] = body
+        record["body"] = _brief_claim(title)
     elif field == "adapter_decision":
-        record["body"] = _brief_claim(decision or title, record.get("body"), why)
+        record["body"] = _brief_claim(decision or title, why, title)
         record["decision"] = decision or title
         record["why"] = None
         record["alternatives"] = None
