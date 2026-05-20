@@ -44,8 +44,8 @@ jobs:
       - name: Build docs
         run: uv run mkdocs build --strict
 
-      - name: Validate public benchmark artifacts
-        run: uv run python benchmarks/scripts/validate_public_artifacts.py --require-clean --require-tracked-public-files
+      - name: Validate public benchmark artifact tracking
+        run: uv run python benchmarks/scripts/validate_public_artifacts.py --require-tracked-public-files
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3

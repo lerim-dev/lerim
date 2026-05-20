@@ -6,20 +6,20 @@ comparisons.
 
 Every public Lerim number below points to a raw artifact in
 `benchmarks/results/raw/`. Retrieval, context-budget, latency, ingestion, and
-MCP artifacts keep clean release-worktree provenance in their environment
-metadata. Aggregate extraction diagnostics keep their own provenance and are
-reported only as first-party diagnostic numbers.
+MCP artifacts keep clean `v0.3.0` release-worktree provenance in their
+environment metadata. Aggregate extraction diagnostics keep their own
+provenance and are reported only as first-party diagnostic numbers.
 
 ## Current Lerim Summary
 
 | Surface | Current result | Evidence status | Source |
 | --- | --- | --- | --- |
-| LongMemEval-S retrieval, hybrid | R@5 96.2%, R@10 98.6%, R@20 99.6%, NDCG@10 88.4%, MRR 88.1% on 500 questions | Full retrieval-only artifact; clean release worktree | `benchmarks/results/raw/longmemeval-hybrid-full/report.json` |
-| LongMemEval-S retrieval, lexical | R@5 77.0%, R@10 82.0%, R@20 89.8%, NDCG@10 62.7%, MRR 64.0% on 500 questions | Full retrieval-only artifact; clean release worktree | `benchmarks/results/raw/longmemeval-lexical-full/report.json` |
-| Context budget, hybrid top-10 | 75.3% context reduction with 98.6% recall | Full retrieval-only artifact; clean release worktree | `benchmarks/results/raw/context-budget-hybrid-full/report.json` |
-| Retrieval latency | 100 records p50 9.6 ms, p99 20.4 ms; 1,000 records p50 35.4 ms, p99 55.0 ms | Local retrieval artifact; clean release worktree | `benchmarks/results/raw/retrieval-latency-longmemeval/report.json` |
-| Trace ingestion cost/performance | 3/3 traces passed; avg ingestion 96,994.9 ms; avg 5.0 LLM calls/trace; avg DB growth 581,632 bytes/trace; cost not available | Small LongMemEval-S public-trace sample; clean release worktree | `benchmarks/results/raw/trace-ingestion-cost-longmemeval-s-sample/report.json` |
-| MCP integration | 15/15 config probes, doctor 0 passed/15 skipped, local context call passed, trace-submit idempotency passed, trace-submit extraction 0 accepted/1 failed, 3 anonymized connection-visibility checks; separate Gemini CLI artifact records 1 installed-client connection and 1 live `lerim_context_brief` tool-call acceptance. Other clients are not live-tool-call validated yet. | Integration artifacts; clean release worktree; per-client local inventory omitted | `benchmarks/results/raw/mcp-integration-full/report.json`, `benchmarks/results/raw/mcp-gemini-live-tool-call/report.json` |
+| LongMemEval-S retrieval, hybrid | R@5 96.2%, R@10 98.6%, R@20 99.6%, NDCG@10 88.4%, MRR 88.1% on 500 questions | Full retrieval-only artifact; clean `v0.3.0` release worktree | `benchmarks/results/raw/longmemeval-hybrid-full/report.json` |
+| LongMemEval-S retrieval, lexical | R@5 77.0%, R@10 82.0%, R@20 89.8%, NDCG@10 62.7%, MRR 64.0% on 500 questions | Full retrieval-only artifact; clean `v0.3.0` release worktree | `benchmarks/results/raw/longmemeval-lexical-full/report.json` |
+| Context budget, hybrid top-10 | 75.3% context reduction with 98.6% recall | Full retrieval-only artifact; clean `v0.3.0` release worktree | `benchmarks/results/raw/context-budget-hybrid-full/report.json` |
+| Retrieval latency | 100 records p50 9.6 ms, p99 20.4 ms; 1,000 records p50 35.4 ms, p99 55.0 ms | Local retrieval artifact; clean `v0.3.0` release worktree | `benchmarks/results/raw/retrieval-latency-longmemeval/report.json` |
+| Trace ingestion cost/performance | 3/3 traces passed; avg ingestion 96,994.9 ms; avg 5.0 LLM calls/trace; avg DB growth 581,632 bytes/trace; cost not available | Small LongMemEval-S public-trace sample; clean `v0.3.0` release worktree | `benchmarks/results/raw/trace-ingestion-cost-longmemeval-s-sample/report.json` |
+| MCP integration | 15/15 config probes, doctor 0 passed/15 skipped, local context call passed, trace-submit idempotency passed, trace-submit extraction 0 accepted/1 failed, 3 anonymized connection-visibility checks; separate Gemini CLI artifact records 1 installed-client connection and 1 live `lerim_context_brief` tool-call acceptance. Other clients are not live-tool-call validated yet. | Integration artifacts; clean `v0.3.0` release worktree; per-client local inventory omitted | `benchmarks/results/raw/mcp-integration-full/report.json`, `benchmarks/results/raw/mcp-gemini-live-tool-call/report.json` |
 | Extraction quality | Diagnostic aggregate: quality 60.07%, quality gate 51.06%, hard gate 19.15% across 47 cases | Internal LLM-backed eval; aggregate-only public report | `benchmarks/results/raw/extraction-minimax-m27-full-47/report.json` |
 | False-positive extraction | Negative precision 28.57%; 10 false-positive cases; 65 durable records created across 14 negative cases | Internal LLM-backed eval slice; aggregate-only public report | `benchmarks/results/raw/false-positive-extraction-minimax-m27-negative-cases/report.json` |
 
