@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.11] - 2026-05-21
+
+### Fixed
+- Made `lerim answer` report real internal answerer failures as HTTP 500 while
+  reserving HTTP 504 for the configured five-minute answer deadline.
+- Aligned CLI, server, and BAML model-call timeout contracts so complicated
+  answer queries can run up to the five-minute budget without being cut off by
+  a shorter layer.
+- Added semantic retries for invalid context-answer retrieval plans and
+  placeholder-only final answers, preventing bad model outputs from becoming
+  successful CLI responses.
+
 ## [0.3.1] - 2026-05-20
 
 ### Changed

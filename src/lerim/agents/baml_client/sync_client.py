@@ -94,18 +94,18 @@ class BamlSyncClient:
     def parse_stream(self):
       return self.__llm_stream_parser
 
-    def AnswerFromContext(self, question: str,current_utc: str,hints: str,retrieval_json: str,
+    def AnswerFromContext(self, run_instruction: str,question: str,current_utc: str,hints: str,retrieval_json: str,
         baml_options: BamlCallOptions = {},
     ) -> types.ContextAnswer:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
-            __stream__ = self.stream.AnswerFromContext(question=question,current_utc=current_utc,hints=hints,retrieval_json=retrieval_json,
+            __stream__ = self.stream.AnswerFromContext(run_instruction=run_instruction,question=question,current_utc=current_utc,hints=hints,retrieval_json=retrieval_json,
                 baml_options=baml_options)
             return __stream__.get_final_response()
         else:
             # Original non-streaming code
             __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="AnswerFromContext", args={
-                "question": question,"current_utc": current_utc,"hints": hints,"retrieval_json": retrieval_json,
+                "run_instruction": run_instruction,"question": question,"current_utc": current_utc,"hints": hints,"retrieval_json": retrieval_json,
             })
             return typing.cast(types.ContextAnswer, __result__.cast_to(types, types, stream_types, False, __runtime__))
     def CompileContextBrief(self, candidate_profile_json: str,candidate_records_json: str,
@@ -234,18 +234,18 @@ class BamlSyncClient:
                 "run_instruction": run_instruction,"source_profile_context": source_profile_context,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
             })
             return typing.cast(types.SourceWindowScan, __result__.cast_to(types, types, stream_types, False, __runtime__))
-    def PlanContextRetrieval(self, question: str,current_utc: str,hints: str,
+    def PlanContextRetrieval(self, run_instruction: str,question: str,current_utc: str,hints: str,
         baml_options: BamlCallOptions = {},
     ) -> types.ContextRetrievalPlan:
         # Check if on_tick is provided
         if 'on_tick' in baml_options:
-            __stream__ = self.stream.PlanContextRetrieval(question=question,current_utc=current_utc,hints=hints,
+            __stream__ = self.stream.PlanContextRetrieval(run_instruction=run_instruction,question=question,current_utc=current_utc,hints=hints,
                 baml_options=baml_options)
             return __stream__.get_final_response()
         else:
             # Original non-streaming code
             __result__ = self.__options.merge_options(baml_options).call_function_sync(function_name="PlanContextRetrieval", args={
-                "question": question,"current_utc": current_utc,"hints": hints,
+                "run_instruction": run_instruction,"question": question,"current_utc": current_utc,"hints": hints,
             })
             return typing.cast(types.ContextRetrievalPlan, __result__.cast_to(types, types, stream_types, False, __runtime__))
     def PolishCodingEvalContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,visible_source_lines: str,
@@ -327,11 +327,11 @@ class BamlStreamClient:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    def AnswerFromContext(self, question: str,current_utc: str,hints: str,retrieval_json: str,
+    def AnswerFromContext(self, run_instruction: str,question: str,current_utc: str,hints: str,retrieval_json: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.ContextAnswer, types.ContextAnswer]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="AnswerFromContext", args={
-            "question": question,"current_utc": current_utc,"hints": hints,"retrieval_json": retrieval_json,
+            "run_instruction": run_instruction,"question": question,"current_utc": current_utc,"hints": hints,"retrieval_json": retrieval_json,
         })
         return baml_py.BamlSyncStream[stream_types.ContextAnswer, types.ContextAnswer](
           __result__,
@@ -447,11 +447,11 @@ class BamlStreamClient:
           lambda x: typing.cast(types.SourceWindowScan, x.cast_to(types, types, stream_types, False, __runtime__)),
           __ctx__,
         )
-    def PlanContextRetrieval(self, question: str,current_utc: str,hints: str,
+    def PlanContextRetrieval(self, run_instruction: str,question: str,current_utc: str,hints: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.BamlSyncStream[stream_types.ContextRetrievalPlan, types.ContextRetrievalPlan]:
         __ctx__, __result__ = self.__options.merge_options(baml_options).create_sync_stream(function_name="PlanContextRetrieval", args={
-            "question": question,"current_utc": current_utc,"hints": hints,
+            "run_instruction": run_instruction,"question": question,"current_utc": current_utc,"hints": hints,
         })
         return baml_py.BamlSyncStream[stream_types.ContextRetrievalPlan, types.ContextRetrievalPlan](
           __result__,
@@ -527,11 +527,11 @@ class BamlHttpRequestClient:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    def AnswerFromContext(self, question: str,current_utc: str,hints: str,retrieval_json: str,
+    def AnswerFromContext(self, run_instruction: str,question: str,current_utc: str,hints: str,retrieval_json: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="AnswerFromContext", args={
-            "question": question,"current_utc": current_utc,"hints": hints,"retrieval_json": retrieval_json,
+            "run_instruction": run_instruction,"question": question,"current_utc": current_utc,"hints": hints,"retrieval_json": retrieval_json,
         }, mode="request")
         return __result__
     def CompileContextBrief(self, candidate_profile_json: str,candidate_records_json: str,
@@ -597,11 +597,11 @@ class BamlHttpRequestClient:
             "run_instruction": run_instruction,"source_profile_context": source_profile_context,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
         }, mode="request")
         return __result__
-    def PlanContextRetrieval(self, question: str,current_utc: str,hints: str,
+    def PlanContextRetrieval(self, run_instruction: str,question: str,current_utc: str,hints: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="PlanContextRetrieval", args={
-            "question": question,"current_utc": current_utc,"hints": hints,
+            "run_instruction": run_instruction,"question": question,"current_utc": current_utc,"hints": hints,
         }, mode="request")
         return __result__
     def PolishCodingEvalContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,visible_source_lines: str,
@@ -647,11 +647,11 @@ class BamlHttpStreamRequestClient:
     def __init__(self, options: DoNotUseDirectlyCallManager):
         self.__options = options
 
-    def AnswerFromContext(self, question: str,current_utc: str,hints: str,retrieval_json: str,
+    def AnswerFromContext(self, run_instruction: str,question: str,current_utc: str,hints: str,retrieval_json: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="AnswerFromContext", args={
-            "question": question,"current_utc": current_utc,"hints": hints,"retrieval_json": retrieval_json,
+            "run_instruction": run_instruction,"question": question,"current_utc": current_utc,"hints": hints,"retrieval_json": retrieval_json,
         }, mode="stream")
         return __result__
     def CompileContextBrief(self, candidate_profile_json: str,candidate_records_json: str,
@@ -717,11 +717,11 @@ class BamlHttpStreamRequestClient:
             "run_instruction": run_instruction,"source_profile_context": source_profile_context,"prior_episode_summary": prior_episode_summary,"prior_findings_summary": prior_findings_summary,"source_window": source_window,
         }, mode="stream")
         return __result__
-    def PlanContextRetrieval(self, question: str,current_utc: str,hints: str,
+    def PlanContextRetrieval(self, run_instruction: str,question: str,current_utc: str,hints: str,
         baml_options: BamlCallOptions = {},
     ) -> baml_py.baml_py.HTTPRequest:
         __result__ = self.__options.merge_options(baml_options).create_http_request_sync(function_name="PlanContextRetrieval", args={
-            "question": question,"current_utc": current_utc,"hints": hints,
+            "run_instruction": run_instruction,"question": question,"current_utc": current_utc,"hints": hints,
         }, mode="stream")
         return __result__
     def PolishCodingEvalContextRecords(self, run_instruction: str,source_profile_context: str,episode_summary: str,durable_findings_summary: str,implementation_summary: str,rejected_findings_summary: str,draft_records_json: str,visible_source_lines: str,

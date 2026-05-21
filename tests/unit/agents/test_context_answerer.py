@@ -6,6 +6,8 @@ import inspect
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from lerim.agents.context_answerer import (
     CONTEXT_ANSWERER_SYSTEM_PROMPT,
     ContextAnswerResult,
@@ -123,6 +125,67 @@ class TestRunAnswerSignature:
         assert result.answer == "There is 1 active decision."
         assert result.supporting_record_ids == []
 
+    def test_retries_search_plan_without_query(self, tmp_path, monkeypatch):
+        identity = ProjectIdentity(
+            project_id="proj_abc",
+            project_slug="test",
+            repo_path=tmp_path,
+        )
+        store = ContextStore(tmp_path / "context.sqlite3")
+        store.initialize()
+        store.register_project(identity)
+        plan_instructions: list[str] = []
+
+        class FakeBamlRuntime:
+            def PlanContextRetrieval(self, **kwargs):
+                plan_instructions.append(kwargs["run_instruction"])
+                if len(plan_instructions) == 1:
+                    return {
+                        "actions": [
+                            {
+                                "action_type": "search",
+                                "rationale": "Search without a query.",
+                            }
+                        ],
+                        "rationale": "Invalid plan.",
+                    }
+                assert "Previous structured output was unsafe" in kwargs["run_instruction"]
+                return {
+                    "actions": [
+                        {
+                            "action_type": "count",
+                            "kind": "fact",
+                            "status": "active",
+                            "rationale": "Count active facts.",
+                        }
+                    ],
+                    "rationale": "Use exact count instead.",
+                }
+
+            def AnswerFromContext(self, **kwargs):
+                retrieval = json.loads(kwargs["retrieval_json"])
+                count = retrieval["results"][0]["count"]
+                return {"answer": f"There are {count} active facts."}
+
+        monkeypatch.setattr(
+            "lerim.agents.context_answerer.graph.build_baml_client_for_role",
+            lambda **_kwargs: FakeBamlRuntime(),
+        )
+
+        result, events = run_context_answerer(
+            context_db_path=tmp_path / "context.sqlite3",
+            project_identity=identity,
+            project_ids=["proj_abc"],
+            session_id="sess_1",
+            question="compare retrieval design",
+            return_messages=True,
+        )
+        assert result.answer == "There are 0 active facts."
+        assert len(plan_instructions) == 2
+        assert events[0]["kind"] == "model_retry"
+        assert events[1]["function"] == "PlanContextRetrieval"
+        assert events[1]["attempts"] == 2
+
     def test_returns_valid_supporting_record_ids(self, tmp_path, monkeypatch):
         identity = ProjectIdentity(
             project_id="proj_abc",
@@ -189,6 +252,126 @@ class TestRunAnswerSignature:
         )
         assert result.answer == "Verify entitlement and latest invoice."
         assert result.supporting_record_ids == [created["record_id"]]
+
+    def test_retries_placeholder_only_answers(self, tmp_path, monkeypatch):
+        identity = ProjectIdentity(
+            project_id="proj_abc",
+            project_slug="test",
+            repo_path=tmp_path,
+        )
+        store = ContextStore(tmp_path / "context.sqlite3")
+        store.initialize()
+        store.register_project(identity)
+        store.upsert_session(
+            project_id=identity.project_id,
+            session_id="seed",
+            agent_type="test",
+            source_trace_ref="test",
+            repo_path=str(tmp_path),
+            cwd=str(tmp_path),
+            started_at="2026-05-15T00:00:00+00:00",
+            model_name="test/model",
+            instructions_text=None,
+            prompt_text=None,
+            metadata={},
+        )
+        created = store.create_record(
+            project_id=identity.project_id,
+            session_id="seed",
+            kind="fact",
+            title="Timeout contract",
+            body="Answer requests use a five minute server deadline.",
+            status="active",
+            change_reason="test",
+        )
+        answer_instructions: list[str] = []
+
+        class FakeBamlRuntime:
+            def PlanContextRetrieval(self, **_kwargs):
+                return {
+                    "actions": [
+                        {
+                            "action_type": "list",
+                            "kind": "fact",
+                            "status": "active",
+                            "rationale": "List active facts.",
+                        }
+                    ],
+                    "rationale": "Use exact list.",
+                }
+
+            def AnswerFromContext(self, **kwargs):
+                answer_instructions.append(kwargs["run_instruction"])
+                if len(answer_instructions) == 1:
+                    return {
+                        "answer": "...",
+                        "supporting_record_ids": ["rec_...", "..."],
+                    }
+                assert "Previous structured output was unsafe" in kwargs["run_instruction"]
+                return {
+                    "answer": "Answer requests use a five minute server deadline.",
+                    "supporting_record_ids": [created["record_id"]],
+                }
+
+        monkeypatch.setattr(
+            "lerim.agents.context_answerer.graph.build_baml_client_for_role",
+            lambda **_kwargs: FakeBamlRuntime(),
+        )
+
+        result, events = run_context_answerer(
+            context_db_path=tmp_path / "context.sqlite3",
+            project_identity=identity,
+            project_ids=["proj_abc"],
+            session_id="sess_1",
+            question="what is the answer timeout?",
+            return_messages=True,
+        )
+        assert result.answer == "Answer requests use a five minute server deadline."
+        assert result.supporting_record_ids == [created["record_id"]]
+        assert len(answer_instructions) == 2
+        assert events[-2]["kind"] == "model_retry"
+        assert events[-1]["attempts"] == 2
+
+    def test_rejects_repeated_placeholder_only_answers(self, tmp_path, monkeypatch):
+        identity = ProjectIdentity(
+            project_id="proj_abc",
+            project_slug="test",
+            repo_path=tmp_path,
+        )
+        store = ContextStore(tmp_path / "context.sqlite3")
+        store.initialize()
+        store.register_project(identity)
+
+        class FakeBamlRuntime:
+            def PlanContextRetrieval(self, **_kwargs):
+                return {
+                    "actions": [
+                        {
+                            "action_type": "count",
+                            "kind": "fact",
+                            "status": "active",
+                            "rationale": "Count active facts.",
+                        }
+                    ],
+                    "rationale": "Use exact count.",
+                }
+
+            def AnswerFromContext(self, **_kwargs):
+                return {"answer": "...", "supporting_record_ids": []}
+
+        monkeypatch.setattr(
+            "lerim.agents.context_answerer.graph.build_baml_client_for_role",
+            lambda **_kwargs: FakeBamlRuntime(),
+        )
+
+        with pytest.raises(RuntimeError, match="invalid answer_from_context output"):
+            run_context_answerer(
+                context_db_path=tmp_path / "context.sqlite3",
+                project_identity=identity,
+                project_ids=["proj_abc"],
+                session_id="sess_1",
+                question="what is the answer timeout?",
+            )
 
     def test_can_return_debug_events(self, tmp_path, monkeypatch):
         identity = ProjectIdentity(

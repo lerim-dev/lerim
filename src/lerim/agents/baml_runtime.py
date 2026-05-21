@@ -11,11 +11,12 @@ from lerim.config.providers import (
     normalize_model_name,
 )
 from lerim.config.settings import Config, RoleConfig, get_config
-
-BAML_HTTP_CONNECT_TIMEOUT_MS = 10_000
-BAML_HTTP_TIME_TO_FIRST_TOKEN_TIMEOUT_MS = 120_000
-BAML_HTTP_IDLE_TIMEOUT_MS = 30_000
-BAML_HTTP_REQUEST_TIMEOUT_MS = 300_000
+from lerim.config.timeouts import (
+    BAML_HTTP_CONNECT_TIMEOUT_MS,
+    BAML_HTTP_IDLE_TIMEOUT_MS,
+    BAML_HTTP_REQUEST_TIMEOUT_MS,
+    BAML_HTTP_TIME_TO_FIRST_TOKEN_TIMEOUT_MS,
+)
 
 _LOCAL_PROVIDERS = {"ollama", "mlx"}
 

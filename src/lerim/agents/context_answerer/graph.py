@@ -9,6 +9,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from lerim.agents.baml_helpers import call_baml_with_retries
 from lerim.agents.baml_runtime import build_baml_client_for_role
 from lerim.agents.context_answerer.state import ContextAnswererGraphState
 from lerim.agents.context_answerer.types import ContextAnswerResult
@@ -19,6 +20,17 @@ from lerim.context.spec import (
     ALLOWED_STATUSES,
     normalize_record_kind,
     normalize_record_status,
+)
+
+ANSWER_SYNTHESIS_RUN_INSTRUCTION = (
+    "Write a complete user-facing answer from retrieval_json only. "
+    "If there is no direct stored support, say that directly. "
+    "Never return placeholders or schema examples."
+)
+PLAN_RETRIEVAL_RUN_INSTRUCTION = (
+    "Plan the smallest valid context-store retrieval. "
+    "Every search action must include a non-empty query. "
+    "Use count or list when no semantic query is needed."
 )
 
 
@@ -66,10 +78,24 @@ def build_context_answerer_graph(
 
     def plan_retrieval(state: ContextAnswererGraphState) -> dict[str, Any]:
         """Plan context-store reads using BAML."""
-        plan = baml_runtime.PlanContextRetrieval(
-            question=str(state.get("question") or ""),
-            current_utc=str(state.get("current_utc") or ""),
-            hints=str(state.get("hints") or ""),
+        plan, retry_events, attempts = call_baml_with_retries(
+            lambda instruction: baml_runtime.PlanContextRetrieval(
+                run_instruction=instruction,
+                question=str(state.get("question") or ""),
+                current_utc=str(state.get("current_utc") or ""),
+                hints=str(state.get("hints") or ""),
+            ),
+            stage="plan_context_retrieval",
+            progress=False,
+            progress_label="context-answerer",
+            run_instruction=PLAN_RETRIEVAL_RUN_INSTRUCTION,
+            validate_result=lambda result: _validate_retrieval_plan_result(
+                result,
+                max_actions=max_actions,
+            ),
+            make_observation=_model_retry_event,
+            semantic_retry_content=_plan_retry_content,
+            validation_retry_target="complete corrected retrieval plan",
         )
         actions = _plan_actions(plan)
         if not actions:
@@ -79,9 +105,11 @@ def build_context_answerer_graph(
         return {
             "actions": actions,
             "events": [
+                *retry_events,
                 {
                     "kind": "baml_call",
                     "function": "PlanContextRetrieval",
+                    "attempts": attempts,
                     "action_count": len(actions),
                     "rationale": _model_payload(plan).get("rationale"),
                 }
@@ -103,11 +131,25 @@ def build_context_answerer_graph(
     def synthesize_answer(state: ContextAnswererGraphState) -> dict[str, Any]:
         """Synthesize the final answer from retrieved context only."""
         retrieval_payload = state.get("retrieval_payload") or {}
-        answer = baml_runtime.AnswerFromContext(
-            question=str(state.get("question") or ""),
-            current_utc=str(state.get("current_utc") or ""),
-            hints=str(state.get("hints") or ""),
-            retrieval_json=json.dumps(retrieval_payload, ensure_ascii=True),
+        answer, retry_events, attempts = call_baml_with_retries(
+            lambda instruction: baml_runtime.AnswerFromContext(
+                run_instruction=instruction,
+                question=str(state.get("question") or ""),
+                current_utc=str(state.get("current_utc") or ""),
+                hints=str(state.get("hints") or ""),
+                retrieval_json=json.dumps(retrieval_payload, ensure_ascii=True),
+            ),
+            stage="answer_from_context",
+            progress=False,
+            progress_label="context-answerer",
+            run_instruction=ANSWER_SYNTHESIS_RUN_INSTRUCTION,
+            validate_result=lambda result: _validate_answer_result(
+                result,
+                retrieval_payload=retrieval_payload,
+            ),
+            make_observation=_model_retry_event,
+            semantic_retry_content=_answer_retry_content,
+            validation_retry_target="complete corrected context answer",
         )
         answer_payload = _model_payload(answer)
         supporting_record_ids = _valid_supporting_record_ids(
@@ -120,9 +162,11 @@ def build_context_answerer_graph(
                 supporting_record_ids=supporting_record_ids,
             ),
             "events": [
+                *retry_events,
                 {
                     "kind": "baml_call",
                     "function": "AnswerFromContext",
+                    "attempts": attempts,
                     "supporting_record_ids": supporting_record_ids,
                 }
             ],
@@ -144,6 +188,22 @@ def _plan_actions(plan: Any) -> list[dict[str, Any]]:
     """Return normalized retrieval actions from a BAML plan object."""
     payload = _model_payload(plan)
     return [_model_payload(action) for action in payload.get("actions") or []]
+
+
+def _validate_retrieval_plan_result(result: Any, *, max_actions: int) -> str | None:
+    """Reject retrieval plans that would fail before executing store reads."""
+    actions = _plan_actions(result)
+    if not actions:
+        return "retrieval plan must include at least one action"
+    if len(actions) > max_actions:
+        return f"retrieval plan has too many actions: {len(actions)}>{max_actions}"
+    for index, action in enumerate(actions, start=1):
+        action_type = str(action.get("action_type") or "").strip().lower()
+        if action_type not in {"count", "list", "search"}:
+            return f"action {index} has invalid action_type: {action_type}"
+        if action_type == "search" and not _text(action.get("query")):
+            return f"search action {index} must include a non-empty query"
+    return None
 
 
 def _execute_actions(
@@ -366,6 +426,59 @@ def _valid_supporting_record_ids(raw_ids: Any, retrieval_payload: dict[str, Any]
             seen.add(record_id)
             valid.append(record_id)
     return valid
+
+
+def _validate_answer_result(result: Any, *, retrieval_payload: dict[str, Any]) -> str | None:
+    """Reject structured answer payloads that cannot be shown to users."""
+    payload = _model_payload(result)
+    answer = str(payload.get("answer") or "").strip()
+    if _is_placeholder_only_answer(answer):
+        return (
+            "answer is empty or placeholder-only; write a complete answer from the "
+            "retrieved records, or explicitly state that there is no direct stored support"
+        )
+    raw_ids = payload.get("supporting_record_ids")
+    if raw_ids is not None and not isinstance(raw_ids, list):
+        return "supporting_record_ids must be a list"
+    return None
+
+
+def _is_placeholder_only_answer(answer: str) -> bool:
+    """Return whether an answer has no substantive alphanumeric content."""
+    return not answer or not any(character.isalnum() for character in answer)
+
+
+def _model_retry_event(
+    action: str,
+    ok: bool,
+    content: str,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """Render retry observations in the context-answerer event shape."""
+    return {
+        "kind": action,
+        "ok": ok,
+        "content": content,
+        **args,
+    }
+
+
+def _answer_retry_content(validation_error: str) -> str:
+    """Return compact retry guidance for semantically invalid answer output."""
+    return (
+        "The previous answer output could not be shown to the user. "
+        "Return exactly one structured answer object with a substantive answer and "
+        f"retrieved record IDs only. Validation error: {validation_error}"
+    )
+
+
+def _plan_retry_content(validation_error: str) -> str:
+    """Return compact retry guidance for semantically invalid retrieval plans."""
+    return (
+        "The previous retrieval plan could not be executed. "
+        "Return exactly one structured retrieval plan using only valid actions. "
+        f"Validation error: {validation_error}"
+    )
 
 
 def _limit(action: dict[str, Any]) -> int:

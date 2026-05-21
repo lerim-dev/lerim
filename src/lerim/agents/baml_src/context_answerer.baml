@@ -40,6 +40,7 @@ class ContextAnswer {
 }
 
 function PlanContextRetrieval(
+  run_instruction: string,
   question: string,
   current_utc: string,
   hints: string
@@ -57,6 +58,7 @@ function PlanContextRetrieval(
     - count: count exact records with filters.
     - list: list exact records with filters and newest-first ordering.
     - search: semantic/lexical retrieval for topical questions.
+    - Every search action must include a non-empty query string.
 
     Valid record kind filters:
     - decision, preference, constraint, fact, episode.
@@ -78,6 +80,9 @@ function PlanContextRetrieval(
     - Never plan raw SQL or file access.
 
     {{ _.role("user") }}
+    RUN INSTRUCTION:
+    {{ run_instruction }}
+
     CURRENT UTC:
     {{ current_utc }}
 
@@ -92,6 +97,7 @@ function PlanContextRetrieval(
 }
 
 function AnswerFromContext(
+  run_instruction: string,
   question: string,
   current_utc: string,
   hints: string,
@@ -113,8 +119,12 @@ function AnswerFromContext(
     - For aggregate-only count results with no records array, supporting_record_ids must be empty.
     - If support is only episode records, say support is only episodic.
     - Keep the answer concise.
+    - Never return placeholders, schema examples, or empty answer text.
 
     {{ _.role("user") }}
+    RUN INSTRUCTION:
+    {{ run_instruction }}
+
     CURRENT UTC:
     {{ current_utc }}
 

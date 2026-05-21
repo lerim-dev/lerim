@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 import urllib.error
 import urllib.request
 from http.server import HTTPServer
@@ -581,6 +582,48 @@ def test_post_answer(test_server):
 	assert status == 200
 	assert "answer" in body
 	assert "Mocked answer" in body["answer"]
+
+
+def test_post_answer_reports_internal_failure(test_server, monkeypatch):
+	"""POST /api/answer reports answerer exceptions instead of timing out."""
+	port, _, _ = test_server
+
+	def fail_answer(question, **kwargs):
+		"""Simulate a provider or database failure from the answerer."""
+		raise RuntimeError("provider request failed")
+
+	monkeypatch.setattr("lerim.server.httpd.api_answer", fail_answer)
+
+	status, body = _api_post_error(
+		port,
+		"/api/answer",
+		{"question": "What is Lerim?"},
+	)
+
+	assert status == 500
+	assert body["error"] == "Answer failed: RuntimeError: provider request failed"
+
+
+def test_post_answer_times_out_after_configured_deadline(test_server, monkeypatch):
+	"""POST /api/answer uses the configured answer timeout deadline."""
+	port, _, _ = test_server
+	monkeypatch.setattr("lerim.server.httpd.ANSWER_REQUEST_TIMEOUT_SECONDS", 0.01)
+
+	def slow_answer(question, **kwargs):
+		"""Simulate an answerer call that exceeds the endpoint deadline."""
+		time.sleep(0.2)
+		return {"answer": "too late", "error": False}
+
+	monkeypatch.setattr("lerim.server.httpd.api_answer", slow_answer)
+
+	status, body = _api_post_error(
+		port,
+		"/api/answer",
+		{"question": "What is Lerim?"},
+	)
+
+	assert status == 504
+	assert body["error"] == "Answer timed out after 0.01 seconds"
 
 
 def test_post_answer_rejects_unknown_field(test_server):

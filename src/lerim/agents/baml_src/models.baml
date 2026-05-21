@@ -18,8 +18,8 @@ client<llm> MiniMaxM27 {
     temperature 1.0
     http {
       connect_timeout_ms 10000
-      time_to_first_token_timeout_ms 120000
-      idle_timeout_ms 30000
+      time_to_first_token_timeout_ms 300000
+      idle_timeout_ms 300000
       request_timeout_ms 300000
     }
   }
@@ -35,8 +35,8 @@ client<llm> OllamaLocal {
     temperature 0.0
     http {
       connect_timeout_ms 10000
-      time_to_first_token_timeout_ms 120000
-      idle_timeout_ms 30000
+      time_to_first_token_timeout_ms 300000
+      idle_timeout_ms 300000
       request_timeout_ms 300000
     }
   }

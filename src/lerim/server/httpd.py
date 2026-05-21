@@ -44,6 +44,7 @@ from lerim.config.settings import (
     get_config,
     save_config_patch,
 )
+from lerim.config.timeouts import ANSWER_REQUEST_TIMEOUT_SECONDS
 
 from lerim.adapters.common import load_jsonl_dict_lines
 from lerim.config.providers import list_provider_models
@@ -797,6 +798,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 )
                 return
             result_holder: list[dict[str, Any]] = []
+            error_holder: list[Exception] = []
             scope = str(body.get("scope") or "all")
             project = body.get("project")
             project_name = str(project).strip() if isinstance(project, str) else None
@@ -804,20 +806,33 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
 
             def _run_context_answerer() -> None:
                 """Execute answer in background thread."""
-                if scope == "all" and not project_name:
-                    result_holder.append(api_answer(question, verbose=verbose))
-                else:
-                    result_holder.append(
-                        api_answer(question, scope=scope, project=project_name, verbose=verbose)
-                    )
+                try:
+                    if scope == "all" and not project_name:
+                        result_holder.append(api_answer(question, verbose=verbose))
+                    else:
+                        result_holder.append(
+                            api_answer(question, scope=scope, project=project_name, verbose=verbose)
+                        )
+                except Exception as exc:
+                    logger.exception("answer request failed")
+                    error_holder.append(exc)
 
-            thread = threading.Thread(target=_run_context_answerer)
+            thread = threading.Thread(target=_run_context_answerer, daemon=True)
             thread.start()
-            thread.join(timeout=300)
+            thread.join(timeout=ANSWER_REQUEST_TIMEOUT_SECONDS)
             if result_holder:
                 self._json(result_holder[0])
+            elif error_holder:
+                error = error_holder[0]
+                self._error(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    f"Answer failed: {type(error).__name__}: {error}",
+                )
             else:
-                self._error(HTTPStatus.GATEWAY_TIMEOUT, "Answer timed out")
+                self._error(
+                    HTTPStatus.GATEWAY_TIMEOUT,
+                    f"Answer timed out after {ANSWER_REQUEST_TIMEOUT_SECONDS} seconds",
+                )
             return
         if path == "/api/query":
             body = read_body()

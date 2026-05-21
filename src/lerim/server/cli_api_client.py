@@ -8,7 +8,9 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-API_POST_TIMEOUT_SECONDS = 1800
+from lerim.config.timeouts import HTTP_API_POST_TIMEOUT_SECONDS
+
+API_POST_TIMEOUT_SECONDS = HTTP_API_POST_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
