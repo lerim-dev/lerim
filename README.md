@@ -39,6 +39,10 @@
 </p>
 
 <p align="center">
+  <img src="docs/assets/lerim-trace-to-answer.gif" alt="Trace-to-answer demo" width="860">
+</p>
+
+<p align="center">
   <strong>Runs in</strong> -> <strong>context graph compiled</strong> -> <strong>agents and humans reuse it</strong>
 </p>
 
