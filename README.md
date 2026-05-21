@@ -38,14 +38,6 @@
   <em>Completed source sessions become a reusable context graph; future agents and humans retrieve compact cited memory.</em>
 </p>
 
-<p align="center">
-  <img src="docs/assets/lerim-trace-to-answer.gif" alt="Trace-to-answer demo" width="860">
-</p>
-
-<p align="center">
-  <strong>Runs in</strong> -> <strong>context graph compiled</strong> -> <strong>agents and humans reuse it</strong>
-</p>
-
 # Lerim
 
 Lerim is a source-session context compiler for AI agent workflows.
@@ -277,6 +269,10 @@ Research, revenue, security, and other verticals can use the same custom-trace p
 
 Built-in `connect` adapters monitor the supported sources available today:
 Claude Code, Codex CLI, Cursor, OpenCode, and pi.
+
+<p align="center">
+  <img src="docs/assets/lerim-custom-trace-folder.svg" alt="Custom trace folders let any trace-producing agent connect to Lerim through clean JSONL" width="860">
+</p>
 
 For another agent or business workflow, register already-clean Lerim canonical
 JSONL traces:

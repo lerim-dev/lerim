@@ -100,13 +100,14 @@ def test_market_comparison_lists_each_mempalace_tracked_boundary() -> None:
     assert "| MemPalace | hybrid_v4 no-rerank held-out set | 450 | 98.4% | 99.8% |" in text
 
 
-def test_readme_launch_links_and_demo_copy_are_github_ready() -> None:
-    """README launch links should be concrete and should not overstate setup speed."""
+def test_readme_launch_links_are_github_ready_without_duplicate_demo_asset() -> None:
+    """README launch links should be concrete and avoid duplicate demo media."""
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert 'href="docs/benchmarks/index.md"' in text
     assert 'href="docs/examples/index.md"' in text
-    assert "docs/assets/lerim-trace-to-answer.gif" in text
+    assert "docs/assets/lerim-custom-trace-folder.svg" in text
+    assert "docs/assets/lerim-trace-to-answer.gif" not in text
     assert "Install In 60 Seconds" not in text
     assert "real run" not in text.lower()
     assert "AgentMemory" not in text

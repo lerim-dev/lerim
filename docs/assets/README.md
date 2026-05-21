@@ -11,9 +11,6 @@ that are safe to ship with the docs site.
   humans.
 - `lerim-custom-trace-folder.svg` is the public custom-trace flow showing
   clean JSONL registration and daemon polling ingest.
-- `lerim-trace-to-answer.gif` is a legacy trace-to-answer demo rendered from
-  the Remotion source in `remotion/trace-to-answer/`. Keep its captions focused
-  on the product flow, not benchmark or extraction-quality claims.
 - `integration-matrix-screenshot.png` is a non-authoritative public docs
   screenshot, not a benchmark artifact. Regenerate it from the integration
   matrix page before release.
