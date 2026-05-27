@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.13] - 2026-05-27
+
+### Added
+- Added the open-source dashboard to the main Lerim repository.
+
+### Fixed
+- Served the context graph dashboard from learned graph data, including real
+  `context_nodes` and `context_edges`, instead of the old record-only fallback.
+
 ## [0.3.12] - 2026-05-21
 
 ### Added
