@@ -433,11 +433,19 @@ runs **inside**
 
 ### `lerim dashboard`
 
-Shows current web UI status and lists CLI alternatives for common tasks.
+Start the local dashboard UI. If the backend API is not reachable, the command
+starts it with the Docker runtime path used by `lerim up`.
 
 ```bash
+lerim up                    # optional explicit backend startup
+lerim up --build            # optional local backend rebuild
 lerim dashboard
+lerim dashboard --port 3001
 ```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--port` | `3000` | Local dashboard UI port |
 
 ### `lerim answer`
 

@@ -1,37 +1,47 @@
 # lerim dashboard
 
-Prints the local dashboard startup commands.
+Starts the local dashboard UI.
 
 ## Overview
 
-The dashboard needs two running processes:
+`lerim dashboard` starts the local Next.js dashboard dev server, prints the
+dashboard URL, and points it at the running Lerim API. If the backend API is not
+reachable, the command starts it with the same Docker runtime path as `lerim up`.
 
-- backend: `lerim serve`
-- UI: `cd dashboard && npm run dev`
+For local backend rebuilds, run `lerim up --build` first, then `lerim dashboard`.
 
 ## Syntax
 
 ```bash
-lerim dashboard
+lerim dashboard [--port PORT]
 ```
 
 ## Examples
 
 ```bash
+lerim up
 lerim dashboard
 ```
 
-Sample output:
+Build the backend locally before opening the dashboard:
 
+```bash
+lerim up --build
+lerim dashboard
 ```
-  Lerim Dashboard runs locally with two processes:
-    backend: lerim serve
-    UI:      cd dashboard && npm run dev
 
-  Open: http://localhost:3000
-  API:  http://localhost:8765
-  Writes stay in the CLI: ingest, curate, answer, queue.
+Run the UI on a different port:
+
+```bash
+lerim dashboard --port 3001
 ```
+
+## Options
+
+<div class="param-block">
+  <p><code>--port PORT</code></p>
+  <p class="param-desc">Dashboard UI port. Defaults to <code>3000</code>.</p>
+</div>
 
 ## See also
 

@@ -542,15 +542,133 @@ class TestCmdCurate:
 class TestCmdDashboard:
     """Tests for the dashboard command handler."""
 
-    def test_dashboard_output(self) -> None:
-        """Dashboard prints the cloud transition message and returns 0."""
-        args = _ns(command="dashboard", port=None)
+    def test_dashboard_starts_ui_after_backend_check(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dashboard launches the Next.js UI with the local API URL."""
+        dashboard_dir = tmp_path / "dashboard"
+        dashboard_dir.mkdir()
+        (dashboard_dir / "package.json").write_text("{}", encoding="utf-8")
+        (dashboard_dir / "node_modules").mkdir()
+        cfg = make_config(tmp_path / ".lerim")
+        commands: list[tuple[list[str], Path, str]] = []
+
+        monkeypatch.setattr(cli, "get_config", lambda: cfg)
+        monkeypatch.setattr(cli, "_resolve_dashboard_dir", lambda: dashboard_dir)
+        monkeypatch.setattr(cli.shutil, "which", lambda name: f"/bin/{name}")
+        monkeypatch.setattr(cli, "_ensure_dashboard_backend", lambda port: True)
+        monkeypatch.setattr(
+            cli,
+            "_run_dashboard_command",
+            lambda command, *, cwd, env: commands.append(
+                (command, cwd, env["LERIM_API_URL"])
+            )
+            or 0,
+        )
+
+        args = _ns(command="dashboard", port=3001)
         buf = io.StringIO()
         with redirect_stdout(buf):
             code = cli._cmd_dashboard(args)
         assert code == 0
         text = buf.getvalue()
-        assert "lerim.dev" in text.lower() or "cloud" in text.lower()
+        assert "http://localhost:3001" in text
+        assert commands == [
+            (
+                ["npm", "run", "dev", "--", "--port", "3001"],
+                dashboard_dir,
+                "http://localhost:8765",
+            )
+        ]
+
+    def test_dashboard_installs_dependencies_when_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dashboard runs npm install before dev when node_modules is absent."""
+        dashboard_dir = tmp_path / "dashboard"
+        dashboard_dir.mkdir()
+        (dashboard_dir / "package.json").write_text("{}", encoding="utf-8")
+        cfg = make_config(tmp_path / ".lerim")
+        commands: list[list[str]] = []
+
+        monkeypatch.setattr(cli, "get_config", lambda: cfg)
+        monkeypatch.setattr(cli, "_resolve_dashboard_dir", lambda: dashboard_dir)
+        monkeypatch.setattr(cli.shutil, "which", lambda name: f"/bin/{name}")
+        monkeypatch.setattr(cli, "_ensure_dashboard_backend", lambda port: True)
+        monkeypatch.setattr(
+            cli,
+            "_run_dashboard_command",
+            lambda command, *, cwd, env: commands.append(command) or 0,
+        )
+
+        args = _ns(command="dashboard", port=3000)
+        assert cli._cmd_dashboard(args) == 0
+        assert commands == [
+            ["npm", "install"],
+            ["npm", "run", "dev", "--", "--port", "3000"],
+        ]
+
+    def test_dashboard_starts_backend_when_needed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Backend helper starts Docker runtime when health check is down."""
+        cfg = make_config(tmp_path / ".lerim")
+        checks = iter([False, True])
+        calls: list[bool] = []
+
+        monkeypatch.setattr(cli, "current_compose_uses_local_build", lambda: True)
+        monkeypatch.setattr(
+            cli,
+            "_wait_for_ready",
+            lambda port, timeout=30: next(checks),
+        )
+        monkeypatch.setattr(
+            cli,
+            "api_up",
+            lambda build_local=False: calls.append(build_local) or {},
+        )
+
+        assert cli._ensure_dashboard_backend(cfg.server_port) is True
+        assert calls == [True]
+
+    def test_dashboard_returns_error_when_npm_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dashboard reports missing npm without starting subprocesses."""
+        dashboard_dir = tmp_path / "dashboard"
+        dashboard_dir.mkdir()
+        (dashboard_dir / "package.json").write_text("{}", encoding="utf-8")
+        cfg = make_config(tmp_path / ".lerim")
+
+        monkeypatch.setattr(cli, "get_config", lambda: cfg)
+        monkeypatch.setattr(cli, "_resolve_dashboard_dir", lambda: dashboard_dir)
+        monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+
+        args = _ns(command="dashboard", port=3000)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = cli._cmd_dashboard(args)
+        assert code == 1
+        assert "npm" in err.getvalue()
+
+    def test_dashboard_returns_error_when_source_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dashboard reports a missing source directory without a traceback."""
+        cfg = make_config(tmp_path / ".lerim")
+        monkeypatch.setattr(cli, "get_config", lambda: cfg)
+        monkeypatch.setattr(
+            cli,
+            "_resolve_dashboard_dir",
+            lambda: (_ for _ in ()).throw(FileNotFoundError("missing dashboard")),
+        )
+
+        args = _ns(command="dashboard", port=3000)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = cli._cmd_dashboard(args)
+        assert code == 1
+        assert "missing dashboard" in err.getvalue()
 
 
 # ===================================================================
@@ -2314,6 +2432,7 @@ class TestBuildParser:
             ["curate"],
             ["context-brief"],
             ["dashboard"],
+            ["dashboard", "--port", "3001"],
             ["answer", "question text"],
             ["status"],
             ["queue"],

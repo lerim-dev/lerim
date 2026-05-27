@@ -111,7 +111,7 @@ The daemon loop uses `ingest_interval_minutes` and `curate_interval_minutes` fro
 
     ---
 
-    Print local dashboard instructions + CLI alternatives
+    Start the local dashboard UI
 
     [:octicons-arrow-right-24: lerim dashboard](dashboard.md)
 

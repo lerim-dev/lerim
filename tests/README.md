@@ -128,6 +128,7 @@ Rules:
 - session catalog tests cover queue claim availability, content-hash refresh/change detection, and stable pagination ordering
 - session catalog tests cover retrying both failed and dead-letter queue jobs without display pagination limits
 - API/daemon tests cover degraded status reporting when the session catalog is unavailable
+- server CLI tests cover the dashboard launcher contract, including backend startup checks and the Next.js dev command
 - server Docker compose tests cover GHCR startup, local build source-root resolution, no-build local image reuse, and generated compose hardening
 - daemon tests cover transient session-job heartbeat write failures
 - session catalog tests cover process-local active-job leases that avoid false stale queue health during transient heartbeat write failures

@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -128,6 +131,9 @@ _MCP_TARGET_NATIVE_ADAPTERS = {
     "cursor": "cursor",
     "opencode": "opencode",
 }
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_DASHBOARD_DIR = _REPO_ROOT / "dashboard"
+_OPT_DASHBOARD_DIR = Path("/opt/lerim/dashboard")
 
 
 def _daemon_last_run_after_attempt(
@@ -199,6 +205,46 @@ def _wait_for_ready(port: int, timeout: int = 30) -> bool:
             pass
         time.sleep(1)
     return False
+
+
+def _resolve_dashboard_dir() -> Path:
+    """Return the local dashboard source directory for the UI launcher."""
+    cwd_dashboard = Path.cwd() / "dashboard"
+    for candidate in (cwd_dashboard, _REPO_DASHBOARD_DIR, _OPT_DASHBOARD_DIR):
+        if (candidate / "package.json").is_file():
+            return candidate
+    raise FileNotFoundError(
+        "Dashboard source was not found. Run `lerim dashboard` from the Lerim repo "
+        "or install a distribution that includes the dashboard directory."
+    )
+
+
+def _ensure_dashboard_backend(port: int) -> bool:
+    """Ensure the local Docker backend is reachable before starting the UI."""
+    if _wait_for_ready(port, timeout=2):
+        return True
+    _emit("Starting Lerim backend with `lerim up`...")
+    result = api_up(build_local=current_compose_uses_local_build())
+    if result.get("error"):
+        _emit(result["error"], file=sys.stderr)
+        return False
+    if _wait_for_ready(port):
+        return True
+    _emit(
+        "Backend started but the API is not responding. Check logs with: lerim logs",
+        file=sys.stderr,
+    )
+    return False
+
+
+def _run_dashboard_command(
+    command: list[str], *, cwd: Path, env: dict[str, str]
+) -> int:
+    """Run one dashboard subprocess and return its exit code."""
+    try:
+        return subprocess.run(command, cwd=cwd, env=env, check=False).returncode
+    except KeyboardInterrupt:
+        return 130
 
 
 def _api_get(path: str) -> dict[str, Any]:
@@ -859,17 +905,44 @@ def context_brief_show_action(status: dict[str, Any]) -> str:
 
 
 def _cmd_dashboard(args: argparse.Namespace) -> int:
-    """Show local dashboard instructions."""
-    print()
-    print("  Lerim Dashboard runs locally with two processes:")
-    print("    backend: lerim serve")
-    print("    UI:      cd dashboard && npm run dev")
-    print()
-    print("  Open: http://localhost:3000")
-    print("  API:  http://localhost:8765")
-    print("  Writes stay in the CLI: ingest, curate, answer, queue.")
-    print()
-    return 0
+    """Start the local dashboard UI and ensure the backend is running."""
+    config = get_config()
+    try:
+        dashboard_dir = _resolve_dashboard_dir()
+    except FileNotFoundError as exc:
+        _emit(str(exc), file=sys.stderr)
+        return 1
+    ui_port = int(getattr(args, "port", 3000) or 3000)
+    api_url = f"http://localhost:{config.server_port}"
+
+    if shutil.which("npm") is None:
+        _emit("`npm` is required to run the dashboard UI.", file=sys.stderr)
+        return 1
+    if not _ensure_dashboard_backend(int(config.server_port)):
+        return 1
+
+    env = os.environ.copy()
+    env["LERIM_API_URL"] = api_url
+
+    if not (dashboard_dir / "node_modules").is_dir():
+        _emit("Installing dashboard dependencies with `npm install`...")
+        install_code = _run_dashboard_command(
+            ["npm", "install"], cwd=dashboard_dir, env=env
+        )
+        if install_code != 0:
+            return install_code
+
+    _emit()
+    _emit(f"  Lerim Dashboard: http://localhost:{ui_port}")
+    _emit(f"  API:             {api_url}")
+    _emit("  Press Ctrl-C to stop the dashboard UI.")
+    _emit()
+    sys.stdout.flush()
+    return _run_dashboard_command(
+        ["npm", "run", "dev", "--", "--port", str(ui_port)],
+        cwd=dashboard_dir,
+        env=env,
+    )
 
 
 def _cmd_mcp(args: argparse.Namespace) -> int:
@@ -2967,8 +3040,18 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard = sub.add_parser(
         "dashboard",
         formatter_class=_F,
-        help="Show local dashboard instructions",
-        description="Print local dashboard instructions and CLI alternatives.",
+        help="Start the local dashboard UI",
+        description=(
+            "Start the local dashboard UI, ensuring the Lerim backend is running. "
+            "Run `lerim up --build` first when you want the backend built from the "
+            "local Dockerfile."
+        ),
+    )
+    dashboard.add_argument(
+        "--port",
+        type=int,
+        default=3000,
+        help="Dashboard UI port (default: 3000).",
     )
     dashboard.set_defaults(func=_cmd_dashboard)
 
