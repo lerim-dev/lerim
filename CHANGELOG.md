@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.18] - 2026-05-28
+
+### Changed
+- Added a persistent node type legend to the dashboard Context Graph canvas so
+  record-kind colors are readable without opening the inspector panel.
+
 ## [0.3.17] - 2026-05-28
 
 ### Changed
