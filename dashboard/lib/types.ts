@@ -107,16 +107,40 @@ export interface ContextRecord {
   status: string;
   source: string | null;
   source_session_id: string | null;
+  source_event_refs?: string | null;
+  evidence_refs?: string | null;
   ingestion_agent?: string | null;
   source_trace_ref?: string | null;
   changed_by_session_id?: string | null;
   change_reason?: string | null;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  superseded_by_record_id?: string | null;
+  decision?: string | null;
+  why?: string | null;
+  alternatives?: string | null;
+  consequences?: string | null;
+  user_intent?: string | null;
+  what_happened?: string | null;
+  outcomes?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
 
 export interface RecordsResponse {
   records: ContextRecord[];
+  total: number;
+}
+
+export interface ContextRecordVersion extends ContextRecord {
+  version_id: string;
+  version_no: number;
+  change_kind: string;
+  changed_at: string;
+}
+
+export interface RecordVersionsResponse {
+  versions: ContextRecordVersion[];
   total: number;
 }
 

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const NAV_ITEMS = [
 	{ href: "/overview", label: "Overview", mobileLabel: "Home", icon: ActivityIcon },
+	{ href: "/analytics", label: "Insights", icon: InsightsIcon },
 	{ href: "/context", label: "Context", icon: BrainIcon },
 	{ href: "/context-graph", label: "Context Graph", mobileLabel: "Graph", icon: PipelineIcon },
 	{ href: "/operations", label: "Operations", mobileLabel: "Ops", icon: LogsIcon },
@@ -112,7 +113,7 @@ export default function Sidebar({
 					</Link>
 				</div>
 			</aside>
-			<nav aria-label="Mobile primary" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 gap-1 border-t border-[var(--border)] bg-[rgba(17,24,39,0.96)] px-1 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 backdrop-blur md:hidden">
+			<nav aria-label="Mobile primary" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 gap-1 border-t border-[var(--border)] bg-[rgba(17,24,39,0.96)] px-1 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 backdrop-blur md:hidden">
 				{[...NAV_ITEMS, { href: "/settings", label: "Settings", mobileLabel: "Settings", icon: GearIcon }].map(({ href, label, mobileLabel, icon: Icon }) => {
 					const active = isActiveRoute(pathname, href);
 					return (
@@ -176,6 +177,27 @@ function ActivityIcon({ className }: { className?: string }) {
 			strokeLinejoin="round"
 		>
 			<path d="M2 12h4l3-9 4 18 3-9h4" />
+		</svg>
+	);
+}
+
+function InsightsIcon({ className }: { className?: string }) {
+	return (
+		<svg
+			className={className}
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth={2}
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		>
+			<path d="M4 19V5" />
+			<path d="M4 19h16" />
+			<path d="M8 16v-4" />
+			<path d="M12 16V8" />
+			<path d="M16 16v-6" />
+			<path d="m8 9 3-3 3 2 4-5" />
 		</svg>
 	);
 }
