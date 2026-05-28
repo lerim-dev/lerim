@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import type { PipelineReportResponse, StatsResponse } from "@/lib/types";
+import type { ContextRecordVersion, PipelineReportResponse, StatsResponse } from "@/lib/types";
 import StatsCard from "@/components/StatsCard";
 import AgentDistributionChart from "@/components/charts/AgentDistributionChart";
 import DailySessionsChart from "@/components/charts/DailySessionsChart";
@@ -10,17 +10,19 @@ import HourlyActivityChart from "@/components/charts/HourlyActivityChart";
 import ToolUsageChart from "@/components/charts/ToolUsageChart";
 import DailyMetricsChart from "@/components/charts/DailyMetricsChart";
 import ModelUsageChart from "@/components/charts/ModelUsageChart";
+import MemoryTimelineChart, { type MemoryTimelineScope } from "@/components/charts/MemoryTimelineChart";
 
-const SCOPES = [
-	{ value: "all", label: "All" },
+const INSIGHT_SCOPES: Array<{ value: MemoryTimelineScope; label: string }> = [
 	{ value: "week", label: "Week" },
 	{ value: "month", label: "Month" },
-] as const;
+	{ value: "all", label: "All" },
+];
 
 export default function AnalyticsPage() {
-	const [scope, setScope] = useState("all");
+	const [statsScope, setStatsScope] = useState<MemoryTimelineScope>("all");
 	const [stats, setStats] = useState<StatsResponse | null>(null);
 	const [report, setReport] = useState<PipelineReportResponse | null>(null);
+	const [memoryVersions, setMemoryVersions] = useState<ContextRecordVersion[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
@@ -28,27 +30,32 @@ export default function AnalyticsPage() {
 		setLoading(true);
 		setError(null);
 		try {
-			const [statsData, reportData] = await Promise.all([
-				api.getStats(scope, true),
+			const [statsData, reportData, versionsData] = await Promise.all([
+				api.getStats(statsScope, true),
 				api.getPipelineReport().catch(() => null),
+				api.getRecordVersions({ limit: "5000" }),
 			]);
 			setStats(statsData);
 			setReport(reportData);
+			setMemoryVersions(versionsData.versions);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to load stats");
 		} finally {
 			setLoading(false);
 		}
-	}, [scope]);
+	}, [statsScope]);
 
 	useEffect(() => {
 		load();
 	}, [load]);
 
+	const memoryTotals = memoryRecordTotals(memoryVersions);
 	const totalRuns = stats?.totals.runs ?? 0;
-	const totalRecords = report?.records_total ?? 0;
+	const totalRecords = Math.max(report?.records_total ?? 0, memoryTotals.total);
 	const totalErrors = stats?.totals.errors ?? 0;
-	const activeRecords = report?.records_active ?? 0;
+	const activeRecords = Math.max(report?.records_active ?? 0, memoryTotals.active);
+	const hasModelUsage = stats ? Object.keys(stats.model_usage).length > 0 : false;
+	const hasToolUsage = stats ? stats.tool_usage.length > 0 : false;
 
 	/* Trend indicators (simple heuristic: compare to average) */
 	const errorRate =
@@ -59,27 +66,33 @@ export default function AnalyticsPage() {
 	return (
 		<>
 			{/* Header */}
-			<div className="flex items-center justify-between">
+			<div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 				<div>
-					<h1 className="text-lg font-semibold text-[var(--text)]">Usage Diagnostics</h1>
+					<h1 className="text-lg font-semibold text-[var(--text)]">Insights</h1>
 					<p className="mt-0.5 text-xs text-[var(--text-muted)]">
-						Transcript activity, context volume, and runtime quality signals
+						Memory growth, transcript activity, and runtime quality signals
 					</p>
 				</div>
-				<div className="inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--bg-card)]">
-					{SCOPES.map(({ value: v, label }) => (
-						<button
-							key={v}
-							onClick={() => setScope(v)}
-							className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-								scope === v
-									? "bg-white/[0.08] text-[var(--text)]"
-									: "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-							} ${v === "all" ? "rounded-l-md" : ""} ${v === "month" ? "rounded-r-md" : ""}`}
-						>
-							{label}
-						</button>
-					))}
+				<div className="flex flex-wrap items-center gap-2">
+					<span className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+						Time window
+					</span>
+					<div className="inline-flex min-h-11 items-center rounded-md border border-[var(--border)] bg-[var(--bg-card)]">
+						{INSIGHT_SCOPES.map(({ value, label }, index) => (
+							<button
+								key={value}
+								type="button"
+								onClick={() => setStatsScope(value)}
+								className={`min-h-11 px-3 text-xs font-medium transition-colors ${
+									statsScope === value
+										? "bg-white/[0.08] text-[var(--text)]"
+										: "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+								} ${index === 0 ? "rounded-l-md" : ""} ${index === INSIGHT_SCOPES.length - 1 ? "rounded-r-md" : ""}`}
+							>
+								{label}
+							</button>
+						))}
+					</div>
 				</div>
 			</div>
 
@@ -93,7 +106,7 @@ export default function AnalyticsPage() {
 				<div className="mt-8 text-center text-sm text-[var(--text-muted)]">
 					Loading…
 				</div>
-			) : stats && totalRuns === 0 && totalRecords === 0 ? (
+			) : stats && totalRuns === 0 && totalRecords === 0 && memoryVersions.length === 0 ? (
 				<div className="mt-8 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-6 py-10 text-center">
 					<p className="text-sm font-medium text-[var(--text)]">No impact data yet.</p>
 					<p className="mt-1 text-xs text-[var(--text-muted)]">
@@ -134,26 +147,40 @@ export default function AnalyticsPage() {
 						<ReadinessNotice stats={stats} />
 					)}
 
-					{/* Charts: 2-column grid */}
-					<div className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-2">
-						<DailySessionsChart daily={stats.daily} byAgent={stats.by_agent} />
-						<AgentDistributionChart byAgent={stats.by_agent} />
-					</div>
+					<MemoryTimelineChart
+						versions={memoryVersions}
+						scope={statsScope}
+						loading={loading}
+					/>
 
-					{/* Second row: 2-column grid */}
-					<div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-						<HourlyActivityChart data={stats.hourly_activity} />
-						<ModelUsageChart data={stats.model_usage} />
-					</div>
+					<section className="mt-6">
+						<div>
+							<h2 className="text-base font-semibold text-[var(--text)]">Source Activity</h2>
+							<p className="mt-1 text-xs text-[var(--text-muted)]">
+								Sessions, agents, messages, and runtime quality
+							</p>
+						</div>
 
-					{/* Full-width charts */}
-					<div className="mt-3">
-						<DailyMetricsChart daily={stats.daily} />
-					</div>
+						<div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+							<DailySessionsChart daily={stats.daily} byAgent={stats.by_agent} />
+							<AgentDistributionChart byAgent={stats.by_agent} />
+						</div>
 
-					<div className="mt-3">
-						<ToolUsageChart data={stats.tool_usage} />
-					</div>
+						<div className={`mt-3 grid grid-cols-1 gap-3 ${hasModelUsage ? "lg:grid-cols-2" : ""}`}>
+							<HourlyActivityChart data={stats.hourly_activity} />
+							{hasModelUsage && <ModelUsageChart data={stats.model_usage} />}
+						</div>
+
+						<div className="mt-3">
+							<DailyMetricsChart daily={stats.daily} />
+						</div>
+
+						{hasToolUsage && (
+							<div className="mt-3">
+								<ToolUsageChart data={stats.tool_usage} />
+							</div>
+						)}
+					</section>
 				</>
 			) : null}
 		</>
@@ -185,4 +212,17 @@ function formatCompact(value: number): string {
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
 	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
 	return value.toLocaleString();
+}
+
+/** Count current total and active records from the latest visible version per record. */
+function memoryRecordTotals(versions: ContextRecordVersion[]) {
+	const latestStatus = new Map<string, string>();
+	for (const version of [...versions].sort((left, right) => String(left.changed_at).localeCompare(String(right.changed_at)))) {
+		const archived = version.change_kind === "archive" || version.change_kind === "supersede" || version.status === "archived";
+		latestStatus.set(version.record_id, archived ? "archived" : "active");
+	}
+	return {
+		total: latestStatus.size,
+		active: Array.from(latestStatus.values()).filter((status) => status === "active").length,
+	};
 }

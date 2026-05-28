@@ -20,6 +20,7 @@ interface ChartWrapperProps {
   loading?: boolean;
   empty?: boolean;
   emptyText?: string;
+  onEvents?: Record<string, (params: unknown) => void>;
 }
 
 export default function ChartWrapper({
@@ -28,6 +29,7 @@ export default function ChartWrapper({
   loading = false,
   empty = false,
   emptyText = "No data available",
+  onEvents,
 }: ChartWrapperProps) {
   if (empty) {
     return (
@@ -80,6 +82,7 @@ export default function ChartWrapper({
           option={baseOption}
           style={{ height, width: "100%" }}
           opts={{ renderer: "svg" }}
+          onEvents={onEvents}
           showLoading={loading}
           loadingOption={{
             text: "Loading…",

@@ -1,6 +1,7 @@
 import type {
   ActivityFeedResponse,
   ContextRecord,
+  ContextRecordVersion,
   GraphExpandResponse,
   GraphQueryResponse,
   IntelligenceResponse,
@@ -10,6 +11,7 @@ import type {
   PipelineReportResponse,
   PipelineStatusResponse,
   RecordFiltersResponse,
+  RecordVersionsResponse,
   RecordsResponse,
   Session,
   SessionDetail,
@@ -95,12 +97,37 @@ function normalizeRecord(row: Record<string, unknown>): ContextRecord {
     status: String(row.status || "active"),
     source: asNullableString(row.source_name),
     source_session_id: asNullableString(row.source_session_id),
+    source_event_refs: asNullableString(row.source_event_refs),
+    evidence_refs: asNullableString(row.evidence_refs),
     ingestion_agent: asNullableString(row.source_profile),
     source_trace_ref: asNullableString(row.source_session_id),
     changed_by_session_id: null,
     change_reason: null,
+    valid_from: asNullableString(row.valid_from),
+    valid_until: asNullableString(row.valid_until),
+    superseded_by_record_id: asNullableString(row.superseded_by_record_id),
+    decision: asNullableString(row.decision),
+    why: asNullableString(row.why),
+    alternatives: asNullableString(row.alternatives),
+    consequences: asNullableString(row.consequences),
+    user_intent: asNullableString(row.user_intent),
+    what_happened: asNullableString(row.what_happened),
+    outcomes: asNullableString(row.outcomes),
     created_at: asNullableString(row.created_at),
     updated_at: asNullableString(row.updated_at),
+  };
+}
+
+/** Normalize one record-version row from the deterministic query API. */
+function normalizeRecordVersion(row: Record<string, unknown>): ContextRecordVersion {
+  return {
+    ...normalizeRecord(row),
+    version_id: String(row.version_id || ""),
+    version_no: asNumber(row.version_no),
+    change_kind: String(row.change_kind || ""),
+    change_reason: asNullableString(row.change_reason),
+    changed_at: String(row.changed_at || row.updated_at || row.created_at || ""),
+    changed_by_session_id: asNullableString(row.changed_by_session_id),
   };
 }
 
@@ -393,6 +420,29 @@ async function queryRecords(params?: Record<string, string>): Promise<RecordsRes
   };
 }
 
+/** Fetch record-version history for memory lifecycle charts. */
+async function queryRecordVersions(params?: Record<string, string>): Promise<RecordVersionsResponse> {
+  const payload = await apiFetch<Record<string, unknown>>("/api/query", {
+    method: "POST",
+    body: JSON.stringify({
+      entity: "versions",
+      mode: "list",
+      scope: "all",
+      kind: params?.record_kind || undefined,
+      source_session_id: params?.source_session_id || undefined,
+      order_by: "updated_at",
+      limit: Number(params?.limit || 5000),
+      offset: Number(params?.offset || 0),
+      include_total: true,
+    }),
+  });
+  const versions = arrayValue(payload.rows).map((row) => normalizeRecordVersion(objectValue(row)));
+  return {
+    versions,
+    total: asNumber(payload.total) || versions.length,
+  };
+}
+
 export const api = {
   getStats: async (scope?: string, _extended?: boolean) => {
     const raw = await apiFetch<Record<string, unknown>>(`/api/runs/stats?scope=${scope || "week"}`);
@@ -471,6 +521,8 @@ export const api = {
   },
 
   getRecords: queryRecords,
+
+  getRecordVersions: queryRecordVersions,
 
   getRecord: async (recordId: string) => {
     const data = await queryRecords({ limit: "500" });
