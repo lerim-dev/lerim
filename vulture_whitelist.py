@@ -63,6 +63,7 @@ records_missing_since_generation  # noqa
 latest_run_folder  # noqa
 suggested_action  # noqa
 records_changed_since_previous  # noqa
+recent_versions_considered  # noqa
 episode_update_refs  # noqa
 skip_reason  # noqa
 
@@ -93,6 +94,7 @@ _mlflow_run_span  # noqa
 
 # MCP tool functions registered by FastMCP decorators
 lerim_context_brief  # noqa
+lerim_working_memory  # noqa
 lerim_context_answer  # noqa
 lerim_context_search  # noqa
 lerim_records_list  # noqa
