@@ -909,6 +909,24 @@ export default function GraphExplorer({ onRecordClick }: GraphExplorerProps) {
           <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_center,transparent,rgba(2,6,23,0.62))]" />
           <div ref={containerRef} className="absolute inset-0 z-[2]" />
 
+          {!loading && !error && graph.nodes.length > 0 && recordKindCounts.size > 0 && (
+            <div className="pointer-events-none absolute bottom-4 left-4 z-10 max-w-[calc(100%-2rem)] rounded-2xl border border-white/10 bg-slate-950/72 p-3 shadow-2xl shadow-black/30 backdrop-blur-md">
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Node types</div>
+              <div className="flex flex-wrap gap-2">
+                {Array.from(recordKindCounts.entries()).sort((a, b) => b[1] - a[1]).map(([kind, count]) => (
+                  <div key={kind} className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1.5 text-xs text-slate-200">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full shadow-[0_0_14px_currentColor]"
+                      style={{ backgroundColor: KIND_COLORS[kind] || "#64748b", color: KIND_COLORS[kind] || "#64748b" }}
+                    />
+                    <span className="font-medium">{formatRecordKind(kind)}</span>
+                    <span className="text-slate-500">{count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loading && (
             <div className="absolute left-4 top-4 z-10 rounded-md border border-white/10 bg-slate-950/85 px-3 py-2 text-sm text-slate-200 shadow-sm backdrop-blur">
               Loading graph...
