@@ -92,6 +92,7 @@ flowchart TD
 - Use `lerim context-brief path` when another tool needs the stable Markdown path.
 - Working Memory is a separate generated markdown view over recent record versions.
 - Use `lerim working-memory show` for short-term continuation context and superseded/replacement decisions.
+- Treat Working Memory as context, not as a todo list. The current user prompt decides what to do next.
 - Do not hardcode project IDs. Run commands from inside the workspace or pass `--project <name-or-path>`.
 - Treat validation/build/check results inside Context Brief as historical persisted evidence; rerun relevant checks after edits.
 - Expect a fixed section order: Summary, Start Here, Continuation Handoff, Decisions, Constraints & Preferences, Project Facts, Open Risks / Review Queue, Follow-up Queries, Sources.

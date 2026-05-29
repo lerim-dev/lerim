@@ -151,6 +151,7 @@ nav:
     - Model Roles: configuration/model-roles.md
     - Tracing: configuration/tracing.md
   - Guides:
+    - Agent Startup Context: guides/agent-startup-context.md
     - Connecting Agents: guides/connecting-agents.md
     - MCP Quickstart: guides/mcp-quickstart.md
     - Customize Lerim For Your Use Case: guides/custom-source-profiles.md

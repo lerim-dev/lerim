@@ -3,27 +3,17 @@
 Lerim provides several ways to search and retrieve context. All query paths are
 read-only.
 
+## Agent startup context
+
+If you want an agent to read Lerim before it starts work, follow
+[Agent Startup Context](agent-startup-context.md). That guide covers installing
+the skill, adding a short `AGENTS.md` or `CLAUDE.md` instruction, and verifying
+`lerim context-brief show` plus `lerim working-memory show`.
+
 ## Start with `lerim answer`
 
 The main query interface is `lerim answer`. It queries the shared context DB and
 returns a synthesized answer grounded in retrieved records.
-
-### Recommended agent instruction snippet
-
-Add a short instruction to the agent or workflow that should use Lerim context:
-
-```markdown
-## Lerim Context
-This workflow uses Lerim for reusable context from prior agent work.
-Before repeating investigation, ask Lerim for relevant decisions, constraints,
-source evidence, handoffs, and open questions.
-Use `lerim answer "your question"` for synthesized answers.
-For current runtime state, use `lerim status`.
-For detailed usage, invoke the `/lerim` skill.
-```
-
-For coding agents, the same snippet can live in `CLAUDE.md`, `AGENTS.md`, or the
-tool-specific instruction file for the repository.
 
 ## `lerim answer` -- LLM-powered Q&A
 
@@ -91,8 +81,9 @@ lerim answer "What problems did we have with the original caching approach?"
 
 ### Check before implementing
 
-At the start of an agent workflow, ask Lerim for the topic you care about. If
-you need a synthesized answer across multiple records, use `lerim answer`:
+After reading Context Brief and Working Memory, ask Lerim for the topic you care
+about. If you need a synthesized answer across multiple records, use
+`lerim answer`:
 
 ```bash
 lerim answer "What evidence supports the latest compliance decision?"
