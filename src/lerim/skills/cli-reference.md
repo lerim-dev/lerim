@@ -442,10 +442,10 @@ lerim working-memory refresh --force   # regenerate even if fresh
 | `refresh` | Generate dated artifacts and update the stable current copy |
 
 Notes:
-- Working Memory uses a six-hour recency window.
+- Working Memory uses a two-hour recency window.
 - It follows `superseded_by_record_id` to show current replacements for recently superseded records.
-- Superseded and archived records are history; actionable sections use current active records.
-- `If Continuing This Work` is not a task list; the next user prompt decides the next task.
+- Superseded and archived records are history; `Current Context` uses current active records.
+- `Start Here` is not a task list; the next user prompt decides the next task.
 - Daily daemon refresh and curate-triggered refresh skip fresh projects.
 
 ### Background ingest and curate

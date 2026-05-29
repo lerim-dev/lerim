@@ -7,9 +7,8 @@ Use it beside Context Brief:
 
 - Context Brief: durable long-term decisions, preferences, constraints, and
   facts.
-- Working Memory: what was recently completed or changed, which old records were
-  superseded, and where to resume only if the next user prompt continues the
-  same work.
+- Working Memory: a short-term handoff compiled from the latest context changes,
+  with where to resume only if the next user prompt continues the same work.
 
 Working Memory is not a task list. The next user prompt decides the next task.
 
@@ -31,49 +30,46 @@ flowchart TD
     D --> G{"Recent DB records changed or window moved?"}
     G -- "yes" --> H["lerim working-memory refresh"]
     G -- "no" --> I["Use current Working Memory with Context Brief"]
-    H --> J["Load recent record_versions"]
+    H --> J["Load short-window record_versions"]
     J --> K["Resolve current records and replacements"]
-    K --> L["Render continuation handoff"]
+    K --> L["Compile handoff with DSPy"]
     L --> M["Copy WORKING_MEMORY.md and manifest to workspace/current"]
     M --> D
 ```
 
 ## Generation
 
-Working Memory is deterministic. It reads recent `record_versions` for the
-resolved project, then fetches the current record for each changed record. When
-a record was superseded, Working Memory follows `superseded_by_record_id` and
-shows the replacement as the current final record.
+Working Memory uses a DSPy compile step, like Context Brief, but over a shorter
+input horizon. The deterministic part loads recent `record_versions`, fetches
+the current record for each changed record, follows `superseded_by_record_id`
+when needed, and validates that every generated line cites supplied records.
 
-The default recency window is six hours. A current Working Memory artifact
+The default recency window is two hours. A current Working Memory artifact
 becomes stale when:
 
 - the stable current file is missing
 - the manifest is missing
 - cited records disappeared from the live DB
 - project records changed after the artifact was generated
-- the six-hour short-term window has moved past the artifact age
+- the two-hour short-term window has moved past the artifact age
 
 ## Sections
 
 The Markdown artifact uses stable sections:
 
-1. `Current State`
-2. `Completed Recently`
-3. `Changed Context`
-4. `Current Final Decisions`
-5. `Current Constraints & Preferences`
-6. `Current Project Facts`
-7. `Recent Episode Evidence`
-8. `Recently Replaced / Archived`
-9. `Open Questions`
-10. `If Continuing This Work`
-11. `Sources`
+1. `Summary`
+2. `Start Here`
+3. `Recent Changes`
+4. `Current Context`
+5. `Recently Replaced / Archived`
+6. `Open Questions`
+7. `Workspace Snapshot`
+8. `Sources`
 
 The important invariant is current truth. Superseded and archived records may
-appear in `Changed Context` or `Recently Replaced / Archived`, but the current
-sections use active records or their replacements. `If Continuing This Work`
-must stay evidence-backed and must not invent generic next actions.
+appear in `Recent Changes` or `Recently Replaced / Archived`, but `Current
+Context` uses active records or their replacements. `Start Here` must stay
+evidence-backed and must not invent generic next actions.
 
 ## Commands
 

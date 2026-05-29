@@ -32,7 +32,7 @@ lerim working-memory refresh --force
 
 ## Time Scale
 
-Working Memory uses a six-hour recency window. It is meant to answer:
+Working Memory uses a two-hour recency window. It is meant to answer:
 
 - what was recently completed or captured
 - what context changed recently
@@ -64,6 +64,6 @@ Dated run artifacts:
 freshness preface from SQLite.
 
 `refresh` skips when the current artifact exists, no project records changed
-after its `generated_at`, and the artifact age is still inside the six-hour
+after its `generated_at`, and the artifact age is still inside the two-hour
 window. It regenerates when records changed, when `--force` is passed, or when
 the short-term window has moved.

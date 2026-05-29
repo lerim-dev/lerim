@@ -17,12 +17,8 @@ class WorkingMemoryLineDraft(BaseModel):
 class WorkingMemoryDraftOutput(BaseModel):
     """Short-term Working Memory model output."""
 
-    current_state: list[WorkingMemoryLineDraft] = Field(default_factory=list)
-    completed_recently: list[WorkingMemoryLineDraft] = Field(default_factory=list)
-    changed_context: list[WorkingMemoryLineDraft] = Field(default_factory=list)
-    current_decisions: list[WorkingMemoryLineDraft] = Field(default_factory=list)
-    current_constraints: list[WorkingMemoryLineDraft] = Field(default_factory=list)
-    current_facts: list[WorkingMemoryLineDraft] = Field(default_factory=list)
-    recent_episode_evidence: list[WorkingMemoryLineDraft] = Field(default_factory=list)
+    summary: list[WorkingMemoryLineDraft] = Field(default_factory=list)
+    start_here: list[WorkingMemoryLineDraft] = Field(default_factory=list)
+    recent_changes: list[WorkingMemoryLineDraft] = Field(default_factory=list)
+    current_context: list[WorkingMemoryLineDraft] = Field(default_factory=list)
     open_questions: list[WorkingMemoryLineDraft] = Field(default_factory=list)
-    continuation_handoff: list[WorkingMemoryLineDraft] = Field(default_factory=list)

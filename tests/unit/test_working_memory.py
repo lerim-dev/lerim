@@ -128,25 +128,25 @@ def test_render_uses_replacement_as_current_final_decision(tmp_path, mock_embedd
         cfg=cfg,
         compile_step=lambda **_kwargs: {
             "memory": {
-                "current_state": [
+                "summary": [
                     {
                         "text": "Use the current SQLite decision when continuing database work.",
                         "record_ids": [replacement_record["record_id"]],
                     }
                 ],
-                "changed_context": [
+                "recent_changes": [
                     {
                         "text": "The old Postgres decision was replaced by the current SQLite decision.",
                         "record_ids": [old["record_id"], replacement_record["record_id"]],
                     }
                 ],
-                "current_decisions": [
+                "current_context": [
                     {
                         "text": "Use SQLite for the project database because the current repo uses the local DB-only runtime.",
                         "record_ids": [replacement_record["record_id"]],
                     }
                 ],
-                "continuation_handoff": [
+                "start_here": [
                     {
                         "text": "If continuing related work, do not reuse the old database decision; use the current SQLite replacement.",
                         "record_ids": [old["record_id"], replacement_record["record_id"]],
@@ -156,10 +156,9 @@ def test_render_uses_replacement_as_current_final_decision(tmp_path, mock_embedd
         },
     )
 
-    assert "## Current Final Decisions" in markdown
-    assert "## If Continuing This Work" in markdown
-    assert "## Changed Context" in markdown
-    assert "## Recent Changes" not in markdown
+    assert "## Current Context" in markdown
+    assert "## Start Here" in markdown
+    assert "## Recent Changes" in markdown
     assert "Next Actions" not in markdown
     assert "Use SQLite for the project database" in markdown
     assert "Use Postgres for the project database" in markdown
@@ -180,8 +179,8 @@ def test_render_explains_no_continuation_when_recent_window_is_empty(tmp_path):
         cfg=cfg,
     )
 
-    assert "## If Continuing This Work" in markdown
-    assert "No continuation-specific handoff was inferred" in markdown
+    assert "## Start Here" in markdown
+    assert "No clear continuation point was inferred" in markdown
     assert "Next Actions" not in markdown
     assert "Review the latest changed records" not in markdown
 
@@ -218,7 +217,7 @@ def test_pipeline_validation_rejects_unknown_record_ids():
     error = validate_memory_output(
         {
             "memory": {
-                "current_state": [
+                "summary": [
                     {"text": "Use this unsupported memory.", "record_ids": ["missing"]}
                 ]
             }
@@ -226,7 +225,7 @@ def test_pipeline_validation_rejects_unknown_record_ids():
         valid_record_ids={"rec_current"},
     )
 
-    assert error == "current_state_invalid_record_ids:missing"
+    assert error == "summary_invalid_record_ids:missing"
 
 
 def test_summarize_git_status_groups_top_level_paths():
@@ -311,7 +310,7 @@ def test_working_memory_status_goes_stale_when_records_change(
             {
                 "generated_at": "2026-04-30T00:00:00+00:00",
                 "window_started_at": "2026-04-29T18:00:00+00:00",
-                "window_hours": 6,
+                "window_hours": 2,
                 "records_included": 0,
                 "recent_versions_considered": 0,
             }
@@ -362,7 +361,7 @@ def test_cli_working_memory_show_reads_existing_artifact(
             {
                 "generated_at": "2100-01-01T00:00:00+00:00",
                 "window_started_at": "2099-12-31T18:00:00+00:00",
-                "window_hours": 6,
+                "window_hours": 2,
                 "records_included": 0,
                 "recent_versions_considered": 0,
             }
@@ -405,7 +404,7 @@ def test_cli_working_memory_status_json(
             {
                 "generated_at": "2100-01-01T00:00:00+00:00",
                 "window_started_at": "2099-12-31T18:00:00+00:00",
-                "window_hours": 6,
+                "window_hours": 2,
                 "records_included": 0,
                 "recent_versions_considered": 0,
             }
@@ -418,4 +417,4 @@ def test_cli_working_memory_status_json(
 
     assert code == 0
     assert payload["availability"] == "available"
-    assert payload["window_hours"] == 6
+    assert payload["window_hours"] == 2

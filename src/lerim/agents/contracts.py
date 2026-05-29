@@ -88,7 +88,7 @@ class WorkingMemoryResultContract(BaseModel):
 	trigger: str = "manual"
 	generated_at: str | None = None
 	window_started_at: str | None = None
-	window_hours: int = 6
+	window_hours: int = 2
 	context_db_path: str
 	workspace_root: str
 	run_folder: str | None = None

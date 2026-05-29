@@ -12,17 +12,19 @@ class CompileWorkingMemory(dspy.Signature):
 
     Rules:
     - Use only the supplied records and generation context.
-    - Working Memory is continuation context, not a task list.
+    - Working Memory is the short-term companion to Context Brief.
+    - Context Brief is long-term durable memory. Working Memory is the last couple hours of movement.
+    - Explain what changed recently and where to resume if the next user prompt continues the same work.
+    - Keep the artifact simpler than Context Brief.
     - Do not invent next actions. The next user prompt decides the task.
     - Every non-empty line must include at least one exact record_id copied from the supplied records.
     - Put record IDs only in record_ids, never in text.
     - Prefer current active records over superseded or archived records.
     - When a record was superseded, explain the current replacement rather than repeating the old record as truth.
-    - Include open_questions only when a recent record explicitly supports an unresolved continuation question.
-    - Include continuation_handoff only when recent episode or replacement evidence supports where a resumed thread should start.
-    - Mention workspace snapshot only through current_state, and say it is generation-time state that can go stale.
+    - Put the most useful resume point in start_here. If there is no clear resume point, leave start_here empty.
+    - Include open_questions only when a recent record explicitly supports an unresolved question.
     - Select the useful short-term context. Do not enumerate every supplied record.
-    - Maximum lines: current_state 3, completed_recently 5, changed_context 6, current_decisions 5, current_constraints 5, current_facts 5, recent_episode_evidence 4, open_questions 3, continuation_handoff 5.
+    - Maximum lines: summary 2, start_here 4, recent_changes 5, current_context 6, open_questions 3.
     """
 
     run_instruction: str = dspy.InputField(desc="RUN INSTRUCTION")

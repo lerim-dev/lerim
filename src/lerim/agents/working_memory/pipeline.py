@@ -37,15 +37,11 @@ RUN_INSTRUCTION = (
 )
 
 SECTION_LIMITS = {
-    "current_state": 3,
-    "completed_recently": 5,
-    "changed_context": 6,
-    "current_decisions": 5,
-    "current_constraints": 5,
-    "current_facts": 5,
-    "recent_episode_evidence": 4,
+    "summary": 2,
+    "start_here": 4,
+    "recent_changes": 5,
+    "current_context": 6,
     "open_questions": 3,
-    "continuation_handoff": 5,
 }
 
 
@@ -138,7 +134,7 @@ class WorkingMemoryPipeline(dspy.Module):
             )
         else:
             draft = WorkingMemoryDraftOutput(
-                current_state=[
+                summary=[
                     {
                         "text": "No persisted context records changed inside this short-term window.",
                         "record_ids": [],
@@ -320,26 +316,22 @@ def render_working_memory_markdown(
     lines = [
         "# Working Memory",
         "",
-        "> Short-term Lerim continuation handoff. This markdown is derived from recent SQLite record versions, not the source of truth.",
-        "> Use this only to understand what was recently done or changed. The next user prompt decides what to do next.",
-        "> Use Context Brief for durable long-term context. Check git status, tests, and the current chat for live workspace state.",
+        "> Short-term continuation context generated from recent SQLite record versions.",
+        "> Use Context Brief for long-term memory. Use this only to understand what changed recently.",
+        "> The next user prompt decides the task; this is not a todo list.",
         "",
         f"- Project: `{project.name}`",
         f"- Generated: `{generated_at}`",
         f"- Recent window: {WORKING_MEMORY_WINDOW_HOURS}h",
         "",
     ]
-    append_state_section(lines, draft=draft, data=data)
-    append_workspace_section(lines, snapshot=workspace_snapshot)
-    append_draft_section(lines, "Completed Recently", draft.completed_recently)
-    append_draft_section(lines, "Changed Context", draft.changed_context)
-    append_draft_section(lines, "Current Final Decisions", draft.current_decisions)
-    append_draft_section(lines, "Current Constraints & Preferences", draft.current_constraints)
-    append_draft_section(lines, "Current Project Facts", draft.current_facts)
-    append_draft_section(lines, "Recent Episode Evidence", draft.recent_episode_evidence)
+    append_summary_section(lines, draft=draft, data=data)
+    append_start_here_section(lines, draft=draft)
+    append_draft_section(lines, "Recent Changes", draft.recent_changes)
+    append_draft_section(lines, "Current Context", draft.current_context)
     append_historical_records(lines, data=data)
     append_draft_section(lines, "Open Questions", draft.open_questions)
-    append_continuation_section(lines, draft=draft)
+    append_workspace_section(lines, snapshot=workspace_snapshot)
     append_sources(lines, data=data, cited_record_ids=record_ids)
     append_technical_details(
         lines,
@@ -357,25 +349,40 @@ def render_working_memory_markdown(
     return "\n".join(truncate_working_memory_lines(lines)).rstrip() + "\n"
 
 
-def append_state_section(
+def append_summary_section(
     lines: list[str],
     *,
     draft: WorkingMemoryDraftOutput,
     data: WorkingMemoryData,
 ) -> None:
-    """Append the high-level continuation state."""
-    lines.extend(["## Current State", ""])
-    if draft.current_state:
-        lines.extend(format_draft_lines(draft.current_state))
+    """Append the high-level short-term state."""
+    lines.extend(["## Summary", ""])
+    if draft.summary:
+        lines.extend(format_draft_lines(draft.summary))
     elif data.versions:
         lines.append(
             f"- Recent persisted context changed {len(data.versions)} time(s) across {len(data.changed_records)} record(s)."
         )
     else:
-        lines.append("- No persisted context records changed inside this short-term window. There is no continuation-specific handoff.")
+        lines.append("- No persisted context records changed inside this short-term window.")
     if data.versions:
-        lines.append("- Treat superseded or archived records as history; use current final records for decisions and constraints.")
+        lines.append("- Treat superseded or archived records as history; use current records or replacements as the truth.")
     lines.append("- This is continuation context only; do not treat it as a task list unless the user asks to continue this work.")
+
+
+def append_start_here_section(
+    lines: list[str],
+    *,
+    draft: WorkingMemoryDraftOutput,
+) -> None:
+    """Append resume guidance in the same spirit as Context Brief."""
+    lines.extend(["", "## Start Here", ""])
+    if draft.start_here:
+        lines.extend(format_draft_lines(draft.start_here))
+        lines.append("- Otherwise, let the next user prompt define the task.")
+        return
+    lines.append("- No clear continuation point was inferred from recent records.")
+    lines.append("- Use this artifact only as recent context.")
 
 
 def append_workspace_section(lines: list[str], *, snapshot: dict[str, Any]) -> None:
@@ -430,21 +437,6 @@ def append_historical_records(lines: list[str], *, data: WorkingMemoryData) -> N
         else:
             status = str(record.get("status") or "record")
             lines.append(f"- `{title}` (`{record_id}`) is `{status}` and should be treated as historical.")
-
-
-def append_continuation_section(
-    lines: list[str],
-    *,
-    draft: WorkingMemoryDraftOutput,
-) -> None:
-    """Append continuation handoff without implying a task list."""
-    lines.extend(["", "## If Continuing This Work", ""])
-    if draft.continuation_handoff:
-        lines.extend(format_draft_lines(draft.continuation_handoff))
-        lines.append("- Otherwise, let the next user prompt define the task; this section is not a todo list.")
-        return
-    lines.append("- No continuation-specific handoff was inferred from recent records.")
-    lines.append("- Let the next user prompt define the task; use this artifact only as recent context.")
 
 
 def append_sources(
