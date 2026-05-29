@@ -10,18 +10,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from lerim.agents.working_memory import WorkingMemoryPipeline
+from lerim.agents.working_memory.pipeline import validate_memory_output
 from lerim.context import ContextStore, resolve_project_identity
 from lerim.context_brief import resolve_context_brief_project
 from lerim.server.runtime import LerimRuntime
 from lerim.working_memory import (
     WORKING_MEMORY_FILENAME,
     load_working_memory_data,
-    render_working_memory_markdown,
     summarize_git_status,
     working_memory_paths,
     working_memory_status,
     working_memory_status_to_dict,
-    working_memory_window_start,
 )
 from tests.helpers import make_config, run_cli, run_cli_json, write_test_config
 
@@ -56,6 +56,27 @@ def _register_seeded_project(store: ContextStore, repo: Path) -> str:
         metadata={},
     )
     return identity.project_id
+
+
+def _compile_working_memory(
+    *,
+    store: ContextStore,
+    project,
+    cfg,
+    compile_step=None,
+) -> str:
+    """Run the Working Memory pipeline and return rendered markdown."""
+    return WorkingMemoryPipeline(
+        store=store,
+        project=project,
+        config=cfg,
+        generated_at="2026-04-30T06:00:00+00:00",
+        window_started_at="2026-04-30T00:00:00+00:00",
+        previous_generated_at=None,
+        generation_trigger="manual",
+        db_records_changed_since_previous=3,
+        compile_step=compile_step,
+    )()["markdown"]
 
 
 def test_working_memory_paths_use_separate_artifact_name(tmp_path):
@@ -99,21 +120,40 @@ def test_render_uses_replacement_as_current_final_decision(tmp_path, mock_embedd
         project_ids=[project_id],
         reason="database decision changed",
     )
-    data = load_working_memory_data(
-        store,
-        project_id=project_id,
-        since=working_memory_window_start(),
-    )
     project = resolve_context_brief_project(config=cfg, cwd=repo)
 
-    markdown = render_working_memory_markdown(
+    markdown = _compile_working_memory(
+        store=store,
         project=project,
-        generated_at="2026-04-30T06:00:00+00:00",
-        window_started_at="2026-04-30T00:00:00+00:00",
-        previous_generated_at=None,
-        generation_trigger="manual",
-        db_records_changed_since_previous=3,
-        data=data,
+        cfg=cfg,
+        compile_step=lambda **_kwargs: {
+            "memory": {
+                "current_state": [
+                    {
+                        "text": "Use the current SQLite decision when continuing database work.",
+                        "record_ids": [replacement_record["record_id"]],
+                    }
+                ],
+                "changed_context": [
+                    {
+                        "text": "The old Postgres decision was replaced by the current SQLite decision.",
+                        "record_ids": [old["record_id"], replacement_record["record_id"]],
+                    }
+                ],
+                "current_decisions": [
+                    {
+                        "text": "Use SQLite for the project database because the current repo uses the local DB-only runtime.",
+                        "record_ids": [replacement_record["record_id"]],
+                    }
+                ],
+                "continuation_handoff": [
+                    {
+                        "text": "If continuing related work, do not reuse the old database decision; use the current SQLite replacement.",
+                        "record_ids": [old["record_id"], replacement_record["record_id"]],
+                    }
+                ],
+            }
+        },
     )
 
     assert "## Current Final Decisions" in markdown
@@ -134,18 +174,10 @@ def test_render_explains_no_continuation_when_recent_window_is_empty(tmp_path):
     cfg = replace(make_config(tmp_path / ".lerim"), projects={"repo": str(repo)})
     project = resolve_context_brief_project(config=cfg, cwd=repo)
 
-    markdown = render_working_memory_markdown(
+    markdown = _compile_working_memory(
+        store=ContextStore(cfg.context_db_path),
         project=project,
-        generated_at="2026-04-30T06:00:00+00:00",
-        window_started_at="2026-04-30T00:00:00+00:00",
-        previous_generated_at=None,
-        generation_trigger="manual",
-        db_records_changed_since_previous=0,
-        data=load_working_memory_data(
-            ContextStore(cfg.context_db_path),
-            project_id=project.identity.project_id,
-            since=working_memory_window_start(),
-        ),
+        cfg=cfg,
     )
 
     assert "## If Continuing This Work" in markdown
@@ -170,23 +202,31 @@ def test_render_includes_workspace_snapshot_for_git_repo(tmp_path):
     cfg = replace(make_config(tmp_path / ".lerim"), projects={"repo": str(repo)})
     project = resolve_context_brief_project(config=cfg, cwd=repo)
 
-    markdown = render_working_memory_markdown(
+    markdown = _compile_working_memory(
+        store=ContextStore(cfg.context_db_path),
         project=project,
-        generated_at="2026-04-30T06:00:00+00:00",
-        window_started_at="2026-04-30T00:00:00+00:00",
-        previous_generated_at=None,
-        generation_trigger="manual",
-        db_records_changed_since_previous=0,
-        data=load_working_memory_data(
-            ContextStore(cfg.context_db_path),
-            project_id=project.identity.project_id,
-            since=working_memory_window_start(),
-        ),
+        cfg=cfg,
     )
 
     assert "## Workspace Snapshot" in markdown
     assert "Dirty files at generation: 1" in markdown
     assert "`src`: 1" in markdown
+
+
+def test_pipeline_validation_rejects_unknown_record_ids():
+    """Working Memory model output must cite supplied context records only."""
+    error = validate_memory_output(
+        {
+            "memory": {
+                "current_state": [
+                    {"text": "Use this unsupported memory.", "record_ids": ["missing"]}
+                ]
+            }
+        },
+        valid_record_ids={"rec_current"},
+    )
+
+    assert error == "current_state_invalid_record_ids:missing"
 
 
 def test_summarize_git_status_groups_top_level_paths():
@@ -198,6 +238,7 @@ def test_summarize_git_status_groups_top_level_paths():
 
 def test_runtime_working_memory_refresh_writes_current_artifact(
     tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
     mock_embeddings,
 ):
     """Runtime refresh writes dated and stable Working Memory artifacts."""
@@ -214,6 +255,31 @@ def test_runtime_working_memory_refresh_writes_current_artifact(
         body="Keep Working Memory separate from Context Brief.",
         decision="Keep Working Memory separate from Context Brief.",
         why="They represent different time scales.",
+    )
+
+    class FakeWorkingMemoryPipeline:
+        """Runtime test double that keeps the artifact write path deterministic."""
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def __call__(self):
+            data = load_working_memory_data(
+                self.kwargs["store"],
+                project_id=self.kwargs["project"].identity.project_id,
+                since=self.kwargs["window_started_at"],
+            )
+            return {
+                "markdown": f"# Working Memory\n\n- {record['record_id']}\n",
+                "data": data,
+                "record_ids": (record["record_id"],),
+                "events": [{"kind": "model_step", "stage": "compile_working_memory"}],
+                "done": True,
+            }
+
+    monkeypatch.setattr(
+        "lerim.server.runtime.WorkingMemoryPipeline",
+        FakeWorkingMemoryPipeline,
     )
 
     runtime = LerimRuntime(default_cwd=str(repo), config=cfg)

@@ -26,6 +26,7 @@ from lerim.agents.context_graph import run_context_graph
 from lerim.agents.context_curator import run_context_curator
 from lerim.agents.mlflow_observability import finish_mlflow_run, lerim_mlflow_run
 from lerim.agents.context_brief import compile_context_brief
+from lerim.agents.working_memory import WorkingMemoryPipeline
 from lerim.config.settings import Config, get_config
 from lerim.context import ProjectIdentity, ScopeIdentity, resolve_project_identity, scope_from_project
 from lerim.context_brief import (
@@ -50,10 +51,7 @@ from lerim.working_memory import (
     WORKING_MEMORY_OPERATION,
     WORKING_MEMORY_WINDOW_HOURS,
     build_working_memory_manifest,
-    load_working_memory_data,
-    render_working_memory_markdown,
     working_memory_paths,
-    working_memory_record_ids,
     working_memory_window_start,
     write_current_working_memory_artifacts,
 )
@@ -1248,32 +1246,31 @@ class LerimRuntime:
             generated_at_dt = datetime.now(timezone.utc)
             generated_at = generated_at_dt.isoformat()
             window_started_at = working_memory_window_start(now=generated_at_dt)
-            data = load_working_memory_data(
-                store,
-                project_id=project_identity.project_id,
-                since=window_started_at,
-            )
-            record_ids = working_memory_record_ids(data)
             project = ContextBriefProject(
                 name=display_name,
                 identity=project_identity,
             )
-            markdown = render_working_memory_markdown(
+            final_state = WorkingMemoryPipeline(
+                store=store,
                 project=project,
+                config=self.config,
                 generated_at=generated_at,
                 window_started_at=window_started_at,
                 previous_generated_at=previous_generated_at or None,
                 generation_trigger=trigger,
                 db_records_changed_since_previous=changed_since_previous,
-                data=data,
                 current_file=current_paths.current_file,
                 run_folder=run_folder,
-            )
+            )()
+            data = final_state["data"]
+            record_ids = tuple(final_state["record_ids"])
+            markdown = str(final_state["markdown"])
             _write_text_with_newline(artifact_paths["working_memory"], markdown)
             response_text = (
                 f"Working memory generated with {len(record_ids)} cited record(s)."
             )
             _write_text_with_newline(artifact_paths["agent_log"], response_text)
+            _write_json_artifact(artifact_paths["agent_trace"], final_state["events"])
             manifest = build_working_memory_manifest(
                 run_id=run_id,
                 status="succeeded",

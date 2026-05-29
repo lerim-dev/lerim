@@ -54,6 +54,12 @@ existing_edges_json  # noqa
 proposed_links_json  # noqa
 candidate_profile_json  # noqa
 candidate_records_json  # noqa
+project_json  # noqa
+recent_changes_json  # noqa
+current_records_json  # noqa
+replacements_json  # noqa
+workspace_snapshot_json  # noqa
+generation_context_json  # noqa
 last_context_tokens  # noqa
 metrics_version  # noqa
 trace_total_lines  # noqa
