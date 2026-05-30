@@ -38,8 +38,7 @@ jobs:
         run: |
           uv run python benchmarks/scripts/build_report_index.py
           uv run python benchmarks/scripts/generate_benchmark_summary_svg.py
-          uv run python benchmarks/scripts/generate_support_boundary_svg.py
-          git diff --exit-code -- benchmarks/results/reports docs/assets/benchmark-summary.svg docs/assets/support-boundary.svg
+          git diff --exit-code -- benchmarks/results/reports docs/assets/benchmark-summary.svg
 
       - name: Build docs
         run: uv run mkdocs build --strict
