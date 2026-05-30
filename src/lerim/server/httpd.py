@@ -43,6 +43,17 @@ from lerim.server.api import (
     api_project_remove,
     api_queue_jobs,
     api_retry_all_dead_letter,
+    api_skill_proposal_apply,
+    api_skill_proposal_reject,
+    api_skill_proposal_show,
+    api_skill_proposal_update,
+    api_skill_proposals,
+    api_skill_refresh,
+    api_skill_runs,
+    api_skill_target_add,
+    api_skill_target_mode,
+    api_skill_target_show,
+    api_skill_targets,
     api_retry_job,
     api_skip_all_dead_letter,
     api_skip_job,
@@ -534,6 +545,8 @@ def _graph_node_payload(row: sqlite3.Row) -> dict[str, Any]:
         "label": row["label"],
         "kind": "record",
         "record_kind": row["record_kind"] if "record_kind" in keys and row["record_kind"] else row["node_type"],
+        "record_role": row["record_role"] if "record_role" in keys and row["record_role"] else "general",
+        "role_payload": row["role_payload"] if "role_payload" in keys else None,
         "summary": row["summary"],
         "project": row["scope_label"],
         "status": row["status"],
@@ -1049,6 +1062,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 return
             node_rows = conn.execute(
                 f"""SELECT cn.node_id, cn.node_type, COALESCE(r.kind, cn.node_type) AS record_kind,
+                          COALESCE(r.record_role, 'general') AS record_role, r.role_payload,
                           cn.label, cn.summary, cn.status, cn.semantic_cluster,
                           cn.scope_label, cn.created_at, cn.updated_at
                    FROM context_nodes cn
@@ -1114,6 +1128,40 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 self._error(HTTPStatus.BAD_REQUEST, "limit must be an integer")
                 return
             self._json(api_unscoped(limit=limit))
+            return
+        if path == "/api/skills/targets":
+            self._json(api_skill_targets())
+            return
+        if path == "/api/skills/proposals":
+            self._json(
+                api_skill_proposals(
+                    target_id=_query_param(query, "target_id") or None,
+                    status=_query_param(query, "status") or None,
+                )
+            )
+            return
+        if path == "/api/skills/runs":
+            self._json(api_skill_runs(limit=_parse_int(_query_param(query, "limit", "20"), 20, minimum=1, maximum=200)))
+            return
+        if path.startswith("/api/skills/targets/"):
+            target_id = unquote(path.split("/api/skills/targets/", 1)[1])
+            if not target_id:
+                self._error(HTTPStatus.BAD_REQUEST, "Missing target id")
+                return
+            try:
+                self._json(api_skill_target_show(target_id))
+            except KeyError as exc:
+                self._error(HTTPStatus.NOT_FOUND, str(exc))
+            return
+        if path.startswith("/api/skills/proposals/"):
+            proposal_id = unquote(path.split("/api/skills/proposals/", 1)[1])
+            if not proposal_id:
+                self._error(HTTPStatus.BAD_REQUEST, "Missing proposal id")
+                return
+            try:
+                self._json(api_skill_proposal_show(proposal_id))
+            except KeyError as exc:
+                self._error(HTTPStatus.NOT_FOUND, str(exc))
             return
         no_query_handlers = {
             "/api/health": lambda: self._json(api_health()),
@@ -1247,6 +1295,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 "scope",
                 "project",
                 "kind",
+                "record_role",
                 "source_profile",
                 "status",
                 "source_session_id",
@@ -1279,6 +1328,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 scope=str(body.get("scope") or "all"),
                 project=str(body.get("project") or "").strip() or None,
                 kind=str(body.get("kind") or "").strip() or None,
+                record_role=str(body.get("record_role") or "").strip() or None,
                 source_profile=str(body.get("source_profile") or "").strip() or None,
                 status=str(body.get("status") or "").strip() or None,
                 source_session_id=str(body.get("source_session_id") or "").strip() or None,
@@ -1297,6 +1347,86 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 self._error(HTTPStatus(status), str(result.get("message") or "query failed"))
                 return
             self._json(result)
+            return
+        if path == "/api/skills/targets":
+            body = read_body()
+            if body is None:
+                return
+            target_path = str(body.get("path") or "").strip()
+            if not target_path:
+                self._error(HTTPStatus.BAD_REQUEST, "Missing 'path'")
+                return
+            try:
+                self._json(
+                    api_skill_target_add(
+                        path=target_path,
+                        name=str(body.get("name") or "").strip() or None,
+                        description=str(body.get("description") or "").strip() or None,
+                        update_mode=str(body.get("update_mode") or "review"),
+                    )
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        if path.startswith("/api/skills/targets/") and path.endswith("/refresh"):
+            target_id = unquote(path.split("/api/skills/targets/", 1)[1].rsplit("/refresh", 1)[0])
+            body = read_body() or {}
+            try:
+                self._json(
+                    api_skill_refresh(
+                        target_id,
+                        record_limit=_parse_int(str(body.get("record_limit") or "80"), 80, minimum=1, maximum=500),
+                    )
+                )
+            except KeyError as exc:
+                self._error(HTTPStatus.NOT_FOUND, str(exc))
+            except Exception as exc:
+                logger.exception("skill refresh failed")
+                self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"Skill refresh failed: {exc}")
+            return
+        if path.startswith("/api/skills/targets/") and path.endswith("/mode"):
+            target_id = unquote(path.split("/api/skills/targets/", 1)[1].rsplit("/mode", 1)[0])
+            body = read_body()
+            if body is None:
+                return
+            try:
+                self._json(
+                    api_skill_target_mode(
+                        target_id_or_name=target_id,
+                        update_mode=str(body.get("update_mode") or "review"),
+                        auto_apply_policy=body.get("auto_apply_policy") if isinstance(body.get("auto_apply_policy"), dict) else None,
+                    )
+                )
+            except (KeyError, ValueError) as exc:
+                self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        if path.startswith("/api/skills/proposals/") and path.endswith("/apply"):
+            proposal_id = unquote(path.split("/api/skills/proposals/", 1)[1].rsplit("/apply", 1)[0])
+            try:
+                self._json(api_skill_proposal_apply(proposal_id))
+            except (KeyError, ValueError) as exc:
+                self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        if path.startswith("/api/skills/proposals/") and path.endswith("/reject"):
+            proposal_id = unquote(path.split("/api/skills/proposals/", 1)[1].rsplit("/reject", 1)[0])
+            try:
+                self._json(api_skill_proposal_reject(proposal_id))
+            except KeyError as exc:
+                self._error(HTTPStatus.NOT_FOUND, str(exc))
+            return
+        if path.startswith("/api/skills/proposals/") and path.endswith("/edit"):
+            proposal_id = unquote(path.split("/api/skills/proposals/", 1)[1].rsplit("/edit", 1)[0])
+            body = read_body()
+            if body is None:
+                return
+            patch_json = body.get("patch_json")
+            if not isinstance(patch_json, dict):
+                self._error(HTTPStatus.BAD_REQUEST, "Missing 'patch_json'")
+                return
+            try:
+                self._json(api_skill_proposal_update(proposal_id, patch_json))
+            except (KeyError, ValueError) as exc:
+                self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return
         if path == "/api/ingest":
             body = read_body()
