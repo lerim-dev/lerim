@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.22] - 2026-05-30
+
+### Changed
+- Refactored context-answering, context-brief, trace-ingestion, and
+  working-memory agents onto DSPy pipelines.
+- Simplified Working Memory handoff output so startup context stays focused on
+  useful continuation context instead of task-list noise.
+
+### Fixed
+- Restored the release metadata path after the failed post-`0.3.11` tags by
+  publishing the current release candidate under a fresh version.
+
 ## [0.3.18] - 2026-05-28
 
 ### Changed
