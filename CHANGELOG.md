@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.25] - 2026-06-02
+
+### Added
+- Added README and docs guidance for registering skill targets, reviewing skill
+  update proposals, and using opt-in auto-apply.
+
+### Changed
+- Refined the Skills dashboard proposal review into a desktop queue/detail
+  layout with explicit risk labels and cleaner applied-proposal state.
+- Reduced normal dashboard tab gutters so pages use the available workspace with
+  compact responsive padding.
+
 ## [0.3.24] - 2026-05-31
 
 ### Added
