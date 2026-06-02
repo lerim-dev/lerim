@@ -384,7 +384,7 @@ export default function SkillsPage() {
             </div>
           )}
 
-          <div className="grid min-w-0 gap-4">
+          <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[20rem_minmax(0,1fr)]">
             <ProposalList
               proposals={filteredProposals}
               selectedId={selectedProposal?.proposal_id || ""}
@@ -539,11 +539,14 @@ function ProposalList({
   onSelect: (id: string) => void;
 }) {
   return (
-    <section className="min-w-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
-      <div className="border-b border-[var(--border)] px-4 py-3">
-        <h2 className="text-sm font-semibold text-[var(--text)]">Update Proposals</h2>
+    <section className="min-w-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)] xl:sticky xl:top-6">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+        <h2 className="text-sm font-semibold text-[var(--text)]">Proposal Queue</h2>
+        <span className="text-[10px] text-[var(--text-muted)]">
+          {proposals.length} proposal{proposals.length === 1 ? "" : "s"}
+        </span>
       </div>
-      <div className="max-h-[30rem] overflow-y-auto p-2" role="list">
+      <div className="max-h-[38rem] overflow-y-auto p-2" role="list">
         {proposals.length === 0 && (
           <div className="p-3 text-sm text-[var(--text-muted)]">
             {hasTarget ? "No proposals yet. Scan this skill to draft updates." : "Register a skill first."}
@@ -555,21 +558,27 @@ function ProposalList({
             type="button"
             aria-pressed={selectedId === proposal.proposal_id}
             onClick={() => onSelect(proposal.proposal_id)}
-            className={`mb-2 min-w-0 w-full rounded-md border p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)] ${
+            className={`mb-1.5 grid min-w-0 w-full gap-1 rounded-md border px-3 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)] ${
               selectedId === proposal.proposal_id
                 ? "border-[var(--accent-blue)] bg-blue-500/10"
                 : "border-[var(--border)] bg-white/[0.02] hover:bg-white/[0.05]"
             }`}
             role="listitem"
           >
-            <div className="flex items-center justify-between gap-2">
-              <span className="line-clamp-1 text-sm font-semibold text-[var(--text)]">{proposal.title}</span>
-              <span className={`rounded-full px-2 py-0.5 text-[10px] ${riskClass(proposal.risk_level)}`}>
-                {formatLabel(proposal.risk_level)}
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <span className="line-clamp-2 min-w-0 text-sm font-semibold text-[var(--text)]">{proposal.title}</span>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${riskClass(proposal.risk_level)}`}>
+                Risk: {formatLabel(proposal.risk_level)}
               </span>
             </div>
-            <div className="mt-1 line-clamp-2 text-xs text-[var(--text-secondary)]">{proposal.summary}</div>
-            <div className="mt-2 text-[10px] text-[var(--text-muted)]">{formatStatus(proposal.status)}</div>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="rounded bg-white/[0.05] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
+                {formatStatus(proposal.status)}
+              </span>
+              <span className="rounded bg-white/[0.05] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">
+                {proposal.patch_json.patches.length} file{proposal.patch_json.patches.length === 1 ? "" : "s"}
+              </span>
+            </div>
           </button>
         ))}
       </div>
@@ -609,9 +618,9 @@ function ProposalReview({
   const patch = patches[selectedPatchIndex] || patches[0];
   const hasUnsavedEdit = Boolean(patch && editText !== (patch.after_text || ""));
   const canEdit = proposal.status === "pending_review" || proposal.status === "failed_validation";
-  const canReject = !["applied", "rejected", "superseded"].includes(proposal.status);
+  const isTerminal = ["applied", "rejected", "superseded"].includes(proposal.status);
   const applyBlocker = applyBlockerText(proposal, hasUnsavedEdit);
-  const canApply = !applyBlocker;
+  const evidenceCount = new Set(patches.flatMap((item) => item.evidence_record_ids || [])).size;
   const diffText =
     patch && hasUnsavedEdit
       ? previewDiff(patch.relative_path, patch.before_text || "", editText)
@@ -621,28 +630,24 @@ function ProposalReview({
     <section className="min-w-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
       <div className="border-b border-[var(--border)] p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--text-muted)]">Selected Proposal</div>
             <h2 className="text-base font-semibold text-[var(--text)]">{proposal.title}</h2>
             <p className="mt-1 text-sm text-[var(--text-secondary)]">{proposal.summary}</p>
           </div>
           <span className={`rounded-full px-2.5 py-1 text-xs ${riskClass(proposal.risk_level)}`}>
-            {formatLabel(proposal.risk_level)}
+            Risk: {formatLabel(proposal.risk_level)}
           </span>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           <span className="rounded bg-white/[0.05] px-2 py-1 text-[10px] text-[var(--text-secondary)]">
             {formatStatus(proposal.status)}
           </span>
-          {proposal.status === "pending_review" && (
-            <span className="rounded bg-amber-400/10 px-2 py-1 text-[10px] text-amber-200">
-              Not applied
+          {evidenceCount > 0 && (
+            <span className="rounded bg-white/[0.05] px-2 py-1 text-[10px] text-[var(--text-muted)]">
+              {evidenceCount} evidence record{evidenceCount === 1 ? "" : "s"}
             </span>
           )}
-          {Array.from(new Set(patches.flatMap((item) => item.evidence_record_ids || []))).map((recordId) => (
-            <span key={recordId} className="rounded bg-white/[0.05] px-2 py-1 text-[10px] text-[var(--text-secondary)]">
-              {recordId}
-            </span>
-          ))}
         </div>
         {patches.length > 1 && (
           <div className="mt-3 flex flex-wrap gap-2">
@@ -673,12 +678,7 @@ function ProposalReview({
               </label>
               <span className="min-w-0 truncate text-[10px] text-[var(--text-muted)]">{patch.relative_path}</span>
             </div>
-            <FullFilePreview
-              id="skill-proposal-edit"
-              value={editText}
-              onChange={onEditText}
-              readOnly={!canEdit}
-            />
+            <FullFilePreview id="skill-proposal-edit" value={editText} onChange={onEditText} readOnly={!canEdit} />
           </div>
           <div className="min-w-0 p-4">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -693,33 +693,35 @@ function ProposalReview({
       )}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] p-4">
         <ValidationState proposal={proposal} blocker={applyBlocker} />
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => onSave(proposal)}
-            disabled={!patch || !canEdit || !hasUnsavedEdit || busy === `edit:${proposal.proposal_id}`}
-            className="min-h-10 rounded-md border border-[var(--border)] px-3 text-xs font-medium text-[var(--text)] outline-none hover:bg-white/[0.05] disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)]"
-          >
-            Save proposal edit
-          </button>
-          <button
-            type="button"
-            onClick={() => onReject(proposal)}
-            disabled={!canReject || busy === `reject:${proposal.proposal_id}`}
-            className="min-h-10 rounded-md border border-red-400/30 px-3 text-xs font-medium text-red-200 outline-none hover:bg-red-400/10 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-red-300"
-          >
-            Reject
-          </button>
-          <button
-            type="button"
-            onClick={() => onApply(proposal)}
-            disabled={!canApply || busy === `apply:${proposal.proposal_id}`}
-            title={applyBlocker || "Apply this proposal"}
-            className="min-h-10 rounded-md bg-emerald-400 px-3 text-xs font-semibold text-slate-950 outline-none hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-emerald-200"
-          >
-            {hasUnsavedEdit ? "Save edit first" : "Apply update"}
-          </button>
-        </div>
+        {!isTerminal && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onSave(proposal)}
+              disabled={!patch || !canEdit || !hasUnsavedEdit || busy === `edit:${proposal.proposal_id}`}
+              className="min-h-10 rounded-md border border-[var(--border)] px-3 text-xs font-medium text-[var(--text)] outline-none hover:bg-white/[0.05] disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)]"
+            >
+              Save proposal edit
+            </button>
+            <button
+              type="button"
+              onClick={() => onReject(proposal)}
+              disabled={busy === `reject:${proposal.proposal_id}`}
+              className="min-h-10 rounded-md border border-red-400/30 px-3 text-xs font-medium text-red-200 outline-none hover:bg-red-400/10 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-red-300"
+            >
+              Reject
+            </button>
+            <button
+              type="button"
+              onClick={() => onApply(proposal)}
+              disabled={Boolean(applyBlocker) || busy === `apply:${proposal.proposal_id}`}
+              title={applyBlocker || "Apply this proposal"}
+              className="min-h-10 rounded-md bg-emerald-400 px-3 text-xs font-semibold text-slate-950 outline-none hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-emerald-200"
+            >
+              {hasUnsavedEdit ? "Save edit first" : "Apply update"}
+            </button>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -940,11 +942,13 @@ function ValidationState({ proposal, blocker }: { proposal: SkillProposal; block
   const ok = proposal.validation_json?.ok;
   const errors = proposal.validation_json?.errors || [];
   const reasons = proposal.guard_json?.reasons || [];
+  const isTerminal = ["applied", "rejected", "superseded"].includes(proposal.status);
+  const statusClass = proposal.status === "applied" || !blocker ? "text-emerald-300" : "text-amber-200";
   return (
     <div className="max-w-full text-xs">
-      <div className={blocker ? "text-amber-200" : "text-emerald-300"}>{blocker || "Ready for approval"}</div>
-      {ok === false && errors[0] && <div className="mt-1 text-[var(--text-muted)]">{errors[0]}</div>}
-      {ok !== false && reasons[0] && <div className="mt-1 text-[var(--text-muted)]">{reasons[0]}</div>}
+      <div className={statusClass}>{blocker || "Ready for approval"}</div>
+      {!isTerminal && ok === false && errors[0] && <div className="mt-1 text-[var(--text-muted)]">{errors[0]}</div>}
+      {!isTerminal && ok !== false && reasons[0] && <div className="mt-1 text-[var(--text-muted)]">{reasons[0]}</div>}
     </div>
   );
 }
