@@ -131,6 +131,7 @@ support and incident workflows:
 - Derived context graph. Lerim links related decisions, constraints, evidence, facts, and handoffs for curation and future/hosted visualization.
 - Query and startup context. Agents can ask questions against accumulated context or start from a compact context brief.
 - Evidence-backed memory. Useful decisions, constraints, preferences, facts, and handoffs stay linked to the work that produced them.
+- Skill updates. Register a skill or instruction file, let Lerim propose evidence-backed edits from learned context, then review the diff in the dashboard before applying it.
 - Custom source profiles. Coding, support, and incident workflows share one compiler, and teams can register YAML profiles for their own verticals with focus, noise, evidence, and scope rules.
 
 ## What Lerim Is Not
@@ -267,6 +268,33 @@ hardware/runtime metadata, and failure count.
 
 Research, revenue, security, and other verticals can use the same custom-trace path today when the user owns export, cleaning, and redaction. The first product wedge and strongest examples are coding plus support and incident operations.
 
+## Skill Updates
+
+Lerim can also update the instructions future agents use.
+
+Register a skill directory, `SKILL.md`, `AGENTS.md`, `CLAUDE.md`, or another
+instruction artifact you want Lerim to monitor. Lerim scans scoped context
+records from past traces and proposes small, evidence-backed updates.
+
+The dashboard Skills tab shows registered targets and pending proposals. Open a
+proposal to inspect the unified diff and full-file preview, then apply or reject
+the change. Applying writes the original skill or instruction file only after
+validation, guard checks, and stale-file baseline checks pass.
+
+Targets default to review mode. Auto-apply is opt-in and bounded by policy
+limits for risk, changed files, added lines, removed lines, and allowed file
+surfaces.
+
+```bash
+lerim skill target add ~/.agents/skills/clean-code \
+  --description "Keep simplification guidance current"
+lerim skill refresh clean-code
+lerim dashboard
+```
+
+See [Skill Updates](docs/guides/skill-updates.md) for the dashboard workflow
+and [CLI: lerim skill](docs/cli/skill.md) for command details.
+
 ## Custom Agent Traces
 
 Built-in `connect` adapters monitor the supported sources available today:
@@ -332,6 +360,8 @@ lerim connect auto
 lerim project list
 lerim project remove <name>
 lerim skill install
+lerim skill target add ~/.agents/skills/clean-code
+lerim skill refresh clean-code
 ```
 
 Alternative to the background service:

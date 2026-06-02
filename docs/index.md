@@ -30,6 +30,7 @@ The operating model is simple:
 - curate overlap so context stays compact
 - link related context into a navigable graph
 - answer questions and compile startup context for future agents
+- propose updates to registered agent skills and instruction files
 
 ## Main phases
 
@@ -37,6 +38,7 @@ The operating model is simple:
 - `curate` merges and archives low-value records so memory stays selective
 - `context_graph` links curated records into a sparse context graph during curate cycles
 - `answer` retrieves records and answers a question
+- `skill` registers instruction targets and manages evidence-backed update proposals
 
 ## Focused workflows
 
@@ -55,6 +57,7 @@ The operating model is simple:
 - [Commercial Boundary](concepts/commercial-boundary.md)
 - [Custom Trace Folders](guides/custom-trace-folders.md)
 - [Submit A Custom Agent Trace](guides/submit-custom-agent-trace.md)
+- [Skill Updates](guides/skill-updates.md)
 - [Examples](examples/index.md)
 - [MCP Quickstart](guides/mcp-quickstart.md)
 - [CLI Overview](cli/overview.md)

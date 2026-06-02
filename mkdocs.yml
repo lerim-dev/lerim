@@ -161,6 +161,7 @@ nav:
     - Incident Ops Demo: guides/incident-ops-demo.md
     - Evaluate Extraction Quality: guides/evaluate-extraction-quality.md
     - Dashboard: guides/dashboard.md
+    - Skill Updates: guides/skill-updates.md
     - Querying Context: guides/querying-context.md
   - Examples:
     - Overview: examples/index.md

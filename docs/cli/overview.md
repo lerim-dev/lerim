@@ -53,3 +53,7 @@ Context Brief is a generated long-term Markdown view of the global context
 database. Working Memory is a separate short-term generated view of recent
 record-version movement. Both are useful at agent startup, but
 `~/.lerim/context.sqlite3` remains the source of truth.
+
+`lerim skill` has two roles: it installs Lerim's own agent skill, and it
+registers external skill or instruction targets that Lerim can monitor for
+evidence-backed update proposals.

@@ -3,6 +3,9 @@
 Install Lerim's bundled skill, register instruction artifacts, and review
 evidence-backed skill update proposals.
 
+For the end-to-end dashboard review workflow, see
+[Skill Updates](../guides/skill-updates.md).
+
 ## Install
 
 ```bash
@@ -68,6 +71,9 @@ Applying is allowed only for pending, guard-accepted, validation-passing
 proposals whose file baselines still match the current target files. Terminal
 proposals such as applied or rejected proposals cannot be edited back into
 review.
+
+The dashboard Skills tab shows the same proposal lifecycle with a line-numbered
+diff, full-file preview, and confirmation flow before writes happen.
 
 ## What to do next
 
