@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.27] - 2026-06-06
+
+### Changed
+- Made dashboard project selection visibly affect graph, records, brief,
+  Clinic, source, operations, overview, and insights views, while keeping shared
+  runtime surfaces clearly labeled.
+- Separated current active, archived, and total persisted record counts across
+  project lists, status payloads, and Run Clinic.
+
+### Fixed
+- Fixed plain missing project names being interpreted as relative paths, so
+  invalid dashboard project selections now return a clear error instead of
+  falling back to the current workspace.
+- Scoped graph queries, record filters, run detail reads, and artifact history
+  through the selected project, including child workspace paths.
+- Kept `lerim serve` and dashboard session-backed endpoints available in a
+  degraded state when the source-session catalog is unhealthy.
+
 ## [0.3.26] - 2026-06-06
 
 ### Added
