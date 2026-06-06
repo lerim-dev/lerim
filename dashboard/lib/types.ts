@@ -10,6 +10,10 @@ export interface ProjectSummary {
   type?: string | null;
   source_profile?: string | null;
   exists?: boolean;
+  record_count?: number;
+  active_record_count?: number;
+  archived_record_count?: number;
+  total_record_count?: number;
 }
 
 export interface StatsTotals {
@@ -446,6 +450,8 @@ export interface GraphQueryResponse {
   nodes: GraphNode[];
   edges: GraphEdge[];
   total_records: number;
+  selected_project?: string;
+  project_id?: string;
   matching_records?: number;
   returned_nodes?: number;
   returned_edges?: number;
@@ -463,6 +469,7 @@ export interface GraphQueryResponse {
 
 export interface LiveStatusResponse {
 	reachable: boolean;
+	error?: string | null;
 	timestamp: string;
 	ingest_active: boolean;
 	curate_active: boolean;
@@ -695,6 +702,8 @@ export interface RunClinicAction {
 export interface RunClinicMetrics {
 	active_records_sampled: number;
 	active_records_total: number;
+	archived_records_total?: number;
+	all_records_total?: number;
 	recent_versions_sampled: number;
 	recent_versions_total: number;
 	recent_sessions_sampled: number;
@@ -769,6 +778,10 @@ export interface RunClinicResponse {
 	selected_project: string;
 	project_id: string;
 	repo_path: string;
+	record_count?: number;
+	active_record_count?: number;
+	archived_record_count?: number;
+	total_record_count?: number;
 	artifact: RunClinicArtifact | null;
 	versions: RunClinicVersion[];
 	error?: string;

@@ -1,28 +1,40 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { scopedHref, useProjectScope } from "@/lib/projectScope";
 import type { SessionDetail } from "@/lib/types";
 
 export default function SessionDetailPage() {
   const params = useParams<{ runId: string }>();
   const router = useRouter();
+  const { project } = useProjectScope();
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const loadSeqRef = useRef(0);
 
   useEffect(() => {
     if (!params.runId) return;
+    const seq = loadSeqRef.current + 1;
+    loadSeqRef.current = seq;
     setLoading(true);
+    setError(null);
     api
-      .getSession(params.runId)
-      .then(setSession)
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : "Failed to load session")
-      )
-      .finally(() => setLoading(false));
-  }, [params.runId]);
+      .getSession(params.runId, project || undefined)
+      .then((result) => {
+        if (seq === loadSeqRef.current) setSession(result);
+      })
+      .catch((err) => {
+        if (seq === loadSeqRef.current) {
+          setError(err instanceof Error ? err.message : "Failed to load session");
+        }
+      })
+      .finally(() => {
+        if (seq === loadSeqRef.current) setLoading(false);
+      });
+  }, [params.runId, project]);
 
   if (loading) {
     return <div className="text-center text-sm text-[var(--text-muted)]">Loading…</div>;
@@ -42,7 +54,7 @@ export default function SessionDetailPage() {
     <>
       {/* Back button */}
       <button
-        onClick={() => router.push("/traces")}
+        onClick={() => router.push(scopedHref("/traces", project))}
         className="mb-6 flex items-center gap-1.5 text-xs text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
       >
         <svg

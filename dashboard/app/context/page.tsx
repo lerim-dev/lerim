@@ -45,6 +45,9 @@ function ContextContent() {
 
 	/* ---- refs for scrolling ---- */
 	const intelSectionRef = useRef<HTMLDivElement>(null);
+	const filtersSeqRef = useRef(0);
+	const recordsSeqRef = useRef(0);
+	const intelSeqRef = useRef(0);
 
 	/* ---- debounce search ---- */
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,19 +63,26 @@ function ContextContent() {
 
 	/* ---- load filter options ---- */
 	useEffect(() => {
+		const seq = filtersSeqRef.current + 1;
+		filtersSeqRef.current = seq;
 		api
-			.getRecordFilters()
+			.getRecordFilters(project || undefined)
 			.then((f) => {
+				if (seq !== filtersSeqRef.current) return;
 				setFilterTypes(f.types);
 				setFilterRoles(f.roles);
+				setSelectedType((current) => (current && f.types.includes(current) ? current : ""));
+				setSelectedRole((current) => (current && f.roles.includes(current) ? current : ""));
 			})
 			.catch(() => {
 				/* silent -- filters just won't populate */
 			});
-	}, []);
+	}, [project]);
 
 	/* ---- load records ---- */
 	const load = useCallback(async () => {
+		const seq = recordsSeqRef.current + 1;
+		recordsSeqRef.current = seq;
 		setLoading(true);
 		setError(null);
 		try {
@@ -83,6 +93,7 @@ function ContextContent() {
 			if (selectedRole) params.record_role = selectedRole;
 			if (statusFilter) params.status = statusFilter;
 			const data = await api.getRecords(params);
+			if (seq !== recordsSeqRef.current) return;
 			setRecords(data.records);
 			setTotal(data.total);
 			setSelected((current) =>
@@ -91,9 +102,11 @@ function ContextContent() {
 					: null,
 			);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "Failed to load records");
+			if (seq === recordsSeqRef.current) {
+				setError(err instanceof Error ? err.message : "Failed to load records");
+			}
 		} finally {
-			setLoading(false);
+			if (seq === recordsSeqRef.current) setLoading(false);
 		}
 	}, [debouncedQuery, project, selectedRole, selectedType, statusFilter]);
 
@@ -103,14 +116,20 @@ function ContextContent() {
 
 	/* ---- load intelligence ---- */
 	useEffect(() => {
+		const seq = intelSeqRef.current + 1;
+		intelSeqRef.current = seq;
 		setIntelLoading(true);
 		api
 			.getIntelligence(10, project || undefined)
-			.then((result) => setIntel(result))
+			.then((result) => {
+				if (seq === intelSeqRef.current) setIntel(result);
+			})
 			.catch(() => {
 				/* silent -- banner just won't show */
 			})
-			.finally(() => setIntelLoading(false));
+			.finally(() => {
+				if (seq === intelSeqRef.current) setIntelLoading(false);
+			});
 	}, [project]);
 
 	const handleSelect = (record: ContextRecord) => {

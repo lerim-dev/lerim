@@ -65,11 +65,23 @@ export default function ProjectScope({
         ) : (
           projects.map((project) => (
             <option key={project.name} value={project.name}>
-              {project.name}
+              {projectOptionLabel(project)}
             </option>
           ))
         )}
       </select>
     </label>
   );
+}
+
+function projectOptionLabel(project: ProjectSummary) {
+  const active = Number(project.active_record_count ?? project.record_count ?? 0);
+  const total = Number(project.total_record_count ?? active);
+  if (total > active) {
+    return `${project.name} · ${active.toLocaleString()} active / ${total.toLocaleString()} total`;
+  }
+  if (active > 0) {
+    return `${project.name} · ${active.toLocaleString()} active`;
+  }
+  return project.name;
 }

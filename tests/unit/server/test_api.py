@@ -458,6 +458,54 @@ def test_api_record_filters_use_registered_project_scope(
     assert payload["projects"] == ["registered"]
 
 
+def test_api_record_filters_accept_project_child_path(
+    monkeypatch,
+    tmp_path,
+    mock_embeddings,
+) -> None:
+    """Project-scoped record filters accept child paths and exclude siblings."""
+    selected_root = tmp_path / "selected"
+    sibling_root = tmp_path / "sibling"
+    selected_child = selected_root / "src"
+    selected_child.mkdir(parents=True)
+    sibling_root.mkdir()
+    cfg = replace(
+        make_config(tmp_path),
+        projects={"selected": str(selected_root), "sibling": str(sibling_root)},
+    )
+    selected_identity = resolve_project_identity(selected_root)
+    sibling_identity = resolve_project_identity(sibling_root)
+    store = ContextStore(cfg.context_db_path)
+    store.initialize()
+    store.register_project(selected_identity)
+    store.register_project(sibling_identity)
+    store.create_record(
+        project_id=selected_identity.project_id,
+        session_id=None,
+        kind="preference",
+        title="Selected",
+        body="Selected project preference.",
+        record_role="procedure",
+        scope_label="selected",
+    )
+    store.create_record(
+        project_id=sibling_identity.project_id,
+        session_id=None,
+        kind="constraint",
+        title="Sibling",
+        body="Sibling project constraint.",
+        record_role="gotcha",
+        scope_label="sibling",
+    )
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+    payload = api_record_filters(project=str(selected_child))
+
+    assert payload["types"] == ["preference"]
+    assert payload["roles"] == ["procedure"]
+    assert payload["projects"] == ["selected"]
+
+
 def test_api_skill_target_add_scopes_registered_project_paths(
     monkeypatch,
     tmp_path,
@@ -1175,7 +1223,7 @@ def test_api_project_list_empty(monkeypatch, tmp_path) -> None:
     assert result == []
 
 
-def test_api_project_list_with_projects(monkeypatch, tmp_path) -> None:
+def test_api_project_list_with_projects(monkeypatch, tmp_path, mock_embeddings) -> None:
     """api_project_list returns project info for registered projects."""
     proj_dir = tmp_path / "myproject"
     proj_dir.mkdir()
@@ -1185,6 +1233,25 @@ def test_api_project_list_with_projects(monkeypatch, tmp_path) -> None:
         projects={"myproject": str(proj_dir)},
         project_types={"myproject": "custom"},
     )
+    identity = resolve_project_identity(proj_dir)
+    store = ContextStore(cfg.context_db_path)
+    store.initialize()
+    store.register_project(identity)
+    store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="fact",
+        title="Active",
+        body="Active project record.",
+    )
+    store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="fact",
+        title="Archived",
+        body="Archived project record.",
+        status="archived",
+    )
     monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
 
     result = api_project_list()
@@ -1192,6 +1259,10 @@ def test_api_project_list_with_projects(monkeypatch, tmp_path) -> None:
     assert result[0]["name"] == "myproject"
     assert result[0]["type"] == "custom"
     assert result[0]["exists"] is True
+    assert result[0]["record_count"] == 1
+    assert result[0]["active_record_count"] == 1
+    assert result[0]["archived_record_count"] == 1
+    assert result[0]["total_record_count"] == 2
     assert "has_lerim" not in result[0]
 
 
@@ -1328,9 +1399,12 @@ def test_api_status_reports_projects_and_unscoped(
     )
     store = api_mod.ContextStore(cfg.context_db_path)
     store.initialize()
+    project_a_id = ""
     for path, title in ((project_a, "A record"), (project_b, "B record")):
         identity = api_mod.resolve_project_identity(path)
         store.register_project(identity)
+        if path == project_a:
+            project_a_id = identity.project_id
         store.create_record(
             project_id=identity.project_id,
             session_id=None,
@@ -1338,6 +1412,23 @@ def test_api_status_reports_projects_and_unscoped(
             title=title,
             body=title,
         )
+    store.create_record(
+        project_id=project_a_id,
+        session_id=None,
+        kind="fact",
+        title="A archived record",
+        body="Archived project history should stay visible in totals.",
+        status="archived",
+    )
+    store.create_record(
+        project_id=project_a_id,
+        session_id=None,
+        kind="fact",
+        title="A expired active record",
+        body="Expired active records should not count as current context.",
+        status="active",
+        valid_until="2000-01-01T00:00:00Z",
+    )
     monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
     monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])
     monkeypatch.setattr(api_mod, "count_fts_indexed", lambda: 11)
@@ -1364,6 +1455,10 @@ def test_api_status_reports_projects_and_unscoped(
 
     result = api_status()
     assert result["record_count"] == 2
+    assert result["active_record_count"] == 2
+    assert result["archived_record_count"] == 1
+    assert result["total_record_count"] == 4
+    assert api_mod.api_query(entity="records", mode="count", status="active")["count"] == 2
     assert result["runtime"]["version"]
     assert result["runtime"]["source"] == "direct"
     assert len(result["projects"]) == 2
@@ -1371,6 +1466,10 @@ def test_api_status_reports_projects_and_unscoped(
     assert all("latest_session_start_time" in item for item in result["projects"])
     assert result["unscoped_sessions"]["total"] == 4
     assert result["unscoped_sessions"]["by_agent"]["cursor"] == 3
+    project_a_payload = result["projects"][0]
+    assert project_a_payload["record_count"] == 1
+    assert project_a_payload["archived_record_count"] == 1
+    assert project_a_payload["total_record_count"] == 3
 
 
 def test_api_status_project_scope_counts_child_session_paths(
@@ -1442,6 +1541,9 @@ def test_api_status_project_scope_counts_child_session_paths(
     assert queue_payload["queue"]["pending"] == 1
     assert queue_payload["queue"]["dead_letter"] == 1
     assert queue_payload["queue"]["failed"] == 0
+    child_path_result = api_status(scope="project", project=str(child_path))
+    assert child_path_result["record_count"] == 1
+    assert child_path_result["sessions_indexed_count"] == 2
     before_reset = catalog_mod.count_indexed_sessions_for_project(str(project_path))
     assert before_reset["indexed_sessions"] == 2
     assert before_reset["session_jobs"] == 2

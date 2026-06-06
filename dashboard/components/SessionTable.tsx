@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { scopedHref, useProjectScope } from "@/lib/projectScope";
 import type { Session } from "@/lib/types";
 
 interface SessionTableProps {
@@ -31,6 +32,7 @@ export default function SessionTable({
   onOpen,
 }: SessionTableProps) {
   const router = useRouter();
+  const { project } = useProjectScope();
 
   if (sessions.length === 0) {
     return (
@@ -89,7 +91,7 @@ export default function SessionTable({
           {sessions.map((s) => {
             const status = s.processing_status || "indexed";
             const openSession = () =>
-              onOpen ? onOpen(s.run_id) : router.push(`/traces/${s.run_id}`);
+              onOpen ? onOpen(s.run_id) : router.push(scopedHref(`/traces/${s.run_id}`, project));
             return (
               <tr
                 key={s.run_id}

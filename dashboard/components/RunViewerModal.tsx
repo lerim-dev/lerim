@@ -7,34 +7,41 @@ import type { SessionDetail, TranscriptMessage } from "@/lib/types";
 
 interface RunViewerModalProps {
   runId: string;
+  project?: string;
   onClose: () => void;
 }
 
-export default function RunViewerModal({ runId, onClose }: RunViewerModalProps) {
+export default function RunViewerModal({ runId, project, onClose }: RunViewerModalProps) {
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [messages, setMessages] = useState<TranscriptMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const loadSeqRef = useRef(0);
 
   /* Fetch session detail + messages in parallel */
   const load = useCallback(async () => {
+    const seq = loadSeqRef.current + 1;
+    loadSeqRef.current = seq;
     setLoading(true);
     setError(null);
     try {
       const [sessionData, messagesData] = await Promise.all([
-        api.getSession(runId),
-        api.getSessionMessages(runId),
+        api.getSession(runId, project),
+        api.getSessionMessages(runId, project),
       ]);
+      if (seq !== loadSeqRef.current) return;
       setSession(sessionData);
       setMessages(messagesData.messages);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load session");
+      if (seq === loadSeqRef.current) {
+        setError(err instanceof Error ? err.message : "Failed to load session");
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
-  }, [runId]);
+  }, [project, runId]);
 
   useEffect(() => {
     load();

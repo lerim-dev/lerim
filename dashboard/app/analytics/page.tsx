@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { useProjectScope } from "@/lib/projectScope";
 import type { ContextRecordVersion, PipelineReportResponse, StatsResponse } from "@/lib/types";
@@ -33,28 +33,34 @@ function AnalyticsContent() {
 	const [statsScope, setStatsScope] = useState<MemoryTimelineScope>("all");
 	const [stats, setStats] = useState<StatsResponse | null>(null);
 	const [report, setReport] = useState<PipelineReportResponse | null>(null);
-	const [memoryVersions, setMemoryVersions] = useState<ContextRecordVersion[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
+		const [memoryVersions, setMemoryVersions] = useState<ContextRecordVersion[]>([]);
+		const [loading, setLoading] = useState(true);
+		const [error, setError] = useState<string | null>(null);
+		const loadSeqRef = useRef(0);
 
-	const load = useCallback(async () => {
-		setLoading(true);
-		setError(null);
-		try {
+		const load = useCallback(async () => {
+			const seq = loadSeqRef.current + 1;
+			loadSeqRef.current = seq;
+			setLoading(true);
+			setError(null);
+			try {
 			const [statsData, reportData, versionsData] = await Promise.all([
 				api.getStats(statsScope, true, project || undefined),
-				api.getPipelineReport(project || undefined).catch(() => null),
-				api.getRecordVersions(project ? { limit: "5000", project } : { limit: "5000" }),
-			]);
-			setStats(statsData);
-			setReport(reportData);
-			setMemoryVersions(versionsData.versions);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Failed to load stats");
-		} finally {
-			setLoading(false);
-		}
-	}, [project, statsScope]);
+					api.getPipelineReport(project || undefined).catch(() => null),
+					api.getRecordVersions(project ? { limit: "5000", project } : { limit: "5000" }),
+				]);
+				if (seq !== loadSeqRef.current) return;
+				setStats(statsData);
+				setReport(reportData);
+				setMemoryVersions(versionsData.versions);
+			} catch (err) {
+				if (seq === loadSeqRef.current) {
+					setError(err instanceof Error ? err.message : "Failed to load stats");
+				}
+			} finally {
+				if (seq === loadSeqRef.current) setLoading(false);
+			}
+		}, [project, statsScope]);
 
 	useEffect(() => {
 		load();

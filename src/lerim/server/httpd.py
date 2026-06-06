@@ -42,6 +42,7 @@ from lerim.server.api import (
     api_query,
     api_record_filters,
     api_project_remove,
+    project_record_counts,
     api_queue_jobs,
     api_retry_all_dead_letter,
     api_retry_job,
@@ -56,7 +57,11 @@ from lerim.config.settings import (
     get_config,
     save_config_patch,
 )
-from lerim.config.project_scope import match_session_project, project_path_sql_scope
+from lerim.config.project_scope import (
+    is_path_like_project_token,
+    match_session_project,
+    project_path_sql_scope,
+)
 from lerim.config.timeouts import ANSWER_REQUEST_TIMEOUT_SECONDS
 
 from lerim.adapters.common import load_jsonl_dict_lines
@@ -130,26 +135,34 @@ def _scope_bounds(scope: str | None) -> tuple[datetime | None, datetime]:
     return now - timedelta(days=7), now
 
 
-def _project_scope(config: Config, project: str | None) -> tuple[str | None, str | None]:
-    """Resolve a dashboard project token to registered repo path and project id."""
+def _dashboard_project_scope(
+    config: Config,
+    project: str | None,
+) -> tuple[str | None, str | None, str | None]:
+    """Resolve a dashboard project token to project name, repo path, and project id."""
     token = (project or "").strip()
     if not token:
-        return None, None
+        return None, None, None
     registered = {
         name: Path(path).expanduser().resolve()
         for name, path in (config.projects or {}).items()
     }
     if token in registered:
         path = registered[token]
-        return str(path), resolve_project_identity(path).project_id
-    try:
-        requested = Path(token).expanduser().resolve()
-    except (OSError, RuntimeError):
-        requested = None
-    if requested is not None:
-        for path in registered.values():
-            if path == requested:
-                return str(path), resolve_project_identity(path).project_id
+        return token, str(path), resolve_project_identity(path).project_id
+    if is_path_like_project_token(token):
+        try:
+            requested = Path(token).expanduser().resolve()
+        except (OSError, RuntimeError):
+            requested = None
+        if requested is not None:
+            matched = match_session_project(
+                str(requested),
+                {name: str(path) for name, path in registered.items()},
+            )
+            if matched is not None:
+                name, path = matched
+                return name, str(path), resolve_project_identity(path).project_id
     raise ValueError(f"Project not found: {project}")
 
 
@@ -184,6 +197,25 @@ FROM session_docs {where_sql} ORDER BY start_time DESC, indexed_at DESC"""
     with sqlite3.connect(config.sessions_db_path) as conn:
         conn.row_factory = sqlite3.Row
         return conn.execute(sql, params).fetchall()
+
+
+def _empty_queue_counts() -> dict[str, int]:
+    """Return zero-valued queue counters for degraded session-catalog responses."""
+    return {"pending": 0, "running": 0, "failed": 0, "dead_letter": 0, "done": 0}
+
+
+def _session_catalog_unavailable(exc: sqlite3.Error) -> dict[str, Any]:
+    """Build stable dashboard metadata for an unavailable session catalog."""
+    message = f"Session catalog unavailable: {exc}"
+    logger.debug(message)
+    return {"catalog_available": False, "error": message}
+
+
+def _empty_stats_payload(exc: sqlite3.Error) -> dict[str, Any]:
+    """Return empty dashboard stats with explicit catalog-unavailable metadata."""
+    payload = _compute_stats([])
+    payload.update(_session_catalog_unavailable(exc))
+    return payload
 
 
 def _serialize_run(row: dict[str, Any], projects: dict[str, str] | None = None) -> dict[str, Any]:
@@ -235,6 +267,16 @@ def _serialize_run(row: dict[str, Any], projects: dict[str, str] | None = None) 
         "preview": row.get("summary_text") or "",
         "source": "trace",
     }
+
+
+def _run_doc_matches_repo_path(run_doc: dict[str, Any], repo_path: str | None) -> bool:
+    """Return whether a fetched run belongs inside the selected repo path."""
+    if not repo_path:
+        return True
+    run_repo_path = str(run_doc.get("repo_path") or "").strip()
+    if not run_repo_path:
+        return False
+    return match_session_project(run_repo_path, {"selected": repo_path}) is not None
 
 
 def _compute_stats(rows: list[sqlite3.Row]) -> dict[str, Any]:
@@ -752,12 +794,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
         agent = _query_param(query, "agent_type", "all")
         project = _query_param(query, "project") or None
         try:
-            repo_path, _project_id = _project_scope(config, project)
+            _project_name, repo_path, _project_id = _dashboard_project_scope(config, project)
         except ValueError as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return
         since, until = _scope_bounds(scope)
-        rows = _sqlite_rows(since, until, agent, repo_path)
+        try:
+            rows = _sqlite_rows(since, until, agent, repo_path)
+        except sqlite3.Error as exc:
+            self._json(_empty_stats_payload(exc))
+            return
         self._json(_compute_stats(rows))
 
     def _api_runs(self, query: dict[str, list[str]]) -> None:
@@ -775,21 +821,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
             _query_param(query, "offset", "0"), 0, minimum=0, maximum=10_000
         )
         try:
-            repo_path, _project_id = _project_scope(config, project)
+            _project_name, repo_path, _project_id = _dashboard_project_scope(config, project)
         except ValueError as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return
         since, until = _scope_bounds(scope)
-        rows, total = list_sessions_window(
-            limit=limit,
-            offset=offset,
-            agent_types=None if agent in {"", "all"} else [agent],
-            since=since,
-            until=until,
-            repo_path=repo_path,
-            repo_query=repo_filter or None,
-            status=status_filter or None,
-        )
+        try:
+            rows, total = list_sessions_window(
+                limit=limit,
+                offset=offset,
+                agent_types=None if agent in {"", "all"} else [agent],
+                since=since,
+                until=until,
+                repo_path=repo_path,
+                repo_query=repo_filter or None,
+                status=status_filter or None,
+            )
+        except sqlite3.Error as exc:
+            payload = _session_catalog_unavailable(exc)
+            payload.update({"runs": [], "pagination": {"offset": offset, "total": 0, "has_more": False}})
+            self._json(payload)
+            return
         runs = [_serialize_run(row, config.projects) for row in rows]
         self._json(
             {
@@ -818,7 +870,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             _query_param(query, "offset", "0"), 0, minimum=0, maximum=10_000
         )
         try:
-            repo_path, _project_id = _project_scope(config, project)
+            _project_name, repo_path, _project_id = _dashboard_project_scope(config, project)
         except ValueError as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return
@@ -844,34 +896,46 @@ class DashboardHandler(BaseHTTPRequestHandler):
             where.append("(d.repo_path = ? OR d.repo_path LIKE ? ESCAPE '\\')")
             params.extend([exact_path, child_path])
         where_sql = (" AND " + " AND ".join(where)) if where else ""
-        with sqlite3.connect(config.sessions_db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            if run_query:
-                search_sql = f"""\
+        try:
+            with sqlite3.connect(config.sessions_db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                if run_query:
+                    search_sql = f"""\
 SELECT d.run_id, d.agent_type, d.status, d.start_time, d.duration_ms, d.message_count, \
 d.tool_call_count, d.error_count, d.total_tokens, d.repo_name, d.repo_path, d.summary_text, \
 snippet(sessions_fts, 3, '<mark>', '</mark>', '...', 24) AS snippet \
 FROM sessions_fts JOIN session_docs d ON d.id = sessions_fts.rowid \
 WHERE sessions_fts MATCH ?{where_sql} ORDER BY d.start_time DESC LIMIT ? OFFSET ?"""
-                rows = conn.execute(
-                    search_sql, [run_query, *params, limit, offset]
-                ).fetchall()
-                count_sql = f"""\
+                    rows = conn.execute(
+                        search_sql, [run_query, *params, limit, offset]
+                    ).fetchall()
+                    count_sql = f"""\
 SELECT COUNT(1) AS total FROM sessions_fts JOIN session_docs d ON d.id = sessions_fts.rowid \
 WHERE sessions_fts MATCH ?{where_sql}"""
-                total = int(
-                    conn.execute(count_sql, [run_query, *params]).fetchone()["total"]
-                    or 0
-                )
-            else:
-                search_sql = f"""\
+                    total = int(
+                        conn.execute(count_sql, [run_query, *params]).fetchone()["total"]
+                        or 0
+                    )
+                else:
+                    search_sql = f"""\
 SELECT d.run_id, d.agent_type, d.status, d.start_time, d.duration_ms, d.message_count, \
 d.tool_call_count, d.error_count, d.total_tokens, d.repo_name, d.repo_path, d.summary_text, d.summary_text AS snippet \
 FROM session_docs d WHERE 1=1{where_sql} ORDER BY d.start_time DESC LIMIT ? OFFSET ?"""
-                rows = conn.execute(search_sql, [*params, limit, offset]).fetchall()
-                count_sql = f"""\
+                    rows = conn.execute(search_sql, [*params, limit, offset]).fetchall()
+                    count_sql = f"""\
 SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
-                total = int(conn.execute(count_sql, params).fetchone()["total"] or 0)
+                    total = int(conn.execute(count_sql, params).fetchone()["total"] or 0)
+        except sqlite3.Error as exc:
+            payload = _session_catalog_unavailable(exc)
+            payload.update(
+                {
+                    "mode": "fts" if run_query else "keyword",
+                    "results": [],
+                    "pagination": {"offset": offset, "total": 0, "has_more": False},
+                }
+            )
+            self._json(payload)
+            return
         results = []
         for row in rows:
             run = _serialize_run(dict(row), config.projects)
@@ -889,23 +953,51 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             }
         )
 
-    def _api_run_detail(self, path: str) -> None:
+    def _api_run_detail(self, path: str, query: dict[str, list[str]]) -> None:
         """Return one indexed run by run id."""
         run_id = unquote(path.split("/api/runs/", 1)[1])
         if not run_id or "/" in run_id:
             self._error(HTTPStatus.NOT_FOUND, "Run not found")
             return
-        run_doc = fetch_session_doc(run_id)
+        try:
+            run_doc = fetch_session_doc(run_id)
+        except sqlite3.Error as exc:
+            self._error(HTTPStatus.SERVICE_UNAVAILABLE, _session_catalog_unavailable(exc)["error"])
+            return
         if run_doc is None:
             self._error(HTTPStatus.NOT_FOUND, "Run not found")
             return
-        self._json(_serialize_run(run_doc, get_config().projects))
+        config = get_config()
+        project = _query_param(query, "project") or None
+        try:
+            _project_name, repo_path, _project_id = _dashboard_project_scope(config, project)
+        except ValueError as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        if not _run_doc_matches_repo_path(run_doc, repo_path):
+            self._error(HTTPStatus.NOT_FOUND, "Run not found")
+            return
+        self._json(_serialize_run(run_doc, config.projects))
 
-    def _api_run_messages(self, path: str) -> None:
+    def _api_run_messages(self, path: str, query: dict[str, list[str]]) -> None:
         """Return normalized message timeline for one run id."""
         run_id = unquote(path.split("/api/runs/", 1)[1].rsplit("/messages", 1)[0])
-        run_doc = fetch_session_doc(run_id)
+        try:
+            run_doc = fetch_session_doc(run_id)
+        except sqlite3.Error as exc:
+            self._error(HTTPStatus.SERVICE_UNAVAILABLE, _session_catalog_unavailable(exc)["error"])
+            return
         if run_doc is None:
+            self._error(HTTPStatus.NOT_FOUND, "Run not found")
+            return
+        config = get_config()
+        project = _query_param(query, "project") or None
+        try:
+            _project_name, repo_path, _project_id = _dashboard_project_scope(config, project)
+        except ValueError as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        if not _run_doc_matches_repo_path(run_doc, repo_path):
             self._error(HTTPStatus.NOT_FOUND, "Run not found")
             return
         messages = _load_messages_for_run(run_doc)
@@ -913,11 +1005,15 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
 
     def _api_refine_status(self) -> None:
         """Return queue and recent run status for refine panel."""
-        payload = {
-            "queue": count_session_jobs_by_status(),
-            "ingest": latest_service_run("ingest"),
-            "curate": latest_service_run("curate"),
-        }
+        try:
+            payload = {
+                "queue": count_session_jobs_by_status(),
+                "ingest": latest_service_run("ingest"),
+                "curate": latest_service_run("curate"),
+            }
+        except sqlite3.Error as exc:
+            payload = _session_catalog_unavailable(exc)
+            payload.update({"queue": _empty_queue_counts(), "ingest": None, "curate": None})
         self._json(payload)
 
     def _api_live(self) -> None:
@@ -938,18 +1034,38 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             elif name.startswith("curate-"):
                 curate_threads.append(name)
 
-        # -- Queue counts (single lightweight GROUP BY) --
-        queue = count_session_jobs_by_status()
+        try:
+            # -- Queue counts (single lightweight GROUP BY) --
+            queue = count_session_jobs_by_status()
 
-        # -- Running job run_ids (small result set) --
-        running_jobs = list_session_jobs(limit=50, status="running")
-        running_run_ids = [
-            str(j.get("run_id") or "") for j in running_jobs if j.get("run_id")
-        ]
+            # -- Running job run_ids (small result set) --
+            running_jobs = list_session_jobs(limit=50, status="running")
+            running_run_ids = [
+                str(j.get("run_id") or "") for j in running_jobs if j.get("run_id")
+            ]
 
-        # -- Latest ingest / curate service runs --
-        last_ingest_raw = latest_service_run("ingest")
-        last_curate_raw = latest_service_run("curate")
+            # -- Latest ingest / curate service runs --
+            last_ingest_raw = latest_service_run("ingest")
+            last_curate_raw = latest_service_run("curate")
+        except sqlite3.Error as exc:
+            payload = _session_catalog_unavailable(exc)
+            payload.update(
+                {
+                    "timestamp": now.isoformat(),
+                    "reachable": False,
+                    "ingest_active": len(ingest_threads) > 0,
+                    "ingest_threads": ingest_threads,
+                    "curate_active": len(curate_threads) > 0,
+                    "curate_threads": curate_threads,
+                    "ingest_sessions_processing": 0,
+                    "queue": _empty_queue_counts(),
+                    "running_run_ids": [],
+                    "last_ingest": None,
+                    "last_curate": None,
+                }
+            )
+            self._json(payload)
+            return
 
         def _format_service_run(run: dict[str, Any] | None) -> dict[str, Any] | None:
             if run is None:
@@ -995,7 +1111,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
         config = get_config()
         project = _query_param(query, "project") or None
         try:
-            repo_path, _project_id = _project_scope(config, project)
+            _project_name, repo_path, _project_id = _dashboard_project_scope(config, project)
         except ValueError as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return
@@ -1037,20 +1153,29 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
         """Return generated Context Brief and Working Memory artifacts."""
         config = get_config()
         projects = config.projects or {}
-        project_name = _query_param(query, "project") or next(iter(projects), "")
-        if not project_name or project_name not in projects:
+        requested_project = _query_param(query, "project") or next(iter(projects), "")
+        try:
+            project_name, project_path, project_id = _dashboard_project_scope(
+                config,
+                requested_project,
+            )
+        except ValueError as exc:
+            project_name, project_path, project_id = None, None, None
+            error = str(exc)
+        else:
+            error = "No registered project found for memory artifacts."
+        if not project_name or not project_path or not project_id:
             self._json(
                 {
                     "projects": list(projects.keys()),
-                    "selected_project": project_name,
+                    "selected_project": requested_project,
                     "artifacts": {},
                     "versions": [],
-                    "error": "No registered project found for memory artifacts.",
+                    "error": error,
                 }
             )
             return
-        project_path = Path(projects[project_name]).expanduser().resolve()
-        identity = resolve_project_identity(project_path)
+        identity = resolve_project_identity(Path(project_path))
         project = ContextBriefProject(name=project_name, identity=identity)
         store = ContextStore(config.context_db_path)
         brief_paths = context_brief_paths(config, identity.project_id)
@@ -1105,23 +1230,34 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
         """Return generated Run Clinic artifact and structured report."""
         config = get_config()
         projects = config.projects or {}
-        project_name = _query_param(query, "project") or next(iter(projects), "")
-        if not project_name or project_name not in projects:
+        requested_project = _query_param(query, "project") or next(iter(projects), "")
+        try:
+            project_name, project_path, project_id = _dashboard_project_scope(
+                config,
+                requested_project,
+            )
+        except ValueError as exc:
+            project_name, project_path, project_id = None, None, None
+            error = str(exc)
+        else:
+            error = "No registered project found for Run Clinic."
+        if not project_name or not project_path or not project_id:
             self._json(
                 {
                     "projects": list(projects.keys()),
-                    "selected_project": project_name,
+                    "selected_project": requested_project,
                     "artifact": None,
                     "versions": [],
-                    "error": "No registered project found for Run Clinic.",
+                    "error": error,
                 }
             )
             return
-        project_path = Path(projects[project_name]).expanduser().resolve()
-        identity = resolve_project_identity(project_path)
+        project_path_obj = Path(project_path)
+        identity = resolve_project_identity(project_path_obj)
         project = ContextBriefProject(name=project_name, identity=identity)
         store = ContextStore(config.context_db_path)
         paths = run_clinic_paths(config, identity.project_id)
+        record_counts = project_record_counts(config, project_path_obj)
         current_version = _run_clinic_version_payload(
             manifest_path=paths.current_manifest,
             markdown_path=paths.current_file,
@@ -1142,6 +1278,10 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 "selected_project": project_name,
                 "project_id": identity.project_id,
                 "repo_path": str(identity.repo_path),
+                "record_count": record_counts["active"],
+                "active_record_count": record_counts["active"],
+                "archived_record_count": record_counts["archived"],
+                "total_record_count": record_counts["total"],
                 "artifact": {
                     "type": "run_clinic",
                     "label": "Run Clinic",
@@ -1163,20 +1303,21 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
         connected_only = bool(body.get("connected_only"))
         config = get_config()
         try:
-            _repo_path, project_id = _project_scope(
+            selected_project, repo_path, project_id = _dashboard_project_scope(
                 config,
                 str(body.get("project") or "").strip() or None,
             )
         except ValueError as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return
-        project_sql = " AND project_id = ?" if project_id else ""
         project_params = [project_id] if project_id else []
         if not config.context_db_path.exists():
             self._json({
                 "nodes": [],
                 "edges": [],
                 "total_records": 0,
+                "selected_project": selected_project or "",
+                "project_id": project_id or "",
                 "returned_nodes": 0,
                 "returned_edges": 0,
                 "graph_node_count": 0,
@@ -1186,39 +1327,83 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 "graph_mode": "empty",
             })
             return
-        ContextStore(config.context_db_path).initialize()
+        store = ContextStore(config.context_db_path)
+        store.initialize()
+        if project_id and repo_path:
+            total_records = project_record_counts(config, Path(repo_path))["active"]
+        else:
+            project_ids: list[str] = []
+            for path in (config.projects or {}).values():
+                identity = resolve_project_identity(Path(path).expanduser().resolve())
+                store.register_project(identity)
+                project_ids.append(identity.project_id)
+            total_payload = store.query(
+                entity="records",
+                mode="count",
+                project_ids=project_ids,
+                status="active",
+            )
+            total_records = int(total_payload.get("count") or 0)
+        now = datetime.now(timezone.utc).isoformat()
+        node_project_sql = " AND cn.project_id = ?" if project_id else ""
+        edge_project_sql = " AND ce.project_id = ?" if project_id else ""
+        current_node_sql = """cn.status = 'active'
+                  AND r.status = 'active'
+                  AND r.valid_from <= ?
+                  AND (r.valid_until IS NULL OR r.valid_until >= ?)"""
+        current_edge_sql = """ce.status = 'active'
+                  AND sr.status = 'active'
+                  AND sr.valid_from <= ?
+                  AND (sr.valid_until IS NULL OR sr.valid_until >= ?)
+                  AND tr.status = 'active'
+                  AND tr.valid_from <= ?
+                  AND (tr.valid_until IS NULL OR tr.valid_until >= ?)"""
+        node_current_params = [now, now]
+        edge_current_params = [now, now, now, now]
         with sqlite3.connect(config.context_db_path) as conn:
             conn.row_factory = sqlite3.Row
-            total_records = int(
-                conn.execute(
-                    f"SELECT COUNT(1) FROM records WHERE status = 'active'{project_sql}",
-                    project_params,
-                ).fetchone()[0]
-                or 0
-            )
             graph_node_count = int(
                 conn.execute(
-                    f"SELECT COUNT(1) FROM context_nodes WHERE status = 'active'{project_sql}",
-                    project_params,
+                    f"""SELECT COUNT(1)
+                        FROM context_nodes cn
+                        JOIN records r ON r.record_id = cn.node_id
+                        WHERE {current_node_sql}{node_project_sql}""",
+                    [*node_current_params, *project_params],
                 ).fetchone()[0]
                 or 0
             )
             active_edge_count = int(
                 conn.execute(
-                    f"SELECT COUNT(1) FROM context_edges WHERE status = 'active'{project_sql}",
-                    project_params,
+                    f"""SELECT COUNT(1)
+                        FROM context_edges ce
+                        JOIN records sr ON sr.record_id = ce.source_node_id
+                        JOIN records tr ON tr.record_id = ce.target_node_id
+                        WHERE {current_edge_sql}{edge_project_sql}""",
+                    [*edge_current_params, *project_params],
                 ).fetchone()[0]
                 or 0
             )
-            edge_project_sql = " AND project_id = ?" if project_id else ""
             connected_node_count = int(
                 conn.execute(
                     f"""SELECT COUNT(DISTINCT node_id) FROM (
-                        SELECT source_node_id AS node_id FROM context_edges WHERE status = 'active'{edge_project_sql}
+                        SELECT ce.source_node_id AS node_id
+                        FROM context_edges ce
+                        JOIN records sr ON sr.record_id = ce.source_node_id
+                        JOIN records tr ON tr.record_id = ce.target_node_id
+                        WHERE {current_edge_sql}{edge_project_sql}
                         UNION
-                        SELECT target_node_id AS node_id FROM context_edges WHERE status = 'active'{edge_project_sql}
+                        SELECT ce.target_node_id AS node_id
+                        FROM context_edges ce
+                        JOIN records sr ON sr.record_id = ce.source_node_id
+                        JOIN records tr ON tr.record_id = ce.target_node_id
+                        WHERE {current_edge_sql}{edge_project_sql}
                     )""",
-                    [*project_params, *project_params],
+                    [
+                        *edge_current_params,
+                        *project_params,
+                        *edge_current_params,
+                        *project_params,
+                    ],
                 ).fetchone()[0]
                 or 0
             )
@@ -1227,6 +1412,8 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                     "nodes": [],
                     "edges": [],
                     "total_records": total_records,
+                    "selected_project": selected_project or "",
+                    "project_id": project_id or "",
                     "returned_nodes": 0,
                     "returned_edges": 0,
                     "graph_node_count": graph_node_count,
@@ -1237,13 +1424,16 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 })
                 return
             edge_rows = conn.execute(
-                """SELECT edge_id, source_node_id, target_node_id, relation_kind, label,
-                          rationale, evidence_record_ids, confidence, status
-                   FROM context_edges
-                   WHERE status = 'active'""" + project_sql + """
-                   ORDER BY confidence DESC, updated_at DESC
+                f"""SELECT ce.edge_id, ce.source_node_id, ce.target_node_id,
+                          ce.relation_kind, ce.label, ce.rationale,
+                          ce.evidence_record_ids, ce.confidence, ce.status
+                   FROM context_edges ce
+                   JOIN records sr ON sr.record_id = ce.source_node_id
+                   JOIN records tr ON tr.record_id = ce.target_node_id
+                   WHERE {current_edge_sql}{edge_project_sql}
+                   ORDER BY ce.confidence DESC, ce.updated_at DESC
                    LIMIT ?""",
-                (*project_params, max_edges),
+                (*edge_current_params, *project_params, max_edges),
             ).fetchall()
             selected_ids: list[str] = []
             seen_ids: set[str] = set()
@@ -1257,14 +1447,16 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 excluded_sql = ""
                 params: list[Any] = []
                 if selected_ids:
-                    excluded_sql = f"AND node_id NOT IN ({_placeholders(selected_ids)})"
+                    excluded_sql = f"AND cn.node_id NOT IN ({_placeholders(selected_ids)})"
                     params.extend(selected_ids)
                 node_rows = conn.execute(
-                    f"""SELECT node_id FROM context_nodes
-                        WHERE status = 'active' {project_sql} {excluded_sql}
-                        ORDER BY updated_at DESC
+                    f"""SELECT cn.node_id
+                        FROM context_nodes cn
+                        JOIN records r ON r.record_id = cn.node_id
+                        WHERE {current_node_sql}{node_project_sql} {excluded_sql}
+                        ORDER BY cn.updated_at DESC
                         LIMIT ?""",
-                    (*project_params, *params, remaining),
+                    (*node_current_params, *project_params, *params, remaining),
                 ).fetchall()
                 for row in node_rows:
                     node_id = row["node_id"]
@@ -1277,6 +1469,8 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                     "nodes": [],
                     "edges": [],
                     "total_records": total_records,
+                    "selected_project": selected_project or "",
+                    "project_id": project_id or "",
                     "returned_nodes": 0,
                     "returned_edges": 0,
                     "graph_node_count": graph_node_count,
@@ -1292,11 +1486,10 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                           cn.label, cn.summary, cn.status, cn.semantic_cluster,
                           cn.scope_label, cn.created_at, cn.updated_at
                    FROM context_nodes cn
-                   LEFT JOIN records r ON r.record_id = cn.node_id
-                   WHERE cn.status = 'active'
-                     {"AND cn.project_id = ?" if project_id else ""}
+                   JOIN records r ON r.record_id = cn.node_id
+                   WHERE {current_node_sql}{node_project_sql}
                      AND cn.node_id IN ({_placeholders(selected_ids)})""",
-                [*project_params, *selected_ids],
+                [*node_current_params, *project_params, *selected_ids],
             ).fetchall()
             selected_set = {row["node_id"] for row in node_rows}
             returned_edges = [
@@ -1309,6 +1502,8 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             "edges": [_graph_edge_payload(row) for row in returned_edges],
             "total_records": total_records,
             "matching_records": total_records,
+            "selected_project": selected_project or "",
+            "project_id": project_id or "",
             "returned_nodes": len(node_rows),
             "returned_edges": len(returned_edges),
             "truncated": graph_node_count > len(node_rows),
@@ -1318,7 +1513,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             "connected_node_count": connected_node_count,
             "projection_ready": active_edge_count > 0,
             "used_record_fallback": False,
-            "graph_mode": "learned_graph" if returned_edges else "empty",
+            "graph_mode": "learned_graph" if returned_edges else "record_fallback",
         })
 
     def _handle_api_get(self, path: str, query: dict[str, list[str]]) -> None:
@@ -1358,7 +1553,10 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             self._json(api_unscoped(limit=limit))
             return
         if path == "/api/records/filters":
-            self._json(api_record_filters())
+            project = _query_param(query, "project") or None
+            payload = api_record_filters(project=project)
+            status = int(payload.pop("status_code", HTTPStatus.OK))
+            self._json(payload, status=status)
             return
         if handle_skill_get(self, path, query):
             return
@@ -1388,10 +1586,10 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             no_query_handlers[path]()
             return
         if path.startswith("/api/runs/") and path.endswith("/messages"):
-            self._api_run_messages(path)
+            self._api_run_messages(path, query)
             return
         if path.startswith("/api/runs/"):
-            self._api_run_detail(path)
+            self._api_run_detail(path, query)
             return
         self._error(HTTPStatus.NOT_FOUND, "Not found")
 

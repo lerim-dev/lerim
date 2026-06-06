@@ -66,6 +66,46 @@ def test_run_clinic_paths_use_diagnostic_artifact_names(tmp_path):
     assert paths.current_manifest.name == "RUN_CLINIC.manifest.json"
 
 
+def test_load_run_clinic_data_reports_active_and_historical_totals(
+    tmp_path,
+    mock_embeddings,
+) -> None:
+    """Clinic samples current active records while exposing archived totals."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg = make_config(tmp_path / ".lerim")
+    store = ContextStore(cfg.context_db_path)
+    project_id = _register_seeded_project(store, repo)
+    active = store.create_record(
+        project_id=project_id,
+        session_id="sess_run_clinic",
+        kind="constraint",
+        title="Active memory",
+        body="This record should be sampled by Clinic.",
+    )
+    archived = store.create_record(
+        project_id=project_id,
+        session_id="sess_run_clinic",
+        kind="fact",
+        title="Archived memory",
+        body="This record should stay visible only in historical totals.",
+        status="archived",
+    )
+
+    data = load_run_clinic_data(
+        store,
+        project_id=project_id,
+        since="2026-01-01T00:00:00+00:00",
+    )
+
+    assert [record["record_id"] for record in data.records] == [active["record_id"]]
+    assert archived["record_id"] not in {record["record_id"] for record in data.records}
+    assert data.metrics["active_records_sampled"] == 1
+    assert data.metrics["active_records_total"] == 1
+    assert data.metrics["archived_records_total"] == 1
+    assert data.metrics["all_records_total"] == 2
+
+
 def test_validate_clinic_output_requires_evidence_ids() -> None:
     """Clinic compiler validation returns retryable errors for missing evidence."""
     output = {

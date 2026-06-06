@@ -36,6 +36,7 @@ function SourcesContent() {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadSeqRef = useRef(0);
 
   /* Repo filter */
   const [repoFilter, setRepoFilter] = useState("");
@@ -101,6 +102,8 @@ function SourcesContent() {
   }, [project, scope, agent, repoFilter, statusFilter]);
 
   const load = useCallback(async () => {
+    const seq = loadSeqRef.current + 1;
+    loadSeqRef.current = seq;
     setLoading(true);
     setError(null);
     try {
@@ -124,14 +127,17 @@ function SourcesContent() {
         data = await api.getSessions(params);
       }
 
+      if (seq !== loadSeqRef.current) return;
       setSessions(data.sessions);
       setTotal(data.total);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load sessions"
-      );
+      if (seq === loadSeqRef.current) {
+        setError(
+          err instanceof Error ? err.message : "Failed to load sessions"
+        );
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [project, scope, agent, searchQuery, repoFilter, statusFilter, sort, order, offset]);
 
@@ -158,7 +164,9 @@ function SourcesContent() {
           </h1>
           {!loading && (
             <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-              {total} source session{total !== 1 ? "s" : ""} feeding context compilation
+              {error
+                ? "Source session catalog unavailable"
+                : `${total} source session${total !== 1 ? "s" : ""} feeding context compilation`}
             </p>
           )}
         </div>
@@ -325,7 +333,7 @@ function SourcesContent() {
 
       {/* Table */}
       <div className="mt-4">
-        {loading ? (
+        {error ? null : loading ? (
           <div className="rounded-lg border border-[var(--border)] p-6">
             <div className="space-y-3">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -406,6 +414,7 @@ function SourcesContent() {
       {viewingRunId && (
         <RunViewerModal
           runId={viewingRunId}
+          project={project || undefined}
           onClose={() => setViewingRunId(null)}
         />
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { useProjectScope } from "@/lib/projectScope";
 import { formatRecordKind, formatScopeLabel, formatStatusLabel } from "@/lib/labels";
@@ -49,8 +49,11 @@ function OperationsContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [recordFilter, setRecordFilter] = useState<"all" | "active" | "archived">("all");
+  const loadSeqRef = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = loadSeqRef.current + 1;
+    loadSeqRef.current = seq;
     setLoading(true);
     setError(null);
     try {
@@ -58,16 +61,19 @@ function OperationsContent() {
         api.getPipelineStatus(project || undefined),
         api.getTimeline(14, project || undefined).catch(() => null),
         api.getPipelineReport(project || undefined).catch(() => null),
-        api.getLogs({ limit: "20" }).catch(() => ({ logs: [], total: 0 })),
+        api.getLogs(project ? { limit: "20", project } : { limit: "20" }).catch(() => ({ logs: [], total: 0 })),
       ]);
+      if (seq !== loadSeqRef.current) return;
       setStatus(statusData);
       setTimeline(timelineData);
       setReport(reportData);
       setLogs(logData.logs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load operations");
+      if (seq === loadSeqRef.current) {
+        setError(err instanceof Error ? err.message : "Failed to load operations");
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [project]);
 
@@ -82,7 +88,7 @@ function OperationsContent() {
         const [timelineData, statusData, logData] = await Promise.all([
           api.getTimeline(14, project || undefined).catch(() => null),
           api.getPipelineStatus(project || undefined),
-          api.getLogs({ limit: "20" }).catch(() => ({ logs: [], total: 0 })),
+          api.getLogs(project ? { limit: "20", project } : { limit: "20" }).catch(() => ({ logs: [], total: 0 })),
         ]);
         if (!cancelled) {
           setTimeline(timelineData);
@@ -202,11 +208,11 @@ function OperationsContent() {
             </span>
             <Divider />
             <span>
-              <span className="font-medium tabular-nums text-[var(--text)]">
-                {status.records.total.toLocaleString()}
-              </span>{" "}
-              records
-            </span>
+	              <span className="font-medium tabular-nums text-[var(--text)]">
+	                {status.records.total.toLocaleString()}
+	              </span>{" "}
+	              records ({status.records.active.toLocaleString()} active)
+	            </span>
             <Divider />
             <span className="inline-flex items-center gap-1.5">
               {status.logs.errors > 0 && <HealthDot health={errorHealth} size={6} />}

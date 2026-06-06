@@ -129,6 +129,18 @@ def load_run_clinic_data(
         limit=RUN_CLINIC_RECORD_LIMIT,
         include_total=True,
     )
+    archived_payload = store.query(
+        entity="records",
+        mode="count",
+        project_ids=[project_id],
+        status="archived",
+    )
+    all_records_payload = store.query(
+        entity="records",
+        mode="count",
+        project_ids=[project_id],
+        include_archived=True,
+    )
     versions_payload = store.query(
         entity="versions",
         mode="list",
@@ -159,6 +171,8 @@ def load_run_clinic_data(
             versions=versions,
             sessions=sessions,
             total_records=int(records_payload.get("total") or len(records)),
+            archived_records=int(archived_payload.get("count") or 0),
+            all_records=int(all_records_payload.get("count") or len(records)),
             total_versions=int(versions_payload.get("total") or len(versions)),
             total_sessions=int(sessions_payload.get("total") or len(sessions)),
         ),
@@ -171,6 +185,8 @@ def build_run_clinic_metrics(
     versions: tuple[dict[str, Any], ...],
     sessions: tuple[dict[str, Any], ...],
     total_records: int,
+    archived_records: int,
+    all_records: int,
     total_versions: int,
     total_sessions: int,
 ) -> dict[str, Any]:
@@ -209,6 +225,8 @@ def build_run_clinic_metrics(
     return {
         "active_records_sampled": len(records),
         "active_records_total": total_records,
+        "archived_records_total": archived_records,
+        "all_records_total": all_records,
         "recent_versions_sampled": len(versions),
         "recent_versions_total": total_versions,
         "recent_sessions_sampled": len(sessions),

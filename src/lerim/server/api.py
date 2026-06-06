@@ -55,7 +55,11 @@ from lerim.config.settings import (
     save_config_patch,
     _write_config_full,
 )
-from lerim.config.project_scope import match_session_project, project_path_sql_scope
+from lerim.config.project_scope import (
+    is_path_like_project_token,
+    match_session_project,
+    project_path_sql_scope,
+)
 from lerim.profiles import list_signal_packs
 from lerim.server.runtime import LerimRuntime
 from lerim.server.skill_api import (
@@ -284,14 +288,18 @@ def _resolve_selected_projects(
         token = project.strip()
         if token in config.projects:
             return [(token, Path(config.projects[token]).expanduser().resolve())]
-        try:
-            project_path = Path(token).expanduser().resolve()
-        except Exception:
-            project_path = None
-        if project_path is not None:
-            for name, path in all_projects:
-                if path == project_path:
-                    return [(name, path)]
+        if is_path_like_project_token(token):
+            try:
+                project_path = Path(token).expanduser().resolve()
+            except Exception:
+                project_path = None
+            if project_path is not None:
+                matched = match_session_project(
+                    str(project_path),
+                    {name: str(path) for name, path in all_projects},
+                )
+                if matched is not None:
+                    return [matched]
         raise ValueError(f"Project not found: {project}")
 
     if len(all_projects) == 1:
@@ -303,27 +311,33 @@ def _resolve_selected_projects(
     )
 
 
-def _count_project_records(config: Config, project_path: Path) -> int:
-    """Count canonical records for one registered project."""
+def project_record_counts(config: Config, project_path: Path) -> dict[str, int]:
+    """Count active, archived, and total records for one registered project."""
     store = _context_store(config)
     identity = resolve_project_identity(project_path)
     store.register_project(identity)
+    active_payload = store.query(
+        entity="records",
+        mode="count",
+        project_ids=[identity.project_id],
+        status="active",
+    )
     with store.connect() as conn:
-        row = conn.execute(
-            "SELECT COUNT(1) AS total FROM records WHERE project_id = ?",
+        rows = conn.execute(
+            """SELECT status, COUNT(1) AS total
+               FROM records
+               WHERE project_id = ?
+               GROUP BY status""",
             (identity.project_id,),
-        ).fetchone()
-    return int(row["total"]) if row else 0
-
-
-def _registered_project_ids(config: Config, store: ContextStore) -> list[str]:
-    """Return registered project ids and make sure they exist in the store."""
-    project_ids = []
-    for _name, path in _registered_projects(config):
-        identity = resolve_project_identity(path)
-        store.register_project(identity)
-        project_ids.append(identity.project_id)
-    return project_ids
+        ).fetchall()
+    by_status = {str(row["status"] or ""): int(row["total"] or 0) for row in rows}
+    active = int(active_payload.get("count") or 0)
+    archived = int(by_status.get("archived", 0))
+    return {
+        "active": active,
+        "archived": archived,
+        "total": sum(by_status.values()),
+    }
 
 
 def _session_stats_for_repo(
@@ -560,49 +574,75 @@ def api_query(
     }
 
 
-def api_record_filters() -> dict[str, Any]:
+def api_record_filters(project: str | None = None) -> dict[str, Any]:
     """Return complete distinct record filter options for the dashboard."""
     config = get_config()
     store = _context_store(config)
-    project_ids = _registered_project_ids(config, store)
+    normalized_scope = "project" if str(project or "").strip() else "all"
+    try:
+        selected_projects = _resolve_selected_projects(
+            config=config,
+            scope=normalized_scope,
+            project=project,
+        )
+    except ValueError as exc:
+        return {
+            "types": [],
+            "roles": [],
+            "projects": [],
+            "error": True,
+            "message": str(exc),
+            "status_code": 400,
+        }
+    project_ids: list[str] = []
+    for _name, path in selected_projects:
+        identity = resolve_project_identity(path)
+        store.register_project(identity)
+        project_ids.append(identity.project_id)
     if not project_ids:
         return {"types": [], "roles": [], "projects": [], "error": False}
     placeholders = ", ".join("?" for _ in project_ids)
+    now = datetime.now(timezone.utc).isoformat()
+    active_current_sql = (
+        "status = 'active' AND valid_from <= ? "
+        "AND (valid_until IS NULL OR valid_until >= ?)"
+    )
+    active_params = (now, now, *project_ids)
     with store.connect() as conn:
         kind_rows = conn.execute(
             f"""
             SELECT DISTINCT kind AS value
             FROM records
-            WHERE status = 'active'
+            WHERE {active_current_sql}
               AND project_id IN ({placeholders})
               AND COALESCE(TRIM(kind), '') != ''
             ORDER BY kind ASC
             """,
-            tuple(project_ids),
+            active_params,
         ).fetchall()
         role_rows = conn.execute(
             f"""
             SELECT DISTINCT COALESCE(record_role, 'general') AS value
             FROM records
-            WHERE status = 'active'
+            WHERE {active_current_sql}
               AND project_id IN ({placeholders})
               AND COALESCE(TRIM(record_role), '') != ''
             ORDER BY value ASC
             """,
-            tuple(project_ids),
+            active_params,
         ).fetchall()
         project_rows = conn.execute(
             f"""
             SELECT DISTINCT project_id AS value
             FROM records
-            WHERE status = 'active'
+            WHERE {active_current_sql}
               AND project_id IN ({placeholders})
             ORDER BY value ASC
             """,
-            tuple(project_ids),
+            active_params,
         ).fetchall()
     project_names_by_id = {
-        resolve_project_identity(path).project_id: name for name, path in _registered_projects(config)
+        resolve_project_identity(path).project_id: name for name, path in selected_projects
     }
     return {
         "types": [str(row["value"]) for row in kind_rows],
@@ -1269,9 +1309,14 @@ def api_status(
 
     projects_payload: list[dict[str, Any]] = []
     total_records = 0
+    total_archived_records = 0
+    total_all_records = 0
     for name, path in selected_projects:
-        record_count = _count_project_records(config, path)
+        record_counts = project_record_counts(config, path)
+        record_count = record_counts["active"]
         total_records += record_count
+        total_archived_records += record_counts["archived"]
+        total_all_records += record_counts["total"]
         indexed_sessions_count, latest_session_start_time = _session_stats_for_repo(
             sessions_db_path=config.sessions_db_path,
             repo_path=str(path),
@@ -1285,6 +1330,9 @@ def api_status(
                 "name": name,
                 "project_id": resolve_project_identity(path).project_id,
                 "record_count": record_count,
+                "active_record_count": record_count,
+                "archived_record_count": record_counts["archived"],
+                "total_record_count": record_counts["total"],
                 "indexed_sessions_count": indexed_sessions_count,
                 "latest_session_start_time": latest_session_start_time,
                 "queue": queue_counts,
@@ -1383,6 +1431,9 @@ def api_status(
         ],
         "platforms": platforms,
         "record_count": total_records,
+        "active_record_count": total_records,
+        "archived_record_count": total_archived_records,
+        "total_record_count": total_all_records,
         "sessions_indexed_count": sessions_indexed_count,
         "queue": queue,
         "queue_health": queue_health,
@@ -1547,12 +1598,17 @@ def api_project_list(*, include_paths: bool = True) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for name, path_str in config.projects.items():
         resolved = Path(path_str).expanduser().resolve()
+        record_counts = project_record_counts(config, resolved)
         item: dict[str, Any] = {
             "name": name,
             "project_id": resolve_project_identity(resolved).project_id,
             "type": config.project_types.get(name, PROJECT_TYPE_SUPPORTED),
             "source_profile": config.project_profiles.get(name),
             "exists": resolved.exists(),
+            "record_count": record_counts["active"],
+            "active_record_count": record_counts["active"],
+            "archived_record_count": record_counts["archived"],
+            "total_record_count": record_counts["total"],
         }
         if include_paths:
             item["path"] = str(resolved)

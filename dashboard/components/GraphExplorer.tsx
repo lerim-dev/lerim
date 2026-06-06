@@ -697,6 +697,7 @@ export default function GraphExplorer({ onRecordClick }: GraphExplorerProps) {
   const nodeByIdRef = useRef(new Map<string, GraphNode>());
   const edgeByKeyRef = useRef(new Map<string, GraphEdge>());
   const clusterByIdRef = useRef(new Map<string, ClusterSummary>());
+  const loadSeqRef = useRef(0);
   const [graph, setGraph] = useState<GraphState>({
     nodes: [],
     edges: [],
@@ -771,6 +772,8 @@ export default function GraphExplorer({ onRecordClick }: GraphExplorerProps) {
   }, [clusterById, edgeByKey, nodeById]);
 
   const loadGraph = useCallback(async () => {
+    const seq = loadSeqRef.current + 1;
+    loadSeqRef.current = seq;
     setLoading(true);
     setError(null);
     try {
@@ -780,6 +783,7 @@ export default function GraphExplorer({ onRecordClick }: GraphExplorerProps) {
         connected_only: false,
         ...(project ? { project } : {}),
       });
+      if (seq !== loadSeqRef.current) return;
 
       setGraph({
         nodes: response.nodes,
@@ -789,9 +793,11 @@ export default function GraphExplorer({ onRecordClick }: GraphExplorerProps) {
       });
       setSelected(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load graph");
+      if (seq === loadSeqRef.current) {
+        setError(err instanceof Error ? err.message : "Failed to load graph");
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [maxNodes, project]);
 
@@ -885,6 +891,9 @@ export default function GraphExplorer({ onRecordClick }: GraphExplorerProps) {
             </span>
             <span className="rounded-full border border-teal-300/20 bg-teal-300/10 px-2 py-0.5 text-[11px] font-medium text-teal-100">
               {clusterBy === "semantic" ? "Cluster map" : "Record map"}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium text-slate-200">
+              {project ? formatScopeLabel(project) : "All projects"}
             </span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { scopedHref, useProjectScope } from "@/lib/projectScope";
@@ -31,8 +31,11 @@ function OverviewContent() {
 	const [activity, setActivity] = useState<ActivityFeedItem[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const loadSeqRef = useRef(0);
 
 	const load = useCallback(async () => {
+		const seq = loadSeqRef.current + 1;
+		loadSeqRef.current = seq;
 		setLoading(true);
 		setError(null);
 		try {
@@ -43,15 +46,18 @@ function OverviewContent() {
 				api.getIntelligence(8, project || undefined).catch(() => null),
 				api.getActivityFeed(7, 8, project || undefined).catch(() => ({ items: [] })),
 			]);
+			if (seq !== loadSeqRef.current) return;
 			setStatus(statusData);
 			setReport(reportData);
 			setStats(statsData);
 			setIntel(intelData);
 			setActivity(activityData.items);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "Failed to load overview");
+			if (seq === loadSeqRef.current) {
+				setError(err instanceof Error ? err.message : "Failed to load overview");
+			}
 		} finally {
-			setLoading(false);
+			if (seq === loadSeqRef.current) setLoading(false);
 		}
 	}, [project]);
 
@@ -88,7 +94,7 @@ function OverviewContent() {
 			</div>
 
 			<div className="mt-4">
-				<LiveStatus />
+				<LiveStatus shared={Boolean(project)} />
 			</div>
 
 			{error && (

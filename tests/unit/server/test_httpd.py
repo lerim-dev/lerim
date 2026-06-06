@@ -337,6 +337,50 @@ def _seed_context_graph(db_path: Path, project_path: Path) -> None:
                 ),
             )
         conn.execute(
+            """INSERT INTO records (
+                record_id, project_id, scope_type, scope_id, scope_label, source_name,
+                source_profile, kind, title, body, status, created_at, updated_at,
+                valid_from, valid_until
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "rec_expired",
+                identity.project_id,
+                "project",
+                identity.project_id,
+                "myproject",
+                "codex",
+                "coding",
+                "fact",
+                "Expired graph record",
+                "This active-status row is outside the current validity window.",
+                "active",
+                now,
+                now,
+                "1999-01-01T00:00:00Z",
+                "2000-01-01T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """INSERT INTO context_nodes (
+                node_id, project_id, scope_type, scope_id, scope_label, node_type,
+                label, summary, status, semantic_cluster, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "rec_expired",
+                identity.project_id,
+                "project",
+                identity.project_id,
+                "myproject",
+                "fact",
+                "Expired graph record",
+                "Expired graph record summary",
+                "active",
+                "semantic_dashboard",
+                now,
+                now,
+            ),
+        )
+        conn.execute(
             """INSERT INTO context_edges (
 				edge_id, project_id, scope_type, scope_id, scope_label, source_node_id,
 				target_node_id, relation_kind, label, rationale, evidence_record_ids,
@@ -472,6 +516,7 @@ def test_server(tmp_path, monkeypatch):
 
     # Mock config and catalog functions at the httpd module level
     monkeypatch.setattr("lerim.server.httpd.get_config", lambda: config)
+    monkeypatch.setattr("lerim.server.api.get_config", lambda: config)
     monkeypatch.setattr("lerim.server.httpd.init_sessions_db", lambda: None)
     monkeypatch.setattr("lerim.sessions.catalog.get_config", lambda: config)
     monkeypatch.setattr("lerim.sessions.catalog.init_sessions_db", lambda: None)
@@ -745,6 +790,24 @@ def test_get_runs_filters_registered_project(test_server):
     assert {run["project"] for run in body["runs"]} == {"myproject"}
 
 
+def test_get_runs_degrades_when_session_catalog_unavailable(test_server, monkeypatch):
+    """GET /api/runs returns stable JSON when the session catalog is unhealthy."""
+    port, _, _ = test_server
+
+    def fail_list_sessions_window(**_kwargs):
+        raise sqlite3.DatabaseError("database disk image is malformed")
+
+    monkeypatch.setattr("lerim.server.httpd.list_sessions_window", fail_list_sessions_window)
+
+    status, body = _api_get(port, "/api/runs?scope=all&project=myproject")
+
+    assert status == 200
+    assert body["catalog_available"] is False
+    assert "database disk image is malformed" in body["error"]
+    assert body["runs"] == []
+    assert body["pagination"] == {"offset": 0, "total": 0, "has_more": False}
+
+
 def test_get_runs_rejects_unknown_project(test_server):
     """GET /api/runs rejects unknown project names instead of widening scope."""
     port, _, _ = test_server
@@ -769,6 +832,25 @@ def test_get_runs_stats_filters_registered_project(test_server):
     status, body = _api_get(port, "/api/runs/stats?scope=all&project=myproject")
     assert status == 200
     assert body["totals"]["runs"] == 4
+
+
+def test_get_runs_stats_degrades_when_session_catalog_unavailable(
+    test_server, monkeypatch
+):
+    """GET /api/runs/stats returns empty stats when the session catalog fails."""
+    port, _, _ = test_server
+
+    def fail_sqlite_rows(*_args, **_kwargs):
+        raise sqlite3.DatabaseError("database disk image is malformed")
+
+    monkeypatch.setattr("lerim.server.httpd._sqlite_rows", fail_sqlite_rows)
+
+    status, body = _api_get(port, "/api/runs/stats?scope=all&project=myproject")
+
+    assert status == 200
+    assert body["catalog_available"] is False
+    assert "database disk image is malformed" in body["error"]
+    assert body["totals"]["runs"] == 0
 
 
 def test_get_runs_stats_reads_session_details(test_server):
@@ -808,6 +890,33 @@ def test_get_live(test_server):
     assert "ingest_active" in body
     assert "curate_active" in body
     assert "queue" in body
+
+
+def test_get_live_degrades_when_session_catalog_unavailable(test_server, monkeypatch):
+    """GET /api/live returns a visible degraded state for catalog DB errors."""
+    port, _, _ = test_server
+
+    def fail_count_session_jobs_by_status():
+        raise sqlite3.DatabaseError("database disk image is malformed")
+
+    monkeypatch.setattr(
+        "lerim.server.httpd.count_session_jobs_by_status",
+        fail_count_session_jobs_by_status,
+    )
+
+    status, body = _api_get(port, "/api/live")
+
+    assert status == 200
+    assert body["reachable"] is False
+    assert body["catalog_available"] is False
+    assert "database disk image is malformed" in body["error"]
+    assert body["queue"] == {
+        "pending": 0,
+        "running": 0,
+        "failed": 0,
+        "dead_letter": 0,
+        "done": 0,
+    }
 
 
 def test_get_memory_graph_options_route_removed(test_server):
@@ -935,6 +1044,18 @@ def test_get_clinic_filters_history_by_project(test_server):
     assert [version["report"]["project"] for version in body["versions"]] == [
         "myproject"
     ]
+    assert body["active_record_count"] == 2
+    assert body["total_record_count"] == 3
+
+
+def test_get_record_filters_route_scopes_project(test_server):
+    """GET /api/records/filters accepts the dashboard project query."""
+    port, _, _ = test_server
+    status, body = _api_get(port, "/api/records/filters?project=myproject")
+
+    assert status == 200
+    assert body["types"] == ["constraint", "decision"]
+    assert body["projects"] == ["myproject"]
 
 
 def test_get_search_without_query(test_server):
@@ -1205,6 +1326,8 @@ def test_post_graph_query_returns_learned_edges(test_server):
     assert status == 200
     assert body["graph_mode"] == "learned_graph"
     assert body["used_record_fallback"] is False
+    assert body["total_records"] == 2
+    assert body["graph_node_count"] == 2
     assert body["returned_nodes"] == 2
     assert body["returned_edges"] == 1
     assert body["active_edge_count"] == 1
@@ -1216,18 +1339,21 @@ def test_post_graph_query_returns_learned_edges(test_server):
 
 def test_post_graph_query_filters_registered_project(test_server):
     """POST /api/graph/query filters learned graph rows by project id."""
-    port, _, _ = test_server
+    port, _, tmp_path = test_server
     status, body = _api_post(
         port,
         "/api/graph/query",
         {
-            "project": "myproject",
+            "project": str(tmp_path / "myproject" / "packages" / "worker"),
             "max_nodes": 20,
             "max_edges": 20,
             "connected_only": True,
         },
     )
     assert status == 200
+    assert body["selected_project"] == "myproject"
+    assert body["total_records"] == 2
+    assert body["graph_node_count"] == 2
     assert body["returned_nodes"] == 2
     assert body["returned_edges"] == 1
     assert {node["project"] for node in body["nodes"]} == {"myproject"}
@@ -1420,10 +1546,18 @@ def test_run_messages_not_found(test_server):
 def test_run_detail_reads_exact_run(test_server):
     """GET /api/runs/<id> returns an exact indexed run."""
     port, _, _ = test_server
-    status, body = _api_get(port, "/api/runs/child-0000")
+    status, body = _api_get(port, "/api/runs/child-0000?project=myproject")
     assert status == 200
     assert body["run_id"] == "child-0000"
     assert body["project"] == "myproject"
+
+
+def test_run_detail_rejects_sibling_project_scope(test_server):
+    """GET /api/runs/<id>?project rejects runs outside the selected project."""
+    port, _, _ = test_server
+    status, body = _api_get_error(port, "/api/runs/other-0000?project=myproject")
+    assert status == 404
+    assert "error" in body
 
 
 def test_run_detail_not_found(test_server):
@@ -1449,6 +1583,17 @@ def test_run_messages_reads_session_path(test_server, monkeypatch):
     assert status == 200
     assert body["messages"][0]["role"] == "user"
     assert body["messages"][0]["content"] == "Show me the run details."
+
+
+def test_run_messages_rejects_sibling_project_scope(test_server):
+    """GET /api/runs/<id>/messages?project rejects sibling project runs."""
+    port, _, _ = test_server
+    status, body = _api_get_error(
+        port,
+        "/api/runs/other-0000/messages?project=myproject",
+    )
+    assert status == 404
+    assert "error" in body
 
 
 def test_search_with_fts_query(test_server):

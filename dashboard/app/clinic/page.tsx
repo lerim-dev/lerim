@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useProjectScope } from "@/lib/projectScope";
 import type {
@@ -29,19 +29,25 @@ function ClinicContent() {
 	const [activeVersionId, setActiveVersionId] = useState("");
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const loadSeqRef = useRef(0);
 
 	const load = useCallback(async (selectedProject?: string) => {
+		const seq = loadSeqRef.current + 1;
+		loadSeqRef.current = seq;
 		setLoading(true);
 		setError(null);
 		try {
 			const payload = await api.getRunClinic(selectedProject || project || undefined);
+			if (seq !== loadSeqRef.current) return;
 			setData(payload);
 			if (!project && payload.selected_project) setProject(payload.selected_project);
 			setActiveVersionId("");
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "Failed to load Run Clinic");
+			if (seq === loadSeqRef.current) {
+				setError(err instanceof Error ? err.message : "Failed to load Run Clinic");
+			}
 		} finally {
-			setLoading(false);
+			if (seq === loadSeqRef.current) setLoading(false);
 		}
 	}, [project, setProject]);
 
@@ -98,6 +104,7 @@ function ClinicContent() {
 							version={activeVersion}
 							headline={String(report.headline || "No Clinic diagnosis generated yet.")}
 							summary={Array.isArray(report.summary) ? report.summary : []}
+							metrics={metrics}
 						/>
 
 						<div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
@@ -145,13 +152,19 @@ function ClinicHero({
 	version,
 	headline,
 	summary,
+	metrics,
 }: {
 	data: RunClinicResponse | null;
 	artifact: RunClinicArtifact;
 	version: RunClinicVersion;
 	headline: string;
 	summary: string[];
+	metrics: RunClinicMetrics;
 }) {
+	const activeRecords = numberOrZero(data?.active_record_count ?? metrics.active_records_total);
+	const totalRecords = numberOrZero(data?.total_record_count ?? metrics.all_records_total ?? activeRecords);
+	const archivedRecords = numberOrZero(data?.archived_record_count ?? metrics.archived_records_total);
+	const changed = numberOrZero(artifact.status.records_changed_since_generation);
 	return (
 		<section className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
 			<div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
@@ -173,11 +186,18 @@ function ClinicHero({
 							<p className="text-xs leading-5 text-[var(--text-muted)]">No generated summary lines yet.</p>
 						)}
 					</div>
+					{changed > 0 && (
+						<p className="mt-3 rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-200">
+							{changed.toLocaleString()} record changes since this Clinic was generated. {artifact.status.suggested_action}
+						</p>
+					)}
 				</div>
 				<div className="grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)] lg:w-72 lg:grid-cols-1">
 					<Meta label="Generated" value={formatDateTime(version.generated_at)} />
 					<Meta label="Window" value={`${version.window_days || 30} days`} />
-					<Meta label="Records" value={`${version.records_included} cited / ${version.records_considered} sampled`} />
+					<Meta label="Current Records" value={`${activeRecords.toLocaleString()} active / ${totalRecords.toLocaleString()} total`} />
+					<Meta label="Archived" value={archivedRecords.toLocaleString()} />
+					<Meta label="Clinic Evidence" value={`${version.records_included} cited / ${version.records_considered} active sampled`} />
 					<Meta label="Project" value={data?.selected_project || "Project"} />
 				</div>
 			</div>
@@ -226,19 +246,22 @@ function ReadinessPanel({ score, metrics }: { score: number; metrics: RunClinicM
 
 function EvidencePanel({ metrics }: { metrics: RunClinicMetrics }) {
 	const totals = [
-		["Records", metrics.active_records_sampled, metrics.active_records_total],
-		["Versions", metrics.recent_versions_sampled, metrics.recent_versions_total],
-		["Sessions", metrics.recent_sessions_sampled, metrics.recent_sessions_total],
+		["Active records", metrics.active_records_sampled, metrics.active_records_total, "sampled"],
+		["Historical records", metrics.archived_records_total || 0, metrics.all_records_total || metrics.active_records_total, "archived"],
+		["Versions", metrics.recent_versions_sampled, metrics.recent_versions_total, "sampled"],
+		["Sessions", metrics.recent_sessions_sampled, metrics.recent_sessions_total, "sampled"],
 	];
 	return (
 		<section className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
 			<h2 className="text-sm font-semibold text-[var(--text)]">Evidence Mix</h2>
-			<div className="mt-4 grid gap-3 sm:grid-cols-3">
-				{totals.map(([label, sampled, total]) => (
+			<div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+				{totals.map(([label, sampled, total, unit]) => (
 					<div key={String(label)} className="rounded-lg border border-[var(--border)] bg-[#0b1220]/80 p-3">
 						<p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
 						<p className="mt-2 text-2xl font-semibold tabular-nums text-[var(--text)]">{Number(sampled)}</p>
-						<p className="mt-1 text-[11px] text-[var(--text-muted)]">{Number(total)} available</p>
+						<p className="mt-1 text-[11px] text-[var(--text-muted)]">
+							{Number(total)} total · {String(unit)}
+						</p>
 					</div>
 				))}
 			</div>
@@ -553,6 +576,8 @@ function emptyMetrics(): RunClinicMetrics {
 	return {
 		active_records_sampled: 0,
 		active_records_total: 0,
+		archived_records_total: 0,
+		all_records_total: 0,
 		recent_versions_sampled: 0,
 		recent_versions_total: 0,
 		recent_sessions_sampled: 0,

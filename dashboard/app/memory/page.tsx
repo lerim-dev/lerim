@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { api } from "@/lib/api";
 import { useProjectScope } from "@/lib/projectScope";
@@ -42,24 +42,30 @@ function MemoryContent() {
 	const [data, setData] = useState<MemoryArtifactsResponse | null>(null);
 	const { project, setProject } = useProjectScope();
 	const [activeVersions, setActiveVersions] = useState<Partial<Record<MemoryArtifactType, string>>>({});
-	const [compareLatest, setCompareLatest] = useState(false);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
+		const [compareLatest, setCompareLatest] = useState(false);
+		const [loading, setLoading] = useState(true);
+		const [error, setError] = useState<string | null>(null);
+		const loadSeqRef = useRef(0);
 
-	const load = useCallback(async (selectedProject?: string) => {
-		setLoading(true);
-		setError(null);
-		try {
-			const payload = await api.getMemoryArtifacts(selectedProject || project || undefined);
-			setData(payload);
-			if (!project && payload.selected_project) setProject(payload.selected_project);
-			setActiveVersions({});
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Failed to load memory artifacts");
-		} finally {
-			setLoading(false);
-		}
-	}, [project, setProject]);
+		const load = useCallback(async (selectedProject?: string) => {
+			const seq = loadSeqRef.current + 1;
+			loadSeqRef.current = seq;
+			setLoading(true);
+			setError(null);
+			try {
+				const payload = await api.getMemoryArtifacts(selectedProject || project || undefined);
+				if (seq !== loadSeqRef.current) return;
+				setData(payload);
+				if (!project && payload.selected_project) setProject(payload.selected_project);
+				setActiveVersions({});
+			} catch (err) {
+				if (seq === loadSeqRef.current) {
+					setError(err instanceof Error ? err.message : "Failed to load memory artifacts");
+				}
+			} finally {
+				if (seq === loadSeqRef.current) setLoading(false);
+			}
+		}, [project, setProject]);
 
 	useEffect(() => {
 		load();

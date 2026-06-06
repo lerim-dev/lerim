@@ -231,7 +231,8 @@ function normalizePipelineStatus(raw: Record<string, unknown>): PipelineStatusRe
   }, 0);
   const queueErrors = asNumber(queue.failed) + asNumber(queue.dead_letter);
   const sessionTotal = asNumber(raw.sessions_indexed_count) || projectSessions;
-  const recordTotal = asNumber(raw.record_count) || projectRecords;
+  const activeRecordTotal = asNumber(raw.active_record_count) || asNumber(raw.record_count) || projectRecords;
+  const recordTotal = asNumber(raw.total_record_count) || activeRecordTotal;
   return {
     last_ingest: latest
       ? {
@@ -247,7 +248,7 @@ function normalizePipelineStatus(raw: Record<string, unknown>): PipelineStatusRe
     },
     records: {
       total: recordTotal,
-      active: recordTotal,
+      active: activeRecordTotal,
     },
     logs: {
       total: 0,
@@ -259,7 +260,8 @@ function normalizePipelineStatus(raw: Record<string, unknown>): PipelineStatusRe
 function normalizeLiveStatus(raw: Record<string, unknown>): LiveStatusResponse {
   const queue = objectValue(raw.queue);
   return {
-    reachable: true,
+    reachable: raw.reachable !== false && raw.catalog_available !== false,
+    error: asNullableString(raw.error),
     timestamp: String(raw.timestamp || new Date().toISOString()),
     ingest_active: Boolean(raw.ingest_active),
     curate_active: Boolean(raw.curate_active),
@@ -477,6 +479,7 @@ export const api = {
     const params: Record<string, string> = { scope: scope || "week" };
     if (project) params.project = project;
     const raw = await apiFetch<Record<string, unknown>>(`/api/runs/stats${toQuery(params)}`);
+    throwIfCatalogUnavailable(raw);
     return normalizeStats(raw);
   },
 
@@ -491,6 +494,7 @@ export const api = {
     if (params?.processing_status) localParams.status = params.processing_status;
     if (params?.project) localParams.project = params.project;
     const raw = await apiFetch<Record<string, unknown>>(`/api/runs${toQuery(localParams)}`);
+    throwIfCatalogUnavailable(raw);
     const sessions = arrayValue(raw.runs).map((run) => normalizeSession(objectValue(run)));
     const pagination = objectValue(raw.pagination);
     return {
@@ -499,13 +503,15 @@ export const api = {
     };
   },
 
-  getSession: async (runId: string) => {
-    const raw = await apiFetch<Record<string, unknown>>(`/api/runs/${encodeURIComponent(runId)}`);
+  getSession: async (runId: string, project?: string) => {
+    const qs = project ? toQuery({ project }) : "";
+    const raw = await apiFetch<Record<string, unknown>>(`/api/runs/${encodeURIComponent(runId)}${qs}`);
     return normalizeSessionDetail(raw);
   },
 
-  getSessionMessages: async (runId: string) => {
-    const raw = await apiFetch<Record<string, unknown>>(`/api/runs/${encodeURIComponent(runId)}/messages`);
+  getSessionMessages: async (runId: string, project?: string) => {
+    const qs = project ? toQuery({ project }) : "";
+    const raw = await apiFetch<Record<string, unknown>>(`/api/runs/${encodeURIComponent(runId)}/messages${qs}`);
     const messages = arrayValue(raw.messages).map((value) => {
       const item = objectValue(value);
       const toolName = asNullableString(item.tool_name);
@@ -537,6 +543,7 @@ export const api = {
     if (params?.processing_status) localParams.status = params.processing_status;
     if (params?.project) localParams.project = params.project;
     const raw = await apiFetch<Record<string, unknown>>(`/api/search${toQuery(localParams)}`);
+    throwIfCatalogUnavailable(raw);
     const sessions = arrayValue(raw.results).map((run) => normalizeSession(objectValue(run)));
     const pagination = objectValue(raw.pagination);
     return {
@@ -545,8 +552,9 @@ export const api = {
     } satisfies SessionsResponse;
   },
 
-  getRecordFilters: async (): Promise<RecordFiltersResponse> => {
-    return apiFetch<RecordFiltersResponse>("/api/records/filters");
+  getRecordFilters: async (project?: string): Promise<RecordFiltersResponse> => {
+    const qs = project ? toQuery({ project }) : "";
+    return apiFetch<RecordFiltersResponse>(`/api/records/filters${qs}`);
   },
 
   getRecords: queryRecords,
@@ -723,6 +731,12 @@ function objectValue(value: unknown): Record<string, unknown> {
 function objectOrNull(value: unknown): Record<string, unknown> | null {
   const object = objectValue(value);
   return Object.keys(object).length > 0 ? object : null;
+}
+
+function throwIfCatalogUnavailable(raw: Record<string, unknown>) {
+  if (raw.catalog_available === false) {
+    throw new Error(asNullableString(raw.error) || "Session catalog unavailable");
+  }
 }
 
 function arrayValue(value: unknown): unknown[] {

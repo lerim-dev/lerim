@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -2759,8 +2760,14 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     host = args.host or config.server_host or "0.0.0.0"
     port = int(args.port or config.server_port or 8765)
 
-    init_sessions_db()
-    reaped_at_startup = reap_stale_running_jobs()
+    try:
+        init_sessions_db()
+        reaped_at_startup = reap_stale_running_jobs()
+    except sqlite3.Error as exc:
+        from lerim.config.logging import logger
+
+        logger.warning("session catalog unavailable at serve startup: {}", exc)
+        reaped_at_startup = 0
     httpd = ThreadingHTTPServer((host, port), DashboardHandler)
     httpd.timeout = 1.0
 
@@ -2872,18 +2879,24 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
             _ship_to_cloud_once(config, logger)
 
-            queue_health = queue_health_snapshot()
-            if (
-                queue_health.get("degraded")
-                and now - last_degraded_log_at >= degraded_log_interval_seconds
-            ):
-                logger.warning(
-                    "queue degraded | stale_running={} dead_letter={} advice={}",
-                    int(queue_health.get("stale_running_count") or 0),
-                    int(queue_health.get("dead_letter_count") or 0),
-                    str(queue_health.get("advice") or ""),
-                )
-                last_degraded_log_at = now
+            try:
+                queue_health = queue_health_snapshot()
+            except sqlite3.Error as exc:
+                if now - last_degraded_log_at >= degraded_log_interval_seconds:
+                    logger.warning("queue health unavailable: {}", exc)
+                    last_degraded_log_at = now
+            else:
+                if (
+                    queue_health.get("degraded")
+                    and now - last_degraded_log_at >= degraded_log_interval_seconds
+                ):
+                    logger.warning(
+                        "queue degraded | stale_running={} dead_letter={} advice={}",
+                        int(queue_health.get("stale_running_count") or 0),
+                        int(queue_health.get("dead_letter_count") or 0),
+                        str(queue_health.get("advice") or ""),
+                    )
+                    last_degraded_log_at = now
 
             next_ingest = last_ingest + ingest_interval
             next_curate = last_curate + curate_interval

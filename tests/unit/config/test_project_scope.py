@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from lerim.config.project_scope import git_root_for, match_session_project, project_path_sql_scope
+from lerim.config.project_scope import (
+    git_root_for,
+    is_path_like_project_token,
+    match_session_project,
+    project_path_sql_scope,
+)
 
 
 def test_git_root_detection(tmp_path):
@@ -32,6 +37,15 @@ def test_match_session_project_prefers_most_specific_parent(tmp_path):
     name, path = matched
     assert name == "nested"
     assert path == (tmp_path / "root" / "nested").resolve()
+
+
+def test_is_path_like_project_token_separates_names_from_paths():
+    """Plain unknown project names must not resolve as cwd-relative paths."""
+    assert is_path_like_project_token("missing") is False
+    assert is_path_like_project_token("/tmp/missing") is True
+    assert is_path_like_project_token("./missing") is True
+    assert is_path_like_project_token("~/missing") is True
+    assert is_path_like_project_token("parent/child") is True
 
 
 def test_project_path_sql_scope_matches_exact_and_child_paths(tmp_path):

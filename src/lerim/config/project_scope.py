@@ -41,6 +41,14 @@ def match_session_project(
     return best
 
 
+def is_path_like_project_token(token: str | None) -> bool:
+    """Return whether a project selector token should be resolved as a path."""
+    text = str(token or "").strip()
+    if not text:
+        return False
+    return text.startswith(("/", "~", ".")) or "/" in text or "\\" in text
+
+
 def project_path_sql_scope(project_path: str | Path) -> tuple[str, str]:
     """Return exact and child-path SQLite predicates for a project path."""
     resolved = str(Path(project_path).expanduser().resolve())

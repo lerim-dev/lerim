@@ -127,8 +127,8 @@ Rules:
 - curate unit tests cover semantic clustering, action validation, and direct `ContextStore` mutation application
 - session catalog tests cover queue claim availability, content-hash refresh/change detection, and stable pagination ordering
 - session catalog tests cover retrying both failed and dead-letter queue jobs without display pagination limits, including project child paths
-- API/daemon tests cover degraded status reporting when the session catalog is unavailable, project-scoped status latest/schedule fields, and project-scoped session/queue/reset counts under child paths
-- dashboard HTTP tests cover project-scoped sessions under root and child paths, exact run detail lookup, stats, search, graph endpoints, and generated artifact history filtering
+- API/daemon tests cover degraded status reporting when the session catalog is unavailable, project-scoped status latest/schedule fields, current-active versus archived/total record counts, and project-scoped session/queue/reset counts under child paths
+- dashboard HTTP tests cover project-scoped sessions under root and child paths, scoped run detail/messages, stats, search, record filters, graph endpoints, and generated artifact history filtering
 - server CLI tests cover the dashboard launcher contract, including backend startup checks and the Next.js dev command
 - server Docker compose tests cover GHCR startup, local build source-root resolution, no-build local image reuse, and generated compose hardening
 - daemon tests cover transient session-job heartbeat write failures
@@ -139,7 +139,7 @@ Rules:
 - profile tests cover bundled signal packs, registered custom YAML profiles, and project-level default source profiles
 - Context Brief tests cover cwd project resolution, fixed-section kind cleanup, freshness counts, markdown citations, CLI local reads, and artifact writes without live LLM calls
 - Working Memory tests cover separate artifact paths, continuation-handoff rendering, superseded-record replacement rendering, freshness counts, CLI local reads, and artifact writes without live LLM calls
-- Run Clinic tests cover diagnostic artifact paths, current report writes, freshness metadata, CLI local reads, and artifact writes without live LLM calls
+- Run Clinic tests cover diagnostic artifact paths, active versus archived evidence totals, current report writes, freshness metadata, CLI local reads, and artifact writes without live LLM calls
 - MCP integration tests cover client config writers, dry-run/backup behavior, exposed MCP tool registration, in-process context search/brief calls, and trace-submit importer routing
 - Context store search tests cover derived-index generation metadata, fast-path retrieval, and stale-index repair without live LLM calls
 - Benchmark doc tests cover README launch links and visual references, duplicate demo media, public benchmark table values, artifact-path wording, and positioning guardrails for non-coding workflows
