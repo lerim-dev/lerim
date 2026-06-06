@@ -41,6 +41,18 @@ def match_session_project(
     return best
 
 
+def project_path_sql_scope(project_path: str | Path) -> tuple[str, str]:
+    """Return exact and child-path SQLite predicates for a project path."""
+    resolved = str(Path(project_path).expanduser().resolve())
+    normalized = resolved if resolved == "/" else resolved.rstrip("/")
+    escaped = (
+        normalized.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    return normalized, f"{escaped}/%"
+
+
 if __name__ == "__main__":
     """Run a real-path smoke test for scope resolution logic."""
     cwd = Path.cwd()

@@ -132,6 +132,9 @@ export default function OperationDetailModal({
                 value={projects.length > 3 ? `${projects.slice(0, 3).map(formatScopeLabel).join(", ")} +${projects.length - 3}` : projects.map(formatScopeLabel).join(", ")}
               />
             )}
+            {Boolean(operation.details?.shared) && (
+              <Chip label="Run" value="Shared across projects" />
+            )}
           </div>
         </div>
 

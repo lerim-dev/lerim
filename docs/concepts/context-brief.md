@@ -8,7 +8,8 @@ the durable context store.
 
 Use Context Brief for stable project decisions, constraints, preferences, and
 facts. Use [Working Memory](working-memory.md) for short-term continuation context
-from the last few hours.
+from the last few hours. Use [Run Clinic](run-clinic.md) for project-level
+diagnosis and improvement planning.
 
 In the current CLI, workflow scope is resolved through project registration.
 For customer pilots, the same idea can map to clients, engagements, research
@@ -101,8 +102,8 @@ Context Brief refresh is intentionally not part of the ingest hot path.
   `--force` is passed.
 - The daemon runs a daily pass across registered projects and skips unchanged
   projects.
-- `curate` triggers Context Brief and Working Memory when it creates, updates,
-  archives, or otherwise changed records.
+- `curate` triggers Context Brief, Working Memory, and Run Clinic when it
+  creates, updates, archives, or otherwise changed records.
 - Empty projects get an empty-state Markdown file without a model call.
 
 ## Fixed Markdown Shape

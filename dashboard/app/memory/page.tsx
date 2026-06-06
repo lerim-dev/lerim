@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { api } from "@/lib/api";
+import { useProjectScope } from "@/lib/projectScope";
 import type {
 	MemoryArtifact,
 	MemoryArtifactType,
 	MemoryArtifactVersion,
 	MemoryArtifactsResponse,
 } from "@/lib/types";
+import ProjectScope from "@/components/ProjectScope";
 
 const PANEL_SECTIONS: Record<MemoryArtifactType, string[]> = {
 	context_brief: ["Summary", "Continuation Handoff", "Decisions", "Constraints & Preferences", "Project Facts"],
@@ -29,8 +31,16 @@ const PANEL_COPY: Record<MemoryArtifactType, { title: string; eyebrow: string; d
 };
 
 export default function MemoryPage() {
+	return (
+		<Suspense fallback={<div className="text-sm text-[var(--text-muted)]">Loading…</div>}>
+			<MemoryContent />
+		</Suspense>
+	);
+}
+
+function MemoryContent() {
 	const [data, setData] = useState<MemoryArtifactsResponse | null>(null);
-	const [project, setProject] = useState<string>("");
+	const { project, setProject } = useProjectScope();
 	const [activeVersions, setActiveVersions] = useState<Partial<Record<MemoryArtifactType, string>>>({});
 	const [compareLatest, setCompareLatest] = useState(false);
 	const [loading, setLoading] = useState(true);
@@ -42,14 +52,14 @@ export default function MemoryPage() {
 		try {
 			const payload = await api.getMemoryArtifacts(selectedProject || project || undefined);
 			setData(payload);
-			setProject(payload.selected_project);
+			if (!project && payload.selected_project) setProject(payload.selected_project);
 			setActiveVersions({});
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to load memory artifacts");
 		} finally {
 			setLoading(false);
 		}
-	}, [project]);
+	}, [project, setProject]);
 
 	useEffect(() => {
 		load();
@@ -72,20 +82,10 @@ export default function MemoryPage() {
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
-					{data && data.projects.length > 1 && (
-						<select
-							value={project}
-							onChange={(event) => load(event.target.value)}
-							className="min-h-10 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs text-[var(--text-secondary)] outline-none focus:border-[var(--accent-blue)]"
-						>
-							{data.projects.map((item) => (
-								<option key={item} value={item}>{item}</option>
-							))}
-						</select>
-					)}
+					<ProjectScope value={project} onChange={setProject} includeAll={false} label="Project" />
 					<button
 						type="button"
-						onClick={() => load(project)}
+						onClick={() => load(project || undefined)}
 						disabled={loading}
 						className="min-h-10 rounded-md border border-[var(--border)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
 					>

@@ -9,6 +9,9 @@ dashboard URL, and points it at the running Lerim API. If the backend API is not
 reachable, the command starts it with the same Docker runtime path as `lerim up`.
 
 For local backend rebuilds, run `lerim up --build` first, then `lerim dashboard`.
+If the last backend mode was local-build, `lerim dashboard` reuses the existing
+`lerim-lerim:local` image with `--no-build`; it does not silently rebuild the
+image while starting the UI.
 
 ## Syntax
 

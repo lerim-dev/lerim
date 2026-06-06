@@ -56,6 +56,7 @@ from lerim.config.settings import (
     get_config,
     save_config_patch,
 )
+from lerim.config.project_scope import match_session_project, project_path_sql_scope
 from lerim.config.timeouts import ANSWER_REQUEST_TIMEOUT_SECONDS
 
 from lerim.adapters.common import load_jsonl_dict_lines
@@ -76,13 +77,21 @@ from lerim.working_memory import (
     working_memory_status,
     working_memory_status_to_dict,
 )
+from lerim.run_clinic import (
+    RUN_CLINIC_FILENAME,
+    RUN_CLINIC_OPERATION,
+    RUN_CLINIC_REPORT_FILENAME,
+    run_clinic_paths,
+    run_clinic_status,
+    run_clinic_status_to_dict,
+)
 
 
 _REPO_DASHBOARD = Path(__file__).resolve().parents[3] / "dashboard"
 DASHBOARD_DIR = _REPO_DASHBOARD if _REPO_DASHBOARD.is_dir() else Path("/opt/lerim/dashboard")
 MAX_BODY_BYTES = 1_000_000
 READ_ONLY_MESSAGE = "Dashboard is read-only. Use CLI commands for write actions."
-_REPORT_CACHE: dict[str, Any] = {"at": None, "value": None}
+_REPORT_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def _iso_now() -> str:
@@ -121,10 +130,34 @@ def _scope_bounds(scope: str | None) -> tuple[datetime | None, datetime]:
     return now - timedelta(days=7), now
 
 
+def _project_scope(config: Config, project: str | None) -> tuple[str | None, str | None]:
+    """Resolve a dashboard project token to registered repo path and project id."""
+    token = (project or "").strip()
+    if not token:
+        return None, None
+    registered = {
+        name: Path(path).expanduser().resolve()
+        for name, path in (config.projects or {}).items()
+    }
+    if token in registered:
+        path = registered[token]
+        return str(path), resolve_project_identity(path).project_id
+    try:
+        requested = Path(token).expanduser().resolve()
+    except (OSError, RuntimeError):
+        requested = None
+    if requested is not None:
+        for path in registered.values():
+            if path == requested:
+                return str(path), resolve_project_identity(path).project_id
+    raise ValueError(f"Project not found: {project}")
+
+
 def _sqlite_rows(
     since: datetime | None,
     until: datetime,
     agent_type: str | None,
+    repo_path: str | None = None,
 ) -> list[sqlite3.Row]:
     """Load session rows for dashboard statistics queries."""
     config = get_config()
@@ -139,17 +172,21 @@ def _sqlite_rows(
     if agent_type and agent_type != "all":
         where.append("agent_type = ?")
         params.append(agent_type)
+    if repo_path:
+        exact_path, child_path = project_path_sql_scope(repo_path)
+        where.append("(repo_path = ? OR repo_path LIKE ? ESCAPE '\\')")
+        params.extend([exact_path, child_path])
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     sql = f"""\
 SELECT run_id, agent_type, repo_name, start_time, status, duration_ms, message_count, \
-tool_call_count, error_count, total_tokens, summary_text, session_path \
+tool_call_count, error_count, total_tokens, summary_text, session_path, repo_path \
 FROM session_docs {where_sql} ORDER BY start_time DESC, indexed_at DESC"""
     with sqlite3.connect(config.sessions_db_path) as conn:
         conn.row_factory = sqlite3.Row
         return conn.execute(sql, params).fetchall()
 
 
-def _serialize_run(row: dict[str, Any]) -> dict[str, Any]:
+def _serialize_run(row: dict[str, Any], projects: dict[str, str] | None = None) -> dict[str, Any]:
     """Normalize a DB row to dashboard run JSON payload shape."""
     started = row.get("start_time")
     repo_name = row.get("repo_name") or ""
@@ -158,7 +195,8 @@ def _serialize_run(row: dict[str, Any]) -> dict[str, Any]:
     repo_path = str(row.get("repo_path") or "")
     project = ""
     if repo_path:
-        project = Path(repo_path).name
+        matched_project = match_session_project(repo_path, projects or {})
+        project = matched_project[0] if matched_project else Path(repo_path).name
     elif session_path:
         # Claude paths: ~/.claude/projects/-Users-...-project/uuid.jsonl
         sp = Path(session_path)
@@ -426,6 +464,7 @@ def _memory_artifact_payload(
     current_manifest: Path,
     status: dict[str, Any],
     workspace_root: Path,
+    project_id: str,
 ) -> dict[str, Any]:
     """Return current and historical generated memory artifact payloads."""
     current_version = _artifact_version_payload(
@@ -442,6 +481,7 @@ def _memory_artifact_payload(
         filename=filename,
         operation=operation,
         workspace_root=workspace_root,
+        project_id=project_id,
     )
     if current_version["content"] and all(
         version["id"] != current_version["id"] for version in versions
@@ -463,11 +503,15 @@ def _artifact_history_versions(
     filename: str,
     operation: str,
     workspace_root: Path,
+    project_id: str,
 ) -> list[dict[str, Any]]:
     """Load historical generated artifact versions from dated run folders."""
     candidates = list(workspace_root.glob(f"*/*/*/{operation}/{operation}-*/manifest.json"))
     versions: list[dict[str, Any]] = []
     for manifest_path in candidates:
+        manifest = _read_manifest_artifact(manifest_path)
+        if str(manifest.get("project_id") or "") != project_id:
+            continue
         content_path = manifest_path.parent / filename
         version = _artifact_version_payload(
             artifact_type=artifact_type,
@@ -476,6 +520,7 @@ def _artifact_history_versions(
             manifest_path=manifest_path,
             content_path=content_path,
             current=False,
+            manifest=manifest,
         )
         if version["content"]:
             versions.append(version)
@@ -491,9 +536,10 @@ def _artifact_version_payload(
     manifest_path: Path,
     content_path: Path,
     current: bool,
+    manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one generated artifact version payload."""
-    manifest = _read_manifest_artifact(manifest_path)
+    manifest = manifest if manifest is not None else _read_manifest_artifact(manifest_path)
     content = _read_text_artifact(content_path)
     return {
         "id": str(manifest.get("run_id") or ("current-" + artifact_type)),
@@ -513,6 +559,66 @@ def _artifact_version_payload(
         "recent_versions_considered": int(manifest.get("recent_versions_considered") or 0),
         "included_record_ids": list(manifest.get("included_record_ids") or []),
     }
+
+
+def _run_clinic_version_payload(
+    *,
+    manifest_path: Path,
+    markdown_path: Path,
+    report_path: Path,
+    current: bool,
+    manifest: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build one Run Clinic artifact version payload."""
+    manifest = manifest if manifest is not None else _read_manifest_artifact(manifest_path)
+    report = _read_manifest_artifact(report_path)
+    content = _read_text_artifact(markdown_path)
+    return {
+        "id": str(manifest.get("run_id") or "current-run-clinic"),
+        "type": "run_clinic",
+        "label": "Run Clinic",
+        "filename": RUN_CLINIC_FILENAME,
+        "content": content,
+        "report": report,
+        "content_path": str(markdown_path),
+        "report_path": str(report_path),
+        "manifest_path": str(manifest_path),
+        "current": current,
+        "generated_at": str(manifest.get("generated_at") or ""),
+        "window_started_at": str(manifest.get("window_started_at") or ""),
+        "window_days": int(manifest.get("window_days") or 30),
+        "trigger": str(manifest.get("trigger") or ""),
+        "status": str(manifest.get("status") or ""),
+        "run_folder": str(manifest.get("run_folder") or manifest_path.parent),
+        "records_included": int(manifest.get("records_included") or 0),
+        "records_considered": int(manifest.get("records_considered") or 0),
+        "recent_versions_considered": int(manifest.get("recent_versions_considered") or 0),
+        "sessions_considered": int(manifest.get("sessions_considered") or 0),
+        "included_record_ids": list(manifest.get("included_record_ids") or []),
+    }
+
+
+def _run_clinic_history_versions(workspace_root: Path, project_id: str) -> list[dict[str, Any]]:
+    """Load historical Run Clinic versions from dated run folders."""
+    candidates = list(
+        workspace_root.glob(f"*/*/*/{RUN_CLINIC_OPERATION}/{RUN_CLINIC_OPERATION}-*/manifest.json")
+    )
+    versions: list[dict[str, Any]] = []
+    for manifest_path in candidates:
+        manifest = _read_manifest_artifact(manifest_path)
+        if str(manifest.get("project_id") or "") != project_id:
+            continue
+        version = _run_clinic_version_payload(
+            manifest_path=manifest_path,
+            markdown_path=manifest_path.parent / RUN_CLINIC_FILENAME,
+            report_path=manifest_path.parent / RUN_CLINIC_REPORT_FILENAME,
+            current=False,
+            manifest=manifest,
+        )
+        if version["content"] or version["report"]:
+            versions.append(version)
+    versions.sort(key=lambda item: str(item.get("generated_at") or ""), reverse=True)
+    return versions[:30]
 
 
 def _decode_json_list(raw: Any) -> list[Any]:
@@ -641,22 +747,38 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _api_runs_stats(self, query: dict[str, list[str]]) -> None:
         """Return aggregate run stats for selected scope and agent filter."""
+        config = get_config()
         scope = _query_param(query, "scope", "week")
         agent = _query_param(query, "agent_type", "all")
+        project = _query_param(query, "project") or None
+        try:
+            repo_path, _project_id = _project_scope(config, project)
+        except ValueError as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
         since, until = _scope_bounds(scope)
-        rows = _sqlite_rows(since, until, agent)
+        rows = _sqlite_rows(since, until, agent, repo_path)
         self._json(_compute_stats(rows))
 
     def _api_runs(self, query: dict[str, list[str]]) -> None:
         """Return paginated run list for selected scope and agent filter."""
+        config = get_config()
         scope = _query_param(query, "scope", "week")
         agent = _query_param(query, "agent_type", "all")
+        status_filter = _query_param(query, "status").strip()
+        repo_filter = _query_param(query, "repo").strip()
+        project = _query_param(query, "project") or None
         limit = _parse_int(
             _query_param(query, "limit", "30"), 30, minimum=1, maximum=200
         )
         offset = _parse_int(
             _query_param(query, "offset", "0"), 0, minimum=0, maximum=10_000
         )
+        try:
+            repo_path, _project_id = _project_scope(config, project)
+        except ValueError as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
         since, until = _scope_bounds(scope)
         rows, total = list_sessions_window(
             limit=limit,
@@ -664,8 +786,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             agent_types=None if agent in {"", "all"} else [agent],
             since=since,
             until=until,
+            repo_path=repo_path,
+            repo_query=repo_filter or None,
+            status=status_filter or None,
         )
-        runs = [_serialize_run(row) for row in rows]
+        runs = [_serialize_run(row, config.projects) for row in rows]
         self._json(
             {
                 "runs": runs,
@@ -685,12 +810,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
         agent = _query_param(query, "agent_type", "all")
         status_filter = _query_param(query, "status").strip()
         repo_filter = _query_param(query, "repo").strip()
+        project = _query_param(query, "project") or None
         limit = _parse_int(
             _query_param(query, "limit", "30"), 30, minimum=1, maximum=200
         )
         offset = _parse_int(
             _query_param(query, "offset", "0"), 0, minimum=0, maximum=10_000
         )
+        try:
+            repo_path, _project_id = _project_scope(config, project)
+        except ValueError as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
         since, until = _scope_bounds(scope)
         where = []
         params: list[Any] = []
@@ -706,15 +837,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             where.append("d.status = ?")
             params.append(status_filter)
         if repo_filter:
-            where.append("d.repo_name LIKE ?")
-            params.append(f"%{repo_filter}%")
+            where.append("(d.repo_name LIKE ? OR d.repo_path LIKE ?)")
+            params.extend([f"%{repo_filter}%", f"%{repo_filter}%"])
+        if repo_path:
+            exact_path, child_path = project_path_sql_scope(repo_path)
+            where.append("(d.repo_path = ? OR d.repo_path LIKE ? ESCAPE '\\')")
+            params.extend([exact_path, child_path])
         where_sql = (" AND " + " AND ".join(where)) if where else ""
         with sqlite3.connect(config.sessions_db_path) as conn:
             conn.row_factory = sqlite3.Row
             if run_query:
                 search_sql = f"""\
 SELECT d.run_id, d.agent_type, d.status, d.start_time, d.duration_ms, d.message_count, \
-d.tool_call_count, d.error_count, d.total_tokens, d.repo_name, d.summary_text, \
+d.tool_call_count, d.error_count, d.total_tokens, d.repo_name, d.repo_path, d.summary_text, \
 snippet(sessions_fts, 3, '<mark>', '</mark>', '...', 24) AS snippet \
 FROM sessions_fts JOIN session_docs d ON d.id = sessions_fts.rowid \
 WHERE sessions_fts MATCH ?{where_sql} ORDER BY d.start_time DESC LIMIT ? OFFSET ?"""
@@ -731,7 +866,7 @@ WHERE sessions_fts MATCH ?{where_sql}"""
             else:
                 search_sql = f"""\
 SELECT d.run_id, d.agent_type, d.status, d.start_time, d.duration_ms, d.message_count, \
-d.tool_call_count, d.error_count, d.total_tokens, d.repo_name, d.summary_text, d.summary_text AS snippet \
+d.tool_call_count, d.error_count, d.total_tokens, d.repo_name, d.repo_path, d.summary_text, d.summary_text AS snippet \
 FROM session_docs d WHERE 1=1{where_sql} ORDER BY d.start_time DESC LIMIT ? OFFSET ?"""
                 rows = conn.execute(search_sql, [*params, limit, offset]).fetchall()
                 count_sql = f"""\
@@ -739,7 +874,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 total = int(conn.execute(count_sql, params).fetchone()["total"] or 0)
         results = []
         for row in rows:
-            run = _serialize_run(dict(row))
+            run = _serialize_run(dict(row), config.projects)
             run["snippet"] = row["snippet"] or run.get("snippet") or ""
             results.append(run)
         self._json(
@@ -753,6 +888,18 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 },
             }
         )
+
+    def _api_run_detail(self, path: str) -> None:
+        """Return one indexed run by run id."""
+        run_id = unquote(path.split("/api/runs/", 1)[1])
+        if not run_id or "/" in run_id:
+            self._error(HTTPStatus.NOT_FOUND, "Run not found")
+            return
+        run_doc = fetch_session_doc(run_id)
+        if run_doc is None:
+            self._error(HTTPStatus.NOT_FOUND, "Run not found")
+            return
+        self._json(_serialize_run(run_doc, get_config().projects))
 
     def _api_run_messages(self, path: str) -> None:
         """Return normalized message timeline for one run id."""
@@ -842,24 +989,32 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
         }
         self._json(payload)
 
-    def _api_refine_report(self) -> None:
+    def _api_refine_report(self, query: dict[str, list[str]]) -> None:
         """Return cached or freshly built extraction quality report."""
         now = datetime.now(timezone.utc)
-        cached_at = _REPORT_CACHE.get("at")
+        config = get_config()
+        project = _query_param(query, "project") or None
+        try:
+            repo_path, _project_id = _project_scope(config, project)
+        except ValueError as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        cache_key = repo_path or "all"
+        cached = _REPORT_CACHE.get(cache_key) or {}
+        cached_at = cached.get("at")
         if (
             isinstance(cached_at, datetime)
-            and _REPORT_CACHE.get("value")
+            and cached.get("value")
             and (now - cached_at).total_seconds() < 60
         ):
-            self._json(_REPORT_CACHE["value"])
+            self._json(cached["value"])
             return
         try:
-            report = build_extract_report()
+            report = build_extract_report(repo_path=repo_path)
         except Exception as exc:
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"Report unavailable: {exc}")
             return
-        _REPORT_CACHE["at"] = now
-        _REPORT_CACHE["value"] = report
+        _REPORT_CACHE[cache_key] = {"at": now, "value": report}
         self._json(report)
 
     def _api_config(self) -> None:
@@ -912,6 +1067,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                     context_brief_status(config=config, store=store, project=project)
                 ),
                 workspace_root=config.global_data_dir / "workspace",
+                project_id=identity.project_id,
             ),
             "working_memory": _memory_artifact_payload(
                 artifact_type="working_memory",
@@ -924,6 +1080,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                     working_memory_status(config=config, store=store, project=project)
                 ),
                 workspace_root=config.global_data_dir / "workspace",
+                project_id=identity.project_id,
             ),
         }
         versions: list[dict[str, Any]] = []
@@ -944,6 +1101,60 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             }
         )
 
+    def _api_clinic(self, query: dict[str, list[str]]) -> None:
+        """Return generated Run Clinic artifact and structured report."""
+        config = get_config()
+        projects = config.projects or {}
+        project_name = _query_param(query, "project") or next(iter(projects), "")
+        if not project_name or project_name not in projects:
+            self._json(
+                {
+                    "projects": list(projects.keys()),
+                    "selected_project": project_name,
+                    "artifact": None,
+                    "versions": [],
+                    "error": "No registered project found for Run Clinic.",
+                }
+            )
+            return
+        project_path = Path(projects[project_name]).expanduser().resolve()
+        identity = resolve_project_identity(project_path)
+        project = ContextBriefProject(name=project_name, identity=identity)
+        store = ContextStore(config.context_db_path)
+        paths = run_clinic_paths(config, identity.project_id)
+        current_version = _run_clinic_version_payload(
+            manifest_path=paths.current_manifest,
+            markdown_path=paths.current_file,
+            report_path=paths.current_report,
+            current=True,
+        )
+        versions = _run_clinic_history_versions(
+            config.global_data_dir / "workspace",
+            identity.project_id,
+        )
+        if (current_version["content"] or current_version["report"]) and all(
+            version["id"] != current_version["id"] for version in versions
+        ):
+            versions.insert(0, current_version)
+        self._json(
+            {
+                "projects": list(projects.keys()),
+                "selected_project": project_name,
+                "project_id": identity.project_id,
+                "repo_path": str(identity.repo_path),
+                "artifact": {
+                    "type": "run_clinic",
+                    "label": "Run Clinic",
+                    "status": run_clinic_status_to_dict(
+                        run_clinic_status(config=config, store=store, project=project)
+                    ),
+                    "current": current_version,
+                    "versions": versions,
+                },
+                "versions": versions,
+            }
+        )
+
     def _api_graph_query(self) -> None:
         """Return learned context graph nodes and edges for the dashboard."""
         body = self._read_json_body()
@@ -951,6 +1162,16 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
         max_edges = _parse_int(str(body.get("max_edges") or ""), 300, minimum=0, maximum=1000)
         connected_only = bool(body.get("connected_only"))
         config = get_config()
+        try:
+            _repo_path, project_id = _project_scope(
+                config,
+                str(body.get("project") or "").strip() or None,
+            )
+        except ValueError as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        project_sql = " AND project_id = ?" if project_id else ""
+        project_params = [project_id] if project_id else []
         if not config.context_db_path.exists():
             self._json({
                 "nodes": [],
@@ -969,21 +1190,35 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
         with sqlite3.connect(config.context_db_path) as conn:
             conn.row_factory = sqlite3.Row
             total_records = int(
-                conn.execute("SELECT COUNT(1) FROM records WHERE status = 'active'").fetchone()[0] or 0
+                conn.execute(
+                    f"SELECT COUNT(1) FROM records WHERE status = 'active'{project_sql}",
+                    project_params,
+                ).fetchone()[0]
+                or 0
             )
             graph_node_count = int(
-                conn.execute("SELECT COUNT(1) FROM context_nodes WHERE status = 'active'").fetchone()[0] or 0
+                conn.execute(
+                    f"SELECT COUNT(1) FROM context_nodes WHERE status = 'active'{project_sql}",
+                    project_params,
+                ).fetchone()[0]
+                or 0
             )
             active_edge_count = int(
-                conn.execute("SELECT COUNT(1) FROM context_edges WHERE status = 'active'").fetchone()[0] or 0
+                conn.execute(
+                    f"SELECT COUNT(1) FROM context_edges WHERE status = 'active'{project_sql}",
+                    project_params,
+                ).fetchone()[0]
+                or 0
             )
+            edge_project_sql = " AND project_id = ?" if project_id else ""
             connected_node_count = int(
                 conn.execute(
-                    """SELECT COUNT(DISTINCT node_id) FROM (
-                        SELECT source_node_id AS node_id FROM context_edges WHERE status = 'active'
+                    f"""SELECT COUNT(DISTINCT node_id) FROM (
+                        SELECT source_node_id AS node_id FROM context_edges WHERE status = 'active'{edge_project_sql}
                         UNION
-                        SELECT target_node_id AS node_id FROM context_edges WHERE status = 'active'
-                    )"""
+                        SELECT target_node_id AS node_id FROM context_edges WHERE status = 'active'{edge_project_sql}
+                    )""",
+                    [*project_params, *project_params],
                 ).fetchone()[0]
                 or 0
             )
@@ -1005,10 +1240,10 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 """SELECT edge_id, source_node_id, target_node_id, relation_kind, label,
                           rationale, evidence_record_ids, confidence, status
                    FROM context_edges
-                   WHERE status = 'active'
+                   WHERE status = 'active'""" + project_sql + """
                    ORDER BY confidence DESC, updated_at DESC
                    LIMIT ?""",
-                (max_edges,),
+                (*project_params, max_edges),
             ).fetchall()
             selected_ids: list[str] = []
             seen_ids: set[str] = set()
@@ -1026,10 +1261,10 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                     params.extend(selected_ids)
                 node_rows = conn.execute(
                     f"""SELECT node_id FROM context_nodes
-                        WHERE status = 'active' {excluded_sql}
+                        WHERE status = 'active' {project_sql} {excluded_sql}
                         ORDER BY updated_at DESC
                         LIMIT ?""",
-                    (*params, remaining),
+                    (*project_params, *params, remaining),
                 ).fetchall()
                 for row in node_rows:
                     node_id = row["node_id"]
@@ -1058,8 +1293,10 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                           cn.scope_label, cn.created_at, cn.updated_at
                    FROM context_nodes cn
                    LEFT JOIN records r ON r.record_id = cn.node_id
-                   WHERE cn.status = 'active' AND cn.node_id IN ({_placeholders(selected_ids)})""",
-                selected_ids,
+                   WHERE cn.status = 'active'
+                     {"AND cn.project_id = ?" if project_id else ""}
+                     AND cn.node_id IN ({_placeholders(selected_ids)})""",
+                [*project_params, *selected_ids],
             ).fetchall()
             selected_set = {row["node_id"] for row in node_rows}
             returned_edges = [
@@ -1133,7 +1370,6 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 {"projects": api_project_list(include_paths=False)}
             ),
             "/api/refine/status": self._api_refine_status,
-            "/api/refine/report": self._api_refine_report,
             "/api/config": self._api_config,
         }
         if path in query_handlers:
@@ -1142,11 +1378,20 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
         if path == "/api/memory-artifacts":
             self._api_memory_artifacts(query)
             return
+        if path == "/api/clinic":
+            self._api_clinic(query)
+            return
+        if path == "/api/refine/report":
+            self._api_refine_report(query)
+            return
         if path in no_query_handlers:
             no_query_handlers[path]()
             return
         if path.startswith("/api/runs/") and path.endswith("/messages"):
             self._api_run_messages(path)
+            return
+        if path.startswith("/api/runs/"):
+            self._api_run_detail(path)
             return
         self._error(HTTPStatus.NOT_FOUND, "Not found")
 

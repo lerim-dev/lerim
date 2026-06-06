@@ -18,6 +18,7 @@ def build_extract_report(
     window_start: datetime | None = None,
     window_end: datetime | None = None,
     agent_types: list[str] | None = None,
+    repo_path: str | None = None,
 ) -> dict[str, Any]:
     """Build aggregate extraction stats for dashboard and maintenance views."""
     rows, _ = list_sessions_window(
@@ -26,6 +27,7 @@ def build_extract_report(
         agent_types=agent_types,
         since=window_start,
         until=window_end,
+        repo_path=repo_path,
     )
     totals = defaultdict(int)
     for row in rows:

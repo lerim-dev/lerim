@@ -55,6 +55,7 @@ from lerim.config.settings import (
     save_config_patch,
     _write_config_full,
 )
+from lerim.config.project_scope import match_session_project, project_path_sql_scope
 from lerim.profiles import list_signal_packs
 from lerim.server.runtime import LerimRuntime
 from lerim.server.skill_api import (
@@ -337,13 +338,14 @@ def _session_stats_for_repo(
     try:
         with sqlite3.connect(sessions_db_path) as conn:
             conn.row_factory = sqlite3.Row
+            exact_path, child_path = project_path_sql_scope(repo_path)
             row = conn.execute(
                 """
                 SELECT COUNT(1) AS total, MAX(start_time) AS latest_start_time
                 FROM session_docs
-                WHERE repo_path = ?
+                WHERE repo_path = ? OR repo_path LIKE ? ESCAPE '\\'
                 """,
-                (repo_path,),
+                (exact_path, child_path),
             ).fetchone()
     except sqlite3.Error:
         return 0, None
@@ -368,14 +370,15 @@ def _queue_counts_for_repo(
     try:
         with sqlite3.connect(sessions_db_path) as conn:
             conn.row_factory = sqlite3.Row
+            exact_path, child_path = project_path_sql_scope(repo_path)
             rows = conn.execute(
                 """
                 SELECT status, COUNT(1) AS total
                 FROM session_jobs
-                WHERE repo_path = ?
+                WHERE repo_path = ? OR repo_path LIKE ? ESCAPE '\\'
                 GROUP BY status
                 """,
-                (repo_path,),
+                (exact_path, child_path),
             ).fetchall()
             counts = {str(row["status"]): int(row["total"]) for row in rows}
 
@@ -383,12 +386,12 @@ def _queue_counts_for_repo(
                 """
                 SELECT run_id, status
                 FROM session_jobs
-                WHERE repo_path = ?
+                WHERE (repo_path = ? OR repo_path LIKE ? ESCAPE '\\')
                   AND status IN ('pending', 'failed', 'dead_letter')
                 ORDER BY start_time ASC, available_at ASC, id ASC
                 LIMIT 1
                 """,
-                (repo_path,),
+                (exact_path, child_path),
             ).fetchone()
             if oldest and str(oldest["status"]) == "dead_letter":
                 blocked_run_id = str(oldest["run_id"])
@@ -397,14 +400,14 @@ def _queue_counts_for_repo(
                 """
                 SELECT error
                 FROM session_jobs
-                WHERE repo_path = ?
+                WHERE (repo_path = ? OR repo_path LIKE ? ESCAPE '\\')
                   AND status IN ('failed', 'dead_letter')
                   AND error IS NOT NULL
                   AND error != ''
                 ORDER BY updated_at DESC, id DESC
                 LIMIT 1
                 """,
-                (repo_path,),
+                (exact_path, child_path),
             ).fetchone()
             if latest_err:
                 last_error = str(latest_err["error"])
@@ -899,7 +902,10 @@ def _safe_queue_health_snapshot() -> dict[str, Any]:
         return _catalog_unavailable_health(exc)
 
 
-def _normalize_activity_item(run: dict[str, Any]) -> dict[str, Any]:
+def _normalize_activity_item(
+    run: dict[str, Any],
+    project_name: str | None = None,
+) -> dict[str, Any]:
     """Normalize one service_run row into status activity item."""
     details = run.get("details") if isinstance(run.get("details"), dict) else {}
     projects_metrics = (
@@ -908,7 +914,21 @@ def _normalize_activity_item(run: dict[str, Any]) -> dict[str, Any]:
         else {}
     )
     project_names = sorted(str(k) for k in projects_metrics.keys())
-    if len(project_names) == 1:
+    scoped_project = project_name if project_name in projects_metrics else None
+    scoped_metrics = (
+        projects_metrics.get(scoped_project)
+        if scoped_project and isinstance(projects_metrics.get(scoped_project), dict)
+        else {}
+    )
+    display_projects = [scoped_project] if scoped_project else project_names
+    shared_projects = (
+        [name for name in project_names if name != scoped_project]
+        if scoped_project
+        else []
+    )
+    if scoped_project:
+        project_label = scoped_project
+    elif len(project_names) == 1:
         project_label = project_names[0]
     elif len(project_names) > 1:
         project_label = f"{len(project_names)} projects"
@@ -922,14 +942,25 @@ def _normalize_activity_item(run: dict[str, Any]) -> dict[str, Any]:
         else "ingest"
     )
     base: dict[str, Any] = {
+        "id": run.get("id"),
         "time": run.get("started_at"),
+        "started_at": run.get("started_at"),
+        "completed_at": run.get("completed_at"),
         "op_type": op_type,
         "status": str(run.get("status") or "unknown"),
+        "trigger": run.get("trigger"),
         "duration_ms": _duration_ms_from_run(run),
-        "projects": project_names,
+        "projects": display_projects,
+        "all_projects": project_names,
+        "shared": bool(scoped_project and shared_projects),
+        "shared_projects": shared_projects,
         "project_label": project_label,
         "error": _public_error_message(details.get("error")),
     }
+    if scoped_project:
+        base["projects_metrics"] = {scoped_project: scoped_metrics}
+    elif projects_metrics:
+        base["projects_metrics"] = projects_metrics
 
     if op_type == "curate":
         curate_metrics = (
@@ -937,9 +968,12 @@ def _normalize_activity_item(run: dict[str, Any]) -> dict[str, Any]:
             if isinstance(details.get("curate_metrics"), dict)
             else {}
         )
+        metric_source = scoped_metrics if scoped_project else curate_metrics
         counts = (
-            curate_metrics.get("counts")
-            if isinstance(curate_metrics.get("counts"), dict)
+            metric_source.get("curate_counts")
+            if isinstance(metric_source.get("curate_counts"), dict)
+            else metric_source.get("counts")
+            if isinstance(metric_source.get("counts"), dict)
             else {}
         )
         base.update(
@@ -949,14 +983,16 @@ def _normalize_activity_item(run: dict[str, Any]) -> dict[str, Any]:
                     "updated": int(counts.get("updated") or 0),
                     "archived": int(counts.get("archived") or 0),
                 },
-                "records_created": int(curate_metrics.get("records_created") or 0),
-                "records_updated": int(curate_metrics.get("records_updated") or 0),
-                "records_archived": int(curate_metrics.get("records_archived") or 0),
+                "records_created": int(metric_source.get("records_created") or 0),
+                "records_updated": int(metric_source.get("records_updated") or 0),
+                "records_archived": int(metric_source.get("records_archived") or 0),
             }
         )
         return base
 
-    ingest_metrics = _ingest_metrics_from_details(details)
+    ingest_metrics = (
+        scoped_metrics if scoped_project else _ingest_metrics_from_details(details)
+    )
     base.update(
         {
             "sessions_analyzed": int(ingest_metrics.get("sessions_analyzed") or 0),
@@ -979,19 +1015,80 @@ def _recent_activity(
 ) -> list[dict[str, Any]]:
     """Return normalized recent service activity for status UI."""
     rows = list_service_runs(limit=max(1, int(limit)))
-    items = [_normalize_activity_item(run) for run in rows]
-    items = [item for item in items if not _is_empty_activity_item(item)]
+    items: list[dict[str, Any]] = []
     if allowed_projects:
-        filtered: list[dict[str, Any]] = []
-        for item in items:
+        for run in rows:
+            details = run.get("details") if isinstance(run.get("details"), dict) else {}
+            projects_metrics = (
+                details.get("projects_metrics")
+                if isinstance(details.get("projects_metrics"), dict)
+                else {}
+            )
+            matched = sorted(
+                name for name in allowed_projects if name in projects_metrics
+            )
+            if matched:
+                items.extend(_normalize_activity_item(run, name) for name in matched)
+                continue
+            item = _normalize_activity_item(run)
             projects = item.get("projects")
-            if isinstance(projects, list) and projects:
-                if any(str(name) in allowed_projects for name in projects):
-                    filtered.append(item)
+            if isinstance(projects, list) and any(
+                str(name) in allowed_projects for name in projects
+            ):
+                items.append(item)
             elif item.get("project_label") in allowed_projects:
-                filtered.append(item)
-        items = filtered
+                items.append(item)
+    else:
+        items = [_normalize_activity_item(run) for run in rows]
+    items = [item for item in items if not _is_empty_activity_item(item)]
     return items
+
+
+def _latest_activity_payload(
+    items: list[dict[str, Any]],
+    op_type: str,
+) -> dict[str, Any] | None:
+    """Build a latest-run payload from already scoped activity rows."""
+    for item in items:
+        if str(item.get("op_type") or "") != op_type:
+            continue
+        details: dict[str, Any] = {
+            "projects": item.get("projects") or [],
+            "project_label": item.get("project_label") or "",
+            "error": item.get("error") or "",
+        }
+        if op_type == "curate":
+            details.update(
+                {
+                    "curate_counts": item.get("curate_counts") or {},
+                    "records_created": int(item.get("records_created") or 0),
+                    "records_updated": int(item.get("records_updated") or 0),
+                    "records_archived": int(item.get("records_archived") or 0),
+                }
+            )
+        else:
+            details.update(
+                {
+                    "sessions_analyzed": int(item.get("sessions_analyzed") or 0),
+                    "sessions_extracted": int(item.get("sessions_extracted") or 0),
+                    "sessions_failed": int(item.get("sessions_failed") or 0),
+                    "sessions_skipped": int(item.get("sessions_skipped") or 0),
+                    "records_created": int(item.get("records_created") or 0),
+                    "records_updated": int(item.get("records_updated") or 0),
+                    "records_archived": int(item.get("records_archived") or 0),
+                    "skipped_unscoped": int(item.get("skipped_unscoped") or 0),
+                }
+            )
+        return {
+            "id": item.get("id"),
+            "job_type": op_type,
+            "status": item.get("status"),
+            "started_at": item.get("started_at") or item.get("time"),
+            "completed_at": item.get("completed_at"),
+            "trigger": item.get("trigger"),
+            "details": details,
+        }
+    return None
 
 
 def _is_empty_activity_item(item: dict[str, Any]) -> bool:
@@ -1068,18 +1165,16 @@ def _running_activity_rows(
     if not jobs:
         return []
 
-    repo_to_name: dict[str, str] = {
-        str(path): str(name) for name, path in selected_projects
-    }
-    allowed_repo_paths = set(repo_to_name.keys())
+    projects: dict[str, str] = {str(name): str(path) for name, path in selected_projects}
     now = datetime.now(timezone.utc)
     grouped: dict[str, dict[str, Any]] = {}
 
     for job in jobs:
         repo_path = str(job.get("repo_path") or "").strip()
-        if allowed_repo_paths and repo_path not in allowed_repo_paths:
+        matched_project = match_session_project(repo_path, projects) if repo_path else None
+        if projects and matched_project is None:
             continue
-        project_name = repo_to_name.get(repo_path) or (
+        project_name = matched_project[0] if matched_project else (
             Path(repo_path).name if repo_path else "global"
         )
         row = grouped.setdefault(
@@ -1218,6 +1313,19 @@ def api_status(
         sessions_indexed_count = 0
         unscoped_by_agent = {}
 
+    if catalog_error is None and normalized_scope == "project":
+        sessions_indexed_count = sum(
+            int(project_payload.get("indexed_sessions_count") or 0)
+            for project_payload in projects_payload
+        )
+        queue = _empty_queue_counts()
+        for project_payload in projects_payload:
+            project_queue = project_payload.get("queue") or {}
+            if not isinstance(project_queue, dict):
+                continue
+            for status, count in project_queue.items():
+                queue[str(status)] = queue.get(str(status), 0) + int(count or 0)
+
     latest_ingest_details = (latest_ingest_raw or {}).get("details") or {}
     latest_ingest_metrics = (
         _ingest_metrics_from_details(latest_ingest_details)
@@ -1246,11 +1354,26 @@ def api_status(
     else:
         recent_activity = []
 
-    latest_ingest = _normalize_latest_run(latest_ingest_raw)
     active_writer = active_lock_state(
         config.global_data_dir / "index" / WRITER_LOCK_NAME,
         stale_seconds=60,
     )
+    if normalized_scope == "project":
+        latest_ingest = _latest_activity_payload(recent_activity, "ingest")
+        latest_curate = _latest_activity_payload(recent_activity, "curate")
+        schedule_ingest_latest = latest_ingest
+        schedule_curate_latest = latest_curate
+        schedule_active_writer = None
+        skipped_unscoped = int(
+            ((latest_ingest or {}).get("details") or {}).get("skipped_unscoped") or 0
+        )
+    else:
+        latest_ingest = _normalize_latest_run(latest_ingest_raw)
+        latest_curate = _normalize_latest_run(latest_curate_raw)
+        schedule_ingest_latest = latest_ingest_raw
+        schedule_curate_latest = latest_curate_raw
+        schedule_active_writer = active_writer
+        skipped_unscoped = int(latest_ingest_metrics.get("skipped_unscoped") or 0)
 
     payload: dict[str, Any] = {
         "timestamp": now.isoformat(),
@@ -1271,17 +1394,17 @@ def api_status(
         "ingest_window_days": config.ingest_window_days,
         "schedule": {
             "ingest": _schedule_item(
-                latest=latest_ingest_raw,
+                latest=schedule_ingest_latest,
                 interval_minutes=config.ingest_interval_minutes,
                 now=now,
-                active_writer=active_writer,
+                active_writer=schedule_active_writer,
                 owner="ingest",
             ),
             "curate": _schedule_item(
-                latest=latest_curate_raw,
+                latest=schedule_curate_latest,
                 interval_minutes=config.curate_interval_minutes,
                 now=now,
-                active_writer=active_writer,
+                active_writer=schedule_active_writer,
                 owner="curate",
             ),
         },
@@ -1292,10 +1415,10 @@ def api_status(
         "scope": {
             "strict_project_only": True,
             "mode": normalized_scope,
-            "skipped_unscoped": int(latest_ingest_metrics.get("skipped_unscoped") or 0),
+            "skipped_unscoped": skipped_unscoped,
         },
         "latest_ingest": latest_ingest,
-        "latest_curate": _normalize_latest_run(latest_curate_raw),
+        "latest_curate": latest_curate,
         "recent_activity": recent_activity,
     }
     return payload
@@ -1392,7 +1515,15 @@ def api_queue_jobs(
         project_exact=project_exact,
         failed_only=(status == "failed"),
     )
-    return {"jobs": jobs, "total": len(jobs), "queue": count_session_jobs_by_status()}
+    queue = (
+        _queue_counts_for_repo(
+            sessions_db_path=get_config().sessions_db_path,
+            repo_path=project_filter,
+        )[0]
+        if project_filter
+        else count_session_jobs_by_status()
+    )
+    return {"jobs": jobs, "total": len(jobs), "queue": queue}
 
 
 def api_unscoped(*, limit: int = 50) -> dict[str, Any]:

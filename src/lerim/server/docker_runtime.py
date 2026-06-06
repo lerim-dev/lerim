@@ -24,6 +24,8 @@ GHCR_IMAGE = "ghcr.io/lerim-dev/lerim"
 LOCAL_IMAGE = "lerim-lerim:local"
 RUNTIME_SOURCE_ENV = "LERIM_RUNTIME_SOURCE"
 RUNTIME_IMAGE_ENV = "LERIM_RUNTIME_IMAGE"
+DOCKER_TIMEOUT_ENV = "LERIM_DOCKER_TIMEOUT_SECONDS"
+DEFAULT_DOCKER_TIMEOUT_SECONDS = 1200
 
 
 _API_KEY_ENV_NAMES = (
@@ -57,6 +59,31 @@ def docker_available() -> bool:
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
+
+
+def local_image_exists() -> bool:
+    """Return True when the local-build image is present."""
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", LOCAL_IMAGE],
+            capture_output=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
+def _compose_timeout_seconds() -> int:
+    """Return Docker compose timeout from env with a safe lower bound."""
+    raw = os.environ.get(DOCKER_TIMEOUT_ENV)
+    if not raw:
+        return DEFAULT_DOCKER_TIMEOUT_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_DOCKER_TIMEOUT_SECONDS
+    return max(60, value)
 
 
 def _is_source_tree_root(path: Path) -> bool:
@@ -261,10 +288,11 @@ def api_up(build_local: bool = False, *, no_build: bool = False) -> dict[str, An
     elif build_local:
         cmd.extend(["--build", "--force-recreate"])
 
+    timeout = _compose_timeout_seconds()
     try:
-        result = subprocess.run(cmd, timeout=300)
+        result = subprocess.run(cmd, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return {"error": "Docker compose up timed out after 300 seconds."}
+        return {"error": f"Docker compose up timed out after {timeout} seconds."}
     if result.returncode != 0:
         return {"error": "docker compose up failed"}
 

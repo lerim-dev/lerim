@@ -13,6 +13,7 @@ The flow is:
 5. the context graph agent links related records and assigns semantic clusters
 6. the context-brief compiler generates durable startup context from records
 7. working-memory generation renders recent record-version movement for short-term handoff
+8. run-clinic generation renders project-level diagnosis and improvement signals
 7. the context answerer retrieves records and answers questions
 
 The current package includes supported source adapters and custom clean-trace

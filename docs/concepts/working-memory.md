@@ -9,6 +9,8 @@ Use it beside Context Brief:
   facts.
 - Working Memory: a short-term handoff compiled from the latest context changes,
   with where to resume only if the next user prompt continues the same work.
+- Run Clinic: a human-facing project diagnosis for repeated gaps, risks, and
+  improvement opportunities.
 
 Working Memory is not a task list. The next user prompt decides the next task.
 

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { useProjectScope } from "@/lib/projectScope";
 import { formatRecordKind, formatScopeLabel, formatStatusLabel } from "@/lib/labels";
 import type {
   PipelineStatusResponse,
@@ -18,6 +19,7 @@ import RecordEditor from "@/components/RecordEditor";
 import OperationDetailModal from "@/components/OperationDetailModal";
 import LiveStatus from "@/components/LiveStatus";
 import LogViewer from "@/components/LogViewer";
+import ProjectScope from "@/components/ProjectScope";
 import { useToast } from "@/components/Toast";
 
 /** Same as LiveStatus poll, keeping operation status aligned after ingest. */
@@ -28,7 +30,16 @@ const PIPELINE_POLL_MS = 3000;
    ==================================================================== */
 
 export default function OperationsPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-[var(--text-muted)]">Loading…</div>}>
+      <OperationsContent />
+    </Suspense>
+  );
+}
+
+function OperationsContent() {
   const { addToast } = useToast();
+  const { project, setProject } = useProjectScope();
   const [status, setStatus] = useState<PipelineStatusResponse | null>(null);
   const [report, setReport] = useState<PipelineReportResponse | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -44,9 +55,9 @@ export default function OperationsPage() {
     setError(null);
     try {
       const [statusData, timelineData, reportData, logData] = await Promise.all([
-        api.getPipelineStatus(),
-        api.getTimeline(14).catch(() => null),
-        api.getPipelineReport().catch(() => null),
+        api.getPipelineStatus(project || undefined),
+        api.getTimeline(14, project || undefined).catch(() => null),
+        api.getPipelineReport(project || undefined).catch(() => null),
         api.getLogs({ limit: "20" }).catch(() => ({ logs: [], total: 0 })),
       ]);
       setStatus(statusData);
@@ -58,7 +69,7 @@ export default function OperationsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [project]);
 
   useEffect(() => {
     load();
@@ -69,8 +80,8 @@ export default function OperationsPage() {
     const poll = async () => {
       try {
         const [timelineData, statusData, logData] = await Promise.all([
-          api.getTimeline(14).catch(() => null),
-          api.getPipelineStatus(),
+          api.getTimeline(14, project || undefined).catch(() => null),
+          api.getPipelineStatus(project || undefined),
           api.getLogs({ limit: "20" }).catch(() => ({ logs: [], total: 0 })),
         ]);
         if (!cancelled) {
@@ -87,18 +98,18 @@ export default function OperationsPage() {
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [project]);
 
   /* Open record in modal */
   const openRecord = useCallback(async (recordId: string) => {
     try {
-      const found = await api.getRecord(recordId);
+      const found = await api.getRecord(recordId, project || undefined);
       if (found) setSelectedRecord(found);
       else addToast({ type: "error", message: "Record not found" });
     } catch {
       addToast({ type: "error", message: "Failed to load record" });
     }
-  }, [addToast]);
+  }, [addToast, project]);
 
   const errorHealth = getErrorHealth(status);
 
@@ -142,20 +153,23 @@ export default function OperationsPage() {
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-[var(--text)]">Operations</h1>
           <p className="mt-0.5 text-xs text-[var(--text-muted)]">
             Runtime health, ingest history, and curation runs
           </p>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {loading ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ProjectScope value={project} onChange={setProject} />
+          <button
+            onClick={load}
+            disabled={loading}
+            className="min-h-10 rounded-md border border-[var(--border)] px-3 text-xs text-[var(--text-secondary)] transition-colors hover:text-[var(--text)] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {loading ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -177,7 +191,7 @@ export default function OperationsPage() {
         <>
           {/* -- Compact Health + Live Status ----------------------------- */}
           <div className="mt-4">
-            <LiveStatus />
+            <LiveStatus shared={Boolean(project)} />
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 text-xs text-[var(--text-secondary)]">
             <span>
@@ -639,7 +653,8 @@ function operationProjects(op: TimelineOperation): string[] {
 
 function OperationProjectPills({ operations }: { operations: TimelineOperation[] }) {
   const projects = Array.from(new Set(operations.flatMap(operationProjects))).sort();
-  if (projects.length === 0) return null;
+  const shared = operations.some((operation) => Boolean(operation.details?.shared));
+  if (projects.length === 0 && !shared) return null;
   const visible = projects.slice(0, 3);
   const hidden = projects.length - visible.length;
   return (
@@ -651,6 +666,11 @@ function OperationProjectPills({ operations }: { operations: TimelineOperation[]
       {hidden > 0 && (
         <span className="rounded px-1.5 py-0.5 text-[10px] bg-white/[0.05] text-[var(--text-muted)]">
           +{hidden}
+        </span>
+      )}
+      {shared && (
+        <span className="rounded px-1.5 py-0.5 text-[10px] bg-amber-500/10 text-amber-300">
+          shared run
         </span>
       )}
     </div>

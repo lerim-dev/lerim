@@ -56,6 +56,7 @@ from lerim.server.docker_runtime import (
     current_compose_uses_local_build,
     docker_available,
     is_docker_container_running,
+    local_image_exists,
 )
 from lerim.server.daemon import (
     DAEMON_LOCK_BUSY_RETRY_SECONDS,
@@ -64,6 +65,8 @@ from lerim.server.daemon import (
     run_ingest_once,
     run_context_brief_daily,
     run_context_brief_for_project,
+    run_clinic_daily,
+    run_clinic_for_project,
     run_working_memory_daily,
     run_working_memory_for_project,
     resolve_window_bounds,
@@ -103,6 +106,11 @@ from lerim.working_memory import (
     working_memory_paths,
     working_memory_status,
     working_memory_status_to_dict,
+)
+from lerim.run_clinic import (
+    run_clinic_paths,
+    run_clinic_status,
+    run_clinic_status_to_dict,
 )
 
 _PLANNED_PLUGIN_TARGETS = {
@@ -212,8 +220,21 @@ def _ensure_dashboard_backend(port: int) -> bool:
     """Ensure the local Docker backend is reachable before starting the UI."""
     if _wait_for_ready(port, timeout=2):
         return True
-    _emit("Starting Lerim backend with `lerim up`...")
-    result = api_up(build_local=current_compose_uses_local_build())
+    build_local = current_compose_uses_local_build()
+    no_build = False
+    if build_local:
+        if not local_image_exists():
+            _emit(
+                "Backend is not running, and the last runtime mode was local-build.\n"
+                "Run `lerim up --build` first to build the local Docker image.",
+                file=sys.stderr,
+            )
+            return False
+        no_build = True
+        _emit("Starting Lerim backend from the existing local image with `lerim up --no-build`...")
+    else:
+        _emit("Starting Lerim backend with `lerim up`...")
+    result = api_up(build_local=build_local, no_build=no_build)
     if result.get("error"):
         _emit(result["error"], file=sys.stderr)
         return False
@@ -1031,6 +1052,152 @@ def working_memory_show_action(status: dict[str, Any]) -> str:
     if status.get("availability") == "available":
         return "Continue with this recent memory; use Context Brief for long-term context."
     return str(status.get("suggested_action") or "Run `lerim working-memory status`.")
+
+
+def _cmd_clinic(args: argparse.Namespace) -> int:
+    """Handle local Run Clinic commands."""
+    action = getattr(args, "clinic_action", None)
+    if not action:
+        _emit("Usage: lerim clinic {show,status,path,refresh}", file=sys.stderr)
+        return 2
+    try:
+        project = resolve_context_brief_project(
+            config=get_config(),
+            project=getattr(args, "project", None),
+            cwd=Path.cwd(),
+        )
+    except ValueError as exc:
+        if args.json:
+            _emit(json.dumps({"error": True, "message": str(exc)}, indent=2))
+        else:
+            _emit(str(exc), file=sys.stderr)
+        return 1
+
+    config = get_config()
+    paths = run_clinic_paths(config, project.identity.project_id)
+
+    if action == "path":
+        payload = {
+            "project": project.name,
+            "project_id": project.identity.project_id,
+            "current_file": str(paths.current_file),
+            "current_report": str(paths.current_report),
+            "exists": paths.current_file.is_file() and paths.current_report.is_file(),
+        }
+        if args.json:
+            _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        else:
+            _emit(paths.current_file)
+        return 0
+
+    if action == "show":
+        if paths.current_file.is_file():
+            store = ContextStore(config.context_db_path)
+            status = run_clinic_status_to_dict(
+                run_clinic_status(config=config, store=store, project=project)
+            )
+            preface = [
+                "Run Clinic Live Status:",
+                f"- availability: {status['availability']}",
+                f"- generated_at: {status['generated_at']}",
+                f"- age: {status['age']}",
+                f"- window_days: {status['window_days']}",
+                f"- window_started_at: {status['window_started_at']}",
+                (
+                    "- db_records_changed_since_generation: "
+                    f"{status['records_changed_since_generation']}"
+                ),
+                (
+                    "- db_records_missing_since_generation: "
+                    f"{status['records_missing_since_generation']}"
+                ),
+                f"- suggested_action: {clinic_show_action(status)}",
+                "",
+                "---",
+                "",
+            ]
+            _emit(
+                "\n".join(preface)
+                + paths.current_file.read_text(encoding="utf-8").rstrip("\n")
+            )
+            return 0
+        message = (
+            f"No Run Clinic generated yet for project `{project.name}`.\n"
+            "Run: lerim clinic refresh"
+        )
+        if args.json:
+            _emit(
+                json.dumps(
+                    {
+                        "error": True,
+                        "project": project.name,
+                        "project_id": project.identity.project_id,
+                        "current_file": str(paths.current_file),
+                        "current_report": str(paths.current_report),
+                        "message": message,
+                    },
+                    indent=2,
+                    ensure_ascii=True,
+                )
+            )
+        else:
+            _emit(message)
+        return 1
+
+    if action == "status":
+        store = ContextStore(config.context_db_path)
+        payload = run_clinic_status_to_dict(
+            run_clinic_status(config=config, store=store, project=project)
+        )
+        if args.json:
+            _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        else:
+            _emit("Run Clinic:")
+            for key, value in payload.items():
+                _emit(f"- {key}: {value}")
+        return 0
+
+    if action == "refresh":
+        result = run_clinic_for_project(
+            project_name=project.name,
+            project_path=project.identity.repo_path,
+            trigger="manual",
+            force=bool(getattr(args, "force", False)),
+        )
+        if args.json:
+            _emit(json.dumps(result, indent=2, ensure_ascii=True))
+        else:
+            if result.get("status") == "skipped":
+                _emit(f"Run Clinic skipped for {project.name}: {result.get('skip_reason')}")
+            elif result.get("status") == "failed":
+                _emit(
+                    f"Run Clinic failed for {project.name}: {result.get('error')}",
+                    file=sys.stderr,
+                )
+                return 1
+            else:
+                _emit(f"Run Clinic generated for {project.name}.")
+            if result.get("current_file"):
+                _emit(f"- current_file: {result.get('current_file')}")
+            if result.get("current_report"):
+                _emit(f"- current_report: {result.get('current_report')}")
+            if result.get("run_folder"):
+                _emit(f"- run_folder: {result.get('run_folder')}")
+        return 0
+
+    _emit(f"Unknown clinic action: {action}", file=sys.stderr)
+    return 2
+
+
+def clinic_show_action(status: dict[str, Any]) -> str:
+    """Return a contextual action for the already-running Clinic show command."""
+    if status.get("availability") == "stale":
+        if int(status.get("records_missing_since_generation") or 0) > 0:
+            return "Refresh because this Run Clinic cites records no longer present in the live DB."
+        return str(status.get("suggested_action") or "Refresh project diagnosis.")
+    if status.get("availability") == "available":
+        return "Use this Clinic for project-level diagnosis and improvement planning."
+    return str(status.get("suggested_action") or "Run `lerim clinic status`.")
 
 
 def _cmd_dashboard(args: argparse.Namespace) -> int:
@@ -2695,8 +2862,10 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                     with ollama_lifecycle(config):
                         details = run_context_brief_daily(trigger="daily")
                         memory_details = run_working_memory_daily(trigger="daily")
+                        clinic_details = run_clinic_daily(trigger="daily")
                     logger.info("daemon context-brief done — {}", details)
                     logger.info("daemon working-memory done — {}", memory_details)
+                    logger.info("daemon run-clinic done — {}", clinic_details)
                 except Exception as exc:
                     logger.warning("daemon context-brief error: {}", exc)
                 last_context_brief = time.monotonic()
@@ -2863,6 +3032,31 @@ def _add_working_memory_subcommands(parser: argparse.ArgumentParser) -> None:
         "refresh",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         help="Generate Working Memory for the resolved project",
+    )
+    refresh.add_argument(
+        "--project",
+        help="Registered project name or path. Defaults to cwd project.",
+    )
+    _add_force_flag(refresh)
+
+
+def _add_clinic_subcommands(parser: argparse.ArgumentParser) -> None:
+    """Add Run Clinic subcommands to its parser."""
+    clinic_sub = parser.add_subparsers(dest="clinic_action")
+    for action_name in ("show", "status", "path"):
+        action = clinic_sub.add_parser(
+            action_name,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            help=f"{action_name} Run Clinic",
+        )
+        action.add_argument(
+            "--project",
+            help="Registered project name or path. Defaults to cwd project.",
+        )
+    refresh = clinic_sub.add_parser(
+        "refresh",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="Generate Run Clinic for the resolved project",
     )
     refresh.add_argument(
         "--project",
@@ -3136,6 +3330,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_working_memory_subcommands(working_memory)
     working_memory.set_defaults(func=_cmd_working_memory)
+
+    clinic = sub.add_parser(
+        "clinic",
+        formatter_class=_F,
+        help="Read or refresh project-level Run Clinic diagnostics",
+        description=(
+            "Generated project diagnostic from persisted context evidence.\n"
+            "Use Context Brief for startup context and Working Memory for short-term continuation.\n\n"
+            "Examples:\n"
+            "  lerim clinic show\n"
+            "  lerim clinic status\n"
+            "  lerim clinic refresh --force"
+        ),
+    )
+    _add_clinic_subcommands(clinic)
+    clinic.set_defaults(func=_cmd_clinic)
 
     # ── dashboard ────────────────────────────────────────────────────
     dashboard = sub.add_parser(
@@ -3689,6 +3899,10 @@ def main(argv: list[str] | None = None) -> int:
         "working_memory_action",
         None,
     ):
+        parser.parse_args([args.command, "--help"])
+        return 0
+
+    if args.command == "clinic" and not getattr(args, "clinic_action", None):
         parser.parse_args([args.command, "--help"])
         return 0
 

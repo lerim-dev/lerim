@@ -1,16 +1,26 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
+import { useProjectScope } from "@/lib/projectScope";
 import { formatRecordKind, formatRecordRole, formatScopeLabel } from "@/lib/labels";
 import type { ContextRecord, IntelligenceResponse } from "@/lib/types";
 import RecordEditor from "@/components/RecordEditor";
+import ProjectScope from "@/components/ProjectScope";
 
 export default function ContextPage() {
+	return (
+		<Suspense fallback={<div className="text-sm text-[var(--text-muted)]">Loading…</div>}>
+			<ContextContent />
+		</Suspense>
+	);
+}
+
+function ContextContent() {
 	/* ---- filter state ---- */
 	const [searchQuery, setSearchQuery] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
-	const [project, setProject] = useState("");
+	const { project, setProject } = useProjectScope();
 	const [selectedType, setSelectedType] = useState("");
 	const [selectedRole, setSelectedRole] = useState("");
 	const [statusFilter, setStatusFilter] = useState("active");
@@ -18,7 +28,6 @@ export default function ContextPage() {
 	/* ---- filter options from server ---- */
 	const [filterTypes, setFilterTypes] = useState<string[]>([]);
 	const [filterRoles, setFilterRoles] = useState<string[]>([]);
-	const [filterProjects, setFilterProjects] = useState<string[]>([]);
 
 	/* ---- data state ---- */
 	const [records, setRecords] = useState<ContextRecord[]>([]);
@@ -56,7 +65,6 @@ export default function ContextPage() {
 			.then((f) => {
 				setFilterTypes(f.types);
 				setFilterRoles(f.roles);
-				setFilterProjects(f.projects);
 			})
 			.catch(() => {
 				/* silent -- filters just won't populate */
@@ -77,6 +85,11 @@ export default function ContextPage() {
 			const data = await api.getRecords(params);
 			setRecords(data.records);
 			setTotal(data.total);
+			setSelected((current) =>
+				current && data.records.some((record) => record.record_id === current.record_id)
+					? current
+					: null,
+			);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to load records");
 		} finally {
@@ -92,13 +105,13 @@ export default function ContextPage() {
 	useEffect(() => {
 		setIntelLoading(true);
 		api
-			.getIntelligence(10)
+			.getIntelligence(10, project || undefined)
 			.then((result) => setIntel(result))
 			.catch(() => {
 				/* silent -- banner just won't show */
 			})
 			.finally(() => setIntelLoading(false));
-	}, []);
+	}, [project]);
 
 	const handleSelect = (record: ContextRecord) => {
 		setSelected(record);
@@ -115,18 +128,12 @@ export default function ContextPage() {
 
 	return (
 		<>
-			{/* ---- Health Banner ---- */}
-			{intelLoading && (
-				<div className="h-16 rounded-xl bg-white/[0.04] animate-pulse" />
-			)}
-			{!intelLoading && intel && <HealthBanner intel={intel} onBadgeClick={scrollToIntel} />}
-
 			{/* ---- Header ---- */}
-			<div className="flex flex-wrap items-center justify-between gap-3 mt-4">
-					<div>
-						<h1 className="text-lg font-semibold text-[var(--text)]">
-							Records
-						</h1>
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<h1 className="text-lg font-semibold text-[var(--text)]">
+						Records
+					</h1>
 					{!loading && (
 						<p className="mt-0.5 text-xs text-[var(--text-muted)]">
 							{total} record{total !== 1 ? "s" : ""}
@@ -147,198 +154,194 @@ export default function ContextPage() {
 						<option value="">All statuses</option>
 					</select>
 
-					<select
-						aria-label="Project"
-						value={project}
-						onChange={(e) => setProject(e.target.value)}
-						className="min-h-9 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1.5 text-xs text-[var(--text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)]"
-					>
-						<option value="">All projects</option>
-						{filterProjects.map((p) => (
-							<option key={p} value={p}>
-								{formatScopeLabel(p)}
-							</option>
-						))}
-					</select>
+					<ProjectScope value={project} onChange={setProject} />
 				</div>
 			</div>
 
-			{/* ---- Search ---- */}
-					<div className="mt-4">
-						<div className="relative">
-							<SearchIcon className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
-							<input
-								aria-label="Search records"
-								type="text"
-								value={searchQuery}
-								onChange={(e) => setSearchQuery(e.target.value)}
-								placeholder="Search records…"
-								className="w-full rounded-md border border-[var(--border)] bg-[var(--bg-card)] py-2 pl-9 pr-3 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-blue)] focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)]"
-							/>
-						</div>
-					</div>
+			{/* ---- Health Banner ---- */}
+			<div className="mt-4">
+				{intelLoading && (
+					<div className="h-16 rounded-xl bg-white/[0.04] animate-pulse" />
+				)}
+				{!intelLoading && intel && <HealthBanner intel={intel} onBadgeClick={scrollToIntel} />}
+			</div>
 
-					{/* ---- Type pill buttons ---- */}
-					<div className="mt-3 flex flex-wrap gap-1.5">
+			{/* ---- Search ---- */}
+			<div className="mt-4">
+				<div className="relative">
+					<SearchIcon className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
+					<input
+						aria-label="Search records"
+						type="text"
+						value={searchQuery}
+						onChange={(e) => setSearchQuery(e.target.value)}
+						placeholder="Search records…"
+						className="w-full rounded-md border border-[var(--border)] bg-[var(--bg-card)] py-2 pl-9 pr-3 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-blue)] focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)]"
+					/>
+				</div>
+			</div>
+
+			{/* ---- Type pill buttons ---- */}
+			<div className="mt-3 flex flex-wrap gap-1.5">
+				<button
+					onClick={() => setSelectedType("")}
+					className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+						selectedType === ""
+							? "bg-[var(--accent-blue)] text-white"
+							: "bg-white/[0.04] text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-secondary)]"
+					}`}
+				>
+					All types
+				</button>
+				{filterTypes.map((t) => (
+					<button
+						key={t}
+						onClick={() => setSelectedType(selectedType === t ? "" : t)}
+						className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+							selectedType === t
+								? "bg-[var(--accent-blue)] text-white"
+								: "bg-white/[0.04] text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-secondary)]"
+						}`}
+					>
+						{formatRecordKind(t)}
+					</button>
+				))}
+			</div>
+
+			{operationalFilterRoles.length > 0 && (
+				<div className="mt-2 flex flex-wrap gap-1.5">
+					<button
+						onClick={() => setSelectedRole("")}
+						className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+							selectedRole === ""
+								? "bg-teal-400 text-slate-950"
+								: "bg-white/[0.04] text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-secondary)]"
+						}`}
+					>
+						All roles
+					</button>
+					{operationalFilterRoles.map((role) => (
 						<button
-							onClick={() => setSelectedType("")}
+							key={role}
+							onClick={() => setSelectedRole(selectedRole === role ? "" : role)}
 							className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-								selectedType === ""
-									? "bg-[var(--accent-blue)] text-white"
+								selectedRole === role
+									? "bg-teal-400 text-slate-950"
 									: "bg-white/[0.04] text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-secondary)]"
 							}`}
 						>
-							All types
+							{formatRecordRole(role)}
 						</button>
-						{filterTypes.map((t) => (
-							<button
-								key={t}
-								onClick={() => setSelectedType(selectedType === t ? "" : t)}
-								className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-									selectedType === t
-										? "bg-[var(--accent-blue)] text-white"
-										: "bg-white/[0.04] text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-secondary)]"
-								}`}
-							>
-								{formatRecordKind(t)}
-							</button>
-						))}
-					</div>
+					))}
+				</div>
+			)}
 
-					{operationalFilterRoles.length > 0 && (
-						<div className="mt-2 flex flex-wrap gap-1.5">
-							<button
-								onClick={() => setSelectedRole("")}
-								className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-									selectedRole === ""
-										? "bg-teal-400 text-slate-950"
-										: "bg-white/[0.04] text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-secondary)]"
-								}`}
-							>
-								All roles
-							</button>
-							{operationalFilterRoles.map((role) => (
-								<button
-									key={role}
-									onClick={() => setSelectedRole(selectedRole === role ? "" : role)}
-									className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-										selectedRole === role
-											? "bg-teal-400 text-slate-950"
-											: "bg-white/[0.04] text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-secondary)]"
-									}`}
-								>
-									{formatRecordRole(role)}
-								</button>
-							))}
+			{/* ---- Error ---- */}
+			{error && (
+				<div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
+					{error}
+				</div>
+			)}
+
+			{/* ---- Two-column layout ---- */}
+			<div className="mt-4 flex min-h-[560px] flex-col gap-4 lg:h-[calc(100vh-260px)] lg:flex-row">
+				{/* Left: record list (40%) */}
+				<div className="max-h-[520px] shrink-0 overflow-y-auto rounded-lg border border-[var(--border)] lg:max-h-none lg:w-[40%]">
+					{loading ? (
+						<div className="flex h-32 items-center justify-center text-sm text-[var(--text-muted)]">
+							Loading…
 						</div>
-					)}
-
-					{/* ---- Error ---- */}
-					{error && (
-						<div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
-							{error}
+					) : records.length === 0 ? (
+						<div className="flex h-32 items-center justify-center text-sm text-[var(--text-muted)]">
+							No records found.
 						</div>
-					)}
-
-					{/* ---- Two-column layout ---- */}
-					<div className="mt-4 flex min-h-[560px] flex-col gap-4 lg:h-[calc(100vh-260px)] lg:flex-row">
-						{/* Left: record list (40%) */}
-						<div className="max-h-[520px] shrink-0 overflow-y-auto rounded-lg border border-[var(--border)] lg:max-h-none lg:w-[40%]">
-							{loading ? (
-								<div className="flex h-32 items-center justify-center text-sm text-[var(--text-muted)]">
-									Loading…
-								</div>
-							) : records.length === 0 ? (
-								<div className="flex h-32 items-center justify-center text-sm text-[var(--text-muted)]">
-									No records found.
-								</div>
-							) : (
-								<div className="divide-y divide-[var(--border)]">
-									{records.map((record) => {
-										const isSelected = selected?.record_id === record.record_id;
-										return (
-											<div
-												key={record.record_id}
-												className={`flex w-full items-start gap-2 border-l-2 px-4 py-3 text-left transition-colors ${
-													isSelected
-														? "border-l-[var(--accent-blue)] bg-[var(--accent-blue)]/10"
-														: "border-l-transparent hover:bg-white/[0.02]"
-												}`}
-											>
-												<button
-													type="button"
-													onClick={() => handleSelect(record)}
-													className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)]"
-												>
-													<h3 className="truncate text-sm font-medium text-[var(--text)]">
-														{record.title || "(untitled)"}
-													</h3>
-													<p className="mt-0.5 line-clamp-1 text-xs text-[var(--text-muted)]">
-														{record.body || "No content"}
-													</p>
-													<div className="mt-1.5 flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
-														<span className="rounded bg-white/[0.06] px-1.5 py-0.5">
-															{formatRecordKind(record.record_kind)}
-														</span>
-														{record.record_role && record.record_role !== "general" && (
-															<span className="rounded bg-teal-400/10 px-1.5 py-0.5 text-teal-200">
-																{formatRecordRole(record.record_role)}
-															</span>
-														)}
-														{record.project && (
-															<span className="rounded bg-white/[0.06] px-1.5 py-0.5">
-																{formatScopeLabel(record.project)}
-															</span>
-														)}
-														{record.confidence != null && (
-															<span>{Math.round(record.confidence * 100)}%</span>
-														)}
-													</div>
-												</button>
-												<div className="flex shrink-0 items-center gap-1">
-													<StatusDot status={record.status} />
-												</div>
+					) : (
+						<div className="divide-y divide-[var(--border)]">
+							{records.map((record) => {
+								const isSelected = selected?.record_id === record.record_id;
+								return (
+									<div
+										key={record.record_id}
+										className={`flex w-full items-start gap-2 border-l-2 px-4 py-3 text-left transition-colors ${
+											isSelected
+												? "border-l-[var(--accent-blue)] bg-[var(--accent-blue)]/10"
+												: "border-l-transparent hover:bg-white/[0.02]"
+										}`}
+									>
+										<button
+											type="button"
+											onClick={() => handleSelect(record)}
+											className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)]"
+										>
+											<h3 className="truncate text-sm font-medium text-[var(--text)]">
+												{record.title || "(untitled)"}
+											</h3>
+											<p className="mt-0.5 line-clamp-1 text-xs text-[var(--text-muted)]">
+												{record.body || "No content"}
+											</p>
+											<div className="mt-1.5 flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+												<span className="rounded bg-white/[0.06] px-1.5 py-0.5">
+													{formatRecordKind(record.record_kind)}
+												</span>
+												{record.record_role && record.record_role !== "general" && (
+													<span className="rounded bg-teal-400/10 px-1.5 py-0.5 text-teal-200">
+														{formatRecordRole(record.record_role)}
+													</span>
+												)}
+												{record.project && (
+													<span className="rounded bg-white/[0.06] px-1.5 py-0.5">
+														{formatScopeLabel(record.project)}
+													</span>
+												)}
+												{record.confidence != null && (
+													<span>{Math.round(record.confidence * 100)}%</span>
+												)}
 											</div>
-										);
-									})}
-								</div>
-							)}
-						</div>
-
-						{/* Right: editor (60%) */}
-						<div className="flex-1 min-w-0 overflow-y-auto">
-							{selected ? (
-								<RecordEditor
-									key={selected.record_id}
-									record={selected}
-								/>
-							) : (
-								<div className="flex h-full items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-subtle)]">
-									<div className="text-center">
-										<div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04]">
-											<BrainIcon className="h-6 w-6 text-[var(--text-muted)]" />
+										</button>
+										<div className="flex shrink-0 items-center gap-1">
+											<StatusDot status={record.status} />
 										</div>
-										<p className="text-sm text-[var(--text-muted)]">
-											Select a record to view
-										</p>
 									</div>
-								</div>
-							)}
+								);
+							})}
 						</div>
-					</div>
+					)}
+				</div>
 
-					{/* ---- Intelligence Section ---- */}
-					<div ref={intelSectionRef} className="mt-8">
-						<IntelligenceSection
-							intel={intel}
-							loading={intelLoading}
-							collapsed={intelCollapsed}
-							onToggle={() => setIntelCollapsed((c) => !c)}
+				{/* Right: editor (60%) */}
+				<div className="flex-1 min-w-0 overflow-y-auto">
+					{selected ? (
+						<RecordEditor
+							key={selected.record_id}
+							record={selected}
 						/>
-					</div>
-			</>
-		);
-	}
+					) : (
+						<div className="flex h-full items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-subtle)]">
+							<div className="text-center">
+								<div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04]">
+									<BrainIcon className="h-6 w-6 text-[var(--text-muted)]" />
+								</div>
+								<p className="text-sm text-[var(--text-muted)]">
+									Select a record to view
+								</p>
+							</div>
+						</div>
+					)}
+				</div>
+			</div>
+
+			{/* ---- Intelligence Section ---- */}
+			<div ref={intelSectionRef} className="mt-8">
+				<IntelligenceSection
+					intel={intel}
+					loading={intelLoading}
+					collapsed={intelCollapsed}
+					onToggle={() => setIntelCollapsed((c) => !c)}
+				/>
+			</div>
+		</>
+	);
+}
 
 /* ==================================================================
    Health Banner

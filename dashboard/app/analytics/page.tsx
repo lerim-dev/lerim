@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { useProjectScope } from "@/lib/projectScope";
 import type { ContextRecordVersion, PipelineReportResponse, StatsResponse } from "@/lib/types";
 import StatsCard from "@/components/StatsCard";
 import AgentDistributionChart from "@/components/charts/AgentDistributionChart";
@@ -11,6 +12,7 @@ import ToolUsageChart from "@/components/charts/ToolUsageChart";
 import DailyMetricsChart from "@/components/charts/DailyMetricsChart";
 import ModelUsageChart from "@/components/charts/ModelUsageChart";
 import MemoryTimelineChart, { type MemoryTimelineScope } from "@/components/charts/MemoryTimelineChart";
+import ProjectScope from "@/components/ProjectScope";
 
 const INSIGHT_SCOPES: Array<{ value: MemoryTimelineScope; label: string }> = [
 	{ value: "week", label: "Week" },
@@ -19,6 +21,15 @@ const INSIGHT_SCOPES: Array<{ value: MemoryTimelineScope; label: string }> = [
 ];
 
 export default function AnalyticsPage() {
+	return (
+		<Suspense fallback={<div className="text-sm text-[var(--text-muted)]">Loading…</div>}>
+			<AnalyticsContent />
+		</Suspense>
+	);
+}
+
+function AnalyticsContent() {
+	const { project, setProject } = useProjectScope();
 	const [statsScope, setStatsScope] = useState<MemoryTimelineScope>("all");
 	const [stats, setStats] = useState<StatsResponse | null>(null);
 	const [report, setReport] = useState<PipelineReportResponse | null>(null);
@@ -31,9 +42,9 @@ export default function AnalyticsPage() {
 		setError(null);
 		try {
 			const [statsData, reportData, versionsData] = await Promise.all([
-				api.getStats(statsScope, true),
-				api.getPipelineReport().catch(() => null),
-				api.getRecordVersions({ limit: "5000" }),
+				api.getStats(statsScope, true, project || undefined),
+				api.getPipelineReport(project || undefined).catch(() => null),
+				api.getRecordVersions(project ? { limit: "5000", project } : { limit: "5000" }),
 			]);
 			setStats(statsData);
 			setReport(reportData);
@@ -43,7 +54,7 @@ export default function AnalyticsPage() {
 		} finally {
 			setLoading(false);
 		}
-	}, [statsScope]);
+	}, [project, statsScope]);
 
 	useEffect(() => {
 		load();
@@ -74,6 +85,7 @@ export default function AnalyticsPage() {
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
+					<ProjectScope value={project} onChange={setProject} />
 					<span className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
 						Time window
 					</span>

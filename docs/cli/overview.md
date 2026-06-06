@@ -32,6 +32,10 @@ These work on local files, Docker, or config:
 - `lerim working-memory status`
 - `lerim working-memory path`
 - `lerim working-memory refresh`
+- `lerim clinic show`
+- `lerim clinic status`
+- `lerim clinic path`
+- `lerim clinic refresh`
 - `lerim context records`
 
 ## Server-backed commands

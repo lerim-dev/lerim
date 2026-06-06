@@ -4,6 +4,14 @@
 
 /* ----- Stats -------------------------------------------------------- */
 
+export interface ProjectSummary {
+  name: string;
+  project_id: string;
+  type?: string | null;
+  source_profile?: string | null;
+  exists?: boolean;
+}
+
 export interface StatsTotals {
   runs: number;
   messages: number;
@@ -661,5 +669,107 @@ export interface MemoryArtifactsResponse {
 		working_memory?: MemoryArtifact;
 	};
 	versions: MemoryArtifactVersion[];
+	error?: string;
+}
+
+/* ----- Run Clinic --------------------------------------------------- */
+
+export interface RunClinicFinding {
+	title: string;
+	pattern_type: string;
+	severity: "low" | "medium" | "high" | string;
+	confidence: "low" | "medium" | "high" | string;
+	summary: string;
+	why_it_matters: string;
+	evidence_record_ids: string[];
+}
+
+export interface RunClinicAction {
+	title: string;
+	action_type: string;
+	priority: "low" | "medium" | "high" | string;
+	summary: string;
+	evidence_record_ids: string[];
+}
+
+export interface RunClinicMetrics {
+	active_records_sampled: number;
+	active_records_total: number;
+	recent_versions_sampled: number;
+	recent_versions_total: number;
+	recent_sessions_sampled: number;
+	recent_sessions_total: number;
+	evidence_items: number;
+	readiness_score: number;
+	kind_counts: Record<string, number>;
+	role_counts: Record<string, number>;
+	stage_scores: Record<string, number>;
+	changes_by_day: Array<{ date: string; changes: number }>;
+	session_totals: {
+		messages: number;
+		tool_calls: number;
+		errors: number;
+		tokens: number;
+	};
+}
+
+export interface RunClinicReport {
+	headline: string;
+	readiness_score: number;
+	summary: string[];
+	findings: RunClinicFinding[];
+	recommended_actions: RunClinicAction[];
+	questions: string[];
+	metrics: RunClinicMetrics;
+}
+
+export interface RunClinicStatus extends MemoryArtifactStatus {
+	window_days: number;
+	window_started_at: string | null;
+	records_considered: number;
+	recent_versions_considered: number;
+	sessions_considered: number;
+	current_report: string;
+}
+
+export interface RunClinicVersion {
+	id: string;
+	type: "run_clinic";
+	label: string;
+	filename: string;
+	content: string;
+	report: Partial<RunClinicReport>;
+	content_path: string;
+	report_path: string;
+	manifest_path: string;
+	current: boolean;
+	generated_at: string;
+	window_started_at: string;
+	window_days: number;
+	trigger: string;
+	status: string;
+	run_folder: string;
+	records_included: number;
+	records_considered: number;
+	recent_versions_considered: number;
+	sessions_considered: number;
+	included_record_ids: string[];
+}
+
+export interface RunClinicArtifact {
+	type: "run_clinic";
+	label: string;
+	status: RunClinicStatus;
+	current: RunClinicVersion;
+	versions: RunClinicVersion[];
+}
+
+export interface RunClinicResponse {
+	projects: string[];
+	selected_project: string;
+	project_id: string;
+	repo_path: string;
+	artifact: RunClinicArtifact | null;
+	versions: RunClinicVersion[];
 	error?: string;
 }

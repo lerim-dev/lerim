@@ -102,6 +102,32 @@ class WorkingMemoryResultContract(BaseModel):
 	cost_usd: float = 0.0
 
 
+class RunClinicResultContract(BaseModel):
+	"""Stable run-clinic refresh payload schema used by CLI and daemon."""
+
+	status: str
+	project: str
+	project_id: str
+	trigger: str = "manual"
+	generated_at: str | None = None
+	window_started_at: str | None = None
+	window_days: int = 30
+	context_db_path: str
+	workspace_root: str
+	run_folder: str | None = None
+	current_file: str
+	current_manifest: str
+	current_report: str
+	records_considered: int = 0
+	records_included: int = 0
+	recent_versions_considered: int = 0
+	sessions_considered: int = 0
+	records_changed_since_previous: int = 0
+	included_record_ids: list[str] = []
+	skip_reason: str | None = None
+	cost_usd: float = 0.0
+
+
 if __name__ == "__main__":
 	"""Run contract model smoke checks."""
 	ingest = IngestResultContract(

@@ -612,12 +612,13 @@ class TestCmdDashboard:
     def test_dashboard_starts_backend_when_needed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Backend helper starts Docker runtime when health check is down."""
+        """Backend helper reuses a local-build image when health check is down."""
         cfg = make_config(tmp_path / ".lerim")
         checks = iter([False, True])
-        calls: list[bool] = []
+        calls: list[tuple[bool, bool]] = []
 
         monkeypatch.setattr(cli, "current_compose_uses_local_build", lambda: True)
+        monkeypatch.setattr(cli, "local_image_exists", lambda: True)
         monkeypatch.setattr(
             cli,
             "_wait_for_ready",
@@ -626,11 +627,32 @@ class TestCmdDashboard:
         monkeypatch.setattr(
             cli,
             "api_up",
-            lambda build_local=False: calls.append(build_local) or {},
+            lambda build_local=False, no_build=False: calls.append(
+                (build_local, no_build)
+            )
+            or {},
         )
 
         assert cli._ensure_dashboard_backend(cfg.server_port) is True
-        assert calls == [True]
+        assert calls == [(True, True)]
+
+    def test_dashboard_refuses_surprise_local_rebuild(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dashboard does not rebuild local images as a hidden side effect."""
+        cfg = make_config(tmp_path / ".lerim")
+        calls: list[dict[str, bool]] = []
+
+        monkeypatch.setattr(cli, "current_compose_uses_local_build", lambda: True)
+        monkeypatch.setattr(cli, "local_image_exists", lambda: False)
+        monkeypatch.setattr(cli, "_wait_for_ready", lambda port, timeout=30: False)
+        monkeypatch.setattr(cli, "api_up", lambda **kw: calls.append(kw) or {})
+
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            assert cli._ensure_dashboard_backend(cfg.server_port) is False
+        assert calls == []
+        assert "lerim up --build" in buf.getvalue()
 
     def test_dashboard_returns_error_when_npm_missing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

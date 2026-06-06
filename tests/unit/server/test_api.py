@@ -1373,6 +1373,224 @@ def test_api_status_reports_projects_and_unscoped(
     assert result["unscoped_sessions"]["by_agent"]["cursor"] == 3
 
 
+def test_api_status_project_scope_counts_child_session_paths(
+    monkeypatch, tmp_path, mock_embeddings
+) -> None:
+    """api_status project scope counts sessions and jobs under child paths."""
+    project_path = tmp_path / "repo"
+    child_path = project_path / "packages" / "worker"
+    child_path.mkdir(parents=True)
+    cfg = replace(make_config(tmp_path), projects={"repo": str(project_path)})
+    store = api_mod.ContextStore(cfg.context_db_path)
+    store.initialize()
+    identity = api_mod.resolve_project_identity(project_path)
+    store.register_project(identity)
+    store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="fact",
+        title="Project record",
+        body="Project status should be scoped.",
+    )
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    monkeypatch.setattr(catalog_mod, "get_config", lambda: cfg)
+    monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])
+    monkeypatch.setattr(api_mod, "latest_service_run", lambda svc: None)
+    monkeypatch.setattr(
+        api_mod, "queue_health_snapshot", lambda: {"degraded": False, "advice": ""}
+    )
+    monkeypatch.setattr(api_mod, "count_unscoped_sessions_by_agent", lambda projects: {})
+    monkeypatch.setattr(api_mod, "list_session_jobs", lambda **kwargs: [])
+    monkeypatch.setattr(api_mod, "list_service_runs", lambda **kwargs: [])
+    catalog_mod.init_sessions_db()
+    for run_id, path in (("root-run", project_path), ("child-run", child_path)):
+        assert catalog_mod.index_session_for_fts(
+            run_id=run_id,
+            agent_type="codex",
+            content=f"{run_id} content",
+            repo_path=str(path),
+            repo_name=path.name,
+            start_time="2026-03-20T10:00:00Z",
+        )
+    now = "2026-03-20T10:00:00Z"
+    with sqlite3.connect(cfg.sessions_db_path) as conn:
+        conn.executemany(
+            """INSERT INTO session_jobs (
+                run_id, job_type, agent_type, session_path, start_time, status,
+                available_at, created_at, updated_at, repo_path
+            ) VALUES (?, 'extract', 'codex', '', ?, ?, ?, ?, ?, ?)""",
+            [
+                ("root-run", now, "pending", now, now, now, str(project_path)),
+                ("child-run", now, "dead_letter", now, now, now, str(child_path)),
+                ("other-run", now, "failed", now, now, now, str(tmp_path / "other")),
+            ],
+        )
+
+    result = api_status(scope="project", project="repo")
+
+    assert result["record_count"] == 1
+    assert result["sessions_indexed_count"] == 2
+    assert result["queue"]["pending"] == 1
+    assert result["queue"]["dead_letter"] == 1
+    assert result["projects"][0]["indexed_sessions_count"] == 2
+    assert result["projects"][0]["queue"]["dead_letter"] == 1
+    queue_payload = api_mod.api_queue_jobs(project="repo")
+    assert {job["run_id"] for job in queue_payload["jobs"]} == {
+        "root-run",
+        "child-run",
+    }
+    assert queue_payload["queue"]["pending"] == 1
+    assert queue_payload["queue"]["dead_letter"] == 1
+    assert queue_payload["queue"]["failed"] == 0
+    before_reset = catalog_mod.count_indexed_sessions_for_project(str(project_path))
+    assert before_reset["indexed_sessions"] == 2
+    assert before_reset["session_jobs"] == 2
+
+    deleted = catalog_mod.reset_indexed_sessions_for_project(str(project_path))
+
+    assert deleted["indexed_sessions"] == 2
+    assert deleted["session_jobs"] == 2
+    assert catalog_mod.count_indexed_sessions_for_project(str(project_path)) == {
+        "indexed_sessions": 0,
+        "session_jobs": 0,
+        "service_runs": 0,
+    }
+
+
+def test_api_status_project_scope_latest_uses_scoped_activity(
+    monkeypatch, tmp_path, mock_embeddings
+) -> None:
+    """Project status latest/schedule fields should not reuse global service runs."""
+    repo_path = tmp_path / "repo"
+    other_path = tmp_path / "other"
+    repo_path.mkdir()
+    other_path.mkdir()
+    cfg = replace(
+        make_config(tmp_path),
+        projects={"repo": str(repo_path), "other": str(other_path)},
+    )
+    store = api_mod.ContextStore(cfg.context_db_path)
+    store.initialize()
+    repo_identity = api_mod.resolve_project_identity(repo_path)
+    other_identity = api_mod.resolve_project_identity(other_path)
+    store.register_project(repo_identity)
+    store.register_project(other_identity)
+    store.create_record(
+        project_id=repo_identity.project_id,
+        session_id=None,
+        kind="fact",
+        title="Repo record",
+        body="Repo-scoped status should use repo activity.",
+    )
+    store.create_record(
+        project_id=other_identity.project_id,
+        session_id=None,
+        kind="fact",
+        title="Other record",
+        body="Other activity should not leak into repo status.",
+    )
+    global_ingest = {
+        "id": "other-ingest",
+        "job_type": "ingest",
+        "status": "completed",
+        "started_at": "2026-03-21T10:00:00+00:00",
+        "completed_at": "2026-03-21T10:01:00+00:00",
+        "trigger": "daemon",
+        "details": {
+            "projects_metrics": {"other": {}},
+            "ingest_metrics": {"sessions_analyzed": 99, "skipped_unscoped": 7},
+        },
+    }
+    global_curate = {
+        "id": "other-curate",
+        "job_type": "curate",
+        "status": "completed",
+        "started_at": "2026-03-21T11:00:00+00:00",
+        "completed_at": "2026-03-21T11:01:00+00:00",
+        "trigger": "daemon",
+        "details": {
+            "projects_metrics": {"other": {}},
+            "curate_metrics": {"counts": {"created": 9}},
+        },
+    }
+    repo_ingest = {
+        "id": "repo-ingest",
+        "job_type": "ingest",
+        "status": "completed",
+        "started_at": "2026-03-20T10:00:00+00:00",
+        "completed_at": "2026-03-20T10:01:00+00:00",
+        "trigger": "manual",
+        "details": {
+            "projects_metrics": {
+                "repo": {"sessions_analyzed": 2, "records_created": 1},
+                "other": {"sessions_analyzed": 97, "records_created": 9},
+            },
+            "ingest_metrics": {
+                "sessions_analyzed": 99,
+                "records_created": 10,
+                "skipped_unscoped": 1,
+            },
+        },
+    }
+    repo_curate = {
+        "id": "repo-curate",
+        "job_type": "curate",
+        "status": "completed",
+        "started_at": "2026-03-20T11:00:00+00:00",
+        "completed_at": "2026-03-20T11:01:00+00:00",
+        "trigger": "manual",
+        "details": {
+            "projects_metrics": {
+                "repo": {
+                    "records_created": 1,
+                    "curate_counts": {"created": 1},
+                },
+                "other": {
+                    "records_created": 8,
+                    "curate_counts": {"created": 8},
+                },
+            },
+            "curate_metrics": {"counts": {"created": 9}, "records_created": 9},
+        },
+    }
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])
+    monkeypatch.setattr(api_mod, "count_fts_indexed", lambda: 999)
+    monkeypatch.setattr(
+        api_mod, "count_session_jobs_by_status", lambda: {"pending": 99}
+    )
+    monkeypatch.setattr(
+        api_mod,
+        "latest_service_run",
+        lambda svc: global_ingest if svc == "ingest" else global_curate,
+    )
+    monkeypatch.setattr(
+        api_mod, "queue_health_snapshot", lambda: {"degraded": False, "advice": ""}
+    )
+    monkeypatch.setattr(api_mod, "count_unscoped_sessions_by_agent", lambda projects: {})
+    monkeypatch.setattr(api_mod, "list_session_jobs", lambda **kwargs: [])
+    monkeypatch.setattr(
+        api_mod,
+        "list_service_runs",
+        lambda **kwargs: [global_ingest, global_curate, repo_ingest, repo_curate],
+    )
+
+    result = api_status(scope="project", project="repo")
+
+    assert result["latest_ingest"]["id"] == "repo-ingest"
+    assert result["latest_curate"]["id"] == "repo-curate"
+    assert result["latest_ingest"]["details"]["sessions_analyzed"] == 2
+    assert result["latest_ingest"]["details"]["records_created"] == 1
+    assert result["latest_curate"]["details"]["curate_counts"]["created"] == 1
+    assert result["latest_curate"]["details"]["records_created"] == 1
+    assert result["recent_activity"][0]["shared"] is True
+    assert result["recent_activity"][0]["shared_projects"] == ["other"]
+    assert result["recent_activity"][0]["all_projects"] == ["other", "repo"]
+    assert result["scope"]["skipped_unscoped"] == 0
+    assert result["schedule"]["ingest"]["last_started_at"] == repo_ingest["started_at"]
+    assert result["schedule"]["curate"]["last_started_at"] == repo_curate["started_at"]
+
+
 def test_runtime_identity_uses_docker_env(monkeypatch) -> None:
     monkeypatch.setenv(api_mod.RUNTIME_SOURCE_ENV, "local-build")
     monkeypatch.setenv(api_mod.RUNTIME_IMAGE_ENV, "lerim-test:local")

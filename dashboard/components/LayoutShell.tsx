@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
@@ -27,10 +28,12 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
   return (
     <ToastProvider>
       <div className="dashboard-shell" data-sidebar-state={sidebarCollapsed ? "collapsed" : "expanded"}>
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
-        />
+        <Suspense fallback={null}>
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+          />
+        </Suspense>
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-[var(--accent-blue)] focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-white"

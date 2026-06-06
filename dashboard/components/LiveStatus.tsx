@@ -6,7 +6,7 @@ import type { LiveStatusResponse } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 20000;
 
-export default function LiveStatus() {
+export default function LiveStatus({ shared = false }: { shared?: boolean }) {
   const [status, setStatus] = useState<LiveStatusResponse | null>(null);
   const [error, setError] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -99,6 +99,12 @@ export default function LiveStatus() {
           <StatusDot color={hasDeadLetter ? "#f59e0b" : dotColor} pulsing={pulsing} />
           <span className="font-medium text-[var(--text)]">{hasDeadLetter ? "Blocked" : activityLabel}</span>
         </span>
+        {shared && (
+          <>
+            <Separator />
+            <span className="font-medium text-[var(--text-muted)]">Shared runtime</span>
+          </>
+        )}
 
         {/* Dead letter warning */}
         {hasDeadLetter && (
@@ -224,7 +230,7 @@ function DeadLetterActions({ onDone }: { onDone: () => void }) {
         disabled={acting !== null}
         className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50"
       >
-        {acting === "retry" ? "Retrying…" : "Retry"}
+        {acting === "retry" ? "Retrying…" : "Retry all"}
       </button>
       <button
         type="button"
@@ -236,7 +242,7 @@ function DeadLetterActions({ onDone }: { onDone: () => void }) {
             : "bg-white/5 text-[var(--text-muted)] hover:bg-white/10"
         }`}
       >
-        {acting === "skip" ? "Skipping…" : confirmSkip ? "Confirm skip" : "Skip"}
+        {acting === "skip" ? "Skipping…" : confirmSkip ? "Confirm skip all" : "Skip all"}
       </button>
       {actionError && <span className="text-[10px] text-red-300">{actionError}</span>}
     </span>

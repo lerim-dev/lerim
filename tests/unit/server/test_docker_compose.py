@@ -15,12 +15,16 @@ import pytest
 from lerim import __version__
 from lerim.server import docker_runtime
 from lerim.server.docker_runtime import (
+    DEFAULT_DOCKER_TIMEOUT_SECONDS,
+    DOCKER_TIMEOUT_ENV,
     GHCR_IMAGE,
     LOCAL_IMAGE,
     RUNTIME_SOURCE_ENV,
+    _compose_timeout_seconds,
     _find_package_root,
     _generate_compose_yml,
     api_up,
+    local_image_exists,
 )
 from tests.helpers import make_config
 
@@ -97,8 +101,43 @@ def test_dockerfile_copies_only_package_inputs() -> None:
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
     assert "COPY . /build" not in dockerfile
-    assert "COPY pyproject.toml README.md LICENSE /build/" in dockerfile
-    assert "COPY src /build/src" in dockerfile
+    assert "COPY pyproject.toml uv.lock README.md LICENSE ./" in dockerfile
+    assert "uv export --frozen --no-dev --no-emit-project" in dockerfile
+    assert "COPY src ./src" in dockerfile
+    assert "uv pip install --system --no-deps ." in dockerfile
+
+
+def test_compose_timeout_defaults_to_slow_build_budget() -> None:
+    """Local Docker builds need enough time for first dependency install."""
+    assert _compose_timeout_seconds() == DEFAULT_DOCKER_TIMEOUT_SECONDS
+
+
+def test_compose_timeout_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compose timeout is configurable for slow first builds."""
+    monkeypatch.setenv(DOCKER_TIMEOUT_ENV, "1800")
+    assert _compose_timeout_seconds() == 1800
+
+
+def test_compose_timeout_has_minimum(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unreasonably small timeout values are raised to a safe floor."""
+    monkeypatch.setenv(DOCKER_TIMEOUT_ENV, "5")
+    assert _compose_timeout_seconds() == 60
+
+
+def test_local_image_exists_inspects_local_tag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Local image detection checks the local-build tag directly."""
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+
+    monkeypatch.setattr(
+        "lerim.server.docker_runtime.subprocess.run",
+        lambda cmd, **kwargs: calls.append(list(cmd)) or Result(),
+    )
+
+    assert local_image_exists() is True
+    assert calls == [["docker", "image", "inspect", LOCAL_IMAGE]]
 
 
 def test_build_local_no_dockerfile_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,15 +195,20 @@ def test_api_up_build_local_forces_fresh_recreate(
         "lerim.server.docker_runtime._find_package_root", lambda: fake_root
     )
     monkeypatch.setattr("lerim.server.docker_runtime.COMPOSE_PATH", compose_path)
-    monkeypatch.setattr(
-        "lerim.server.docker_runtime.subprocess.run",
-        lambda cmd, **kwargs: calls.append(list(cmd)) or Result(),
-    )
+    timeouts: list[int] = []
+
+    def capture_run(cmd, **kwargs):
+        calls.append(list(cmd))
+        timeouts.append(int(kwargs["timeout"]))
+        return Result()
+
+    monkeypatch.setattr("lerim.server.docker_runtime.subprocess.run", capture_run)
 
     result = api_up(build_local=True)
 
     assert result["runtime_source"] == "local-build"
     assert result["runtime_image"] == LOCAL_IMAGE
+    assert timeouts == [DEFAULT_DOCKER_TIMEOUT_SECONDS]
     assert calls == [
         [
             "docker",

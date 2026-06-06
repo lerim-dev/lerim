@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
+import { useProjectScope } from "@/lib/projectScope";
 import type { ContextRecord } from "@/lib/types";
 import RecordEditor from "@/components/RecordEditor";
 import { useToast } from "@/components/Toast";
@@ -17,12 +18,21 @@ const GraphExplorer = dynamic(() => import("@/components/GraphExplorer"), {
 });
 
 export default function ContextGraphPage() {
+	return (
+		<Suspense fallback={<div className="text-sm text-[var(--text-muted)]">Loading…</div>}>
+			<ContextGraphContent />
+		</Suspense>
+	);
+}
+
+function ContextGraphContent() {
 	const { addToast } = useToast();
+	const { project } = useProjectScope();
 	const [selectedRecord, setSelectedRecord] = useState<ContextRecord | null>(null);
 
 	async function openRecord(recordId: string) {
 		try {
-			const record = await api.getRecord(recordId);
+			const record = await api.getRecord(recordId, project || undefined);
 			setSelectedRecord(record);
 		} catch {
 			addToast({ type: "error", message: "Failed to load record" });

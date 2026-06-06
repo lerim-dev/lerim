@@ -19,7 +19,8 @@ Open `http://localhost:3000`.
 Use `lerim up --build` instead of `lerim up` when you want the backend built
 from the local Dockerfile. `lerim dashboard` starts the local Next.js dev server
 and prints the dashboard URL. It also installs dashboard npm dependencies when
-they are missing.
+they are missing. If the backend is down after a local build, `lerim dashboard`
+reuses the existing local image; it does not trigger a hidden Docker rebuild.
 
 The UI proxies `/api` to `http://localhost:8765` in development.
 

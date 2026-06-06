@@ -12,7 +12,7 @@ These host-only commands manage the Docker container that runs `lerim serve` (da
 ## Syntax
 
 ```bash
-lerim up [--build]
+lerim up [--build] [--no-build]
 lerim down
 lerim logs [--follow]
 ```
@@ -26,13 +26,20 @@ Start Lerim as a Docker service:
 ```bash
 lerim up                    # start Lerim (pull GHCR image)
 lerim up --build            # build and recreate from the local Dockerfile
+lerim up --no-build         # reuse an existing local-build image
 ```
 
 This reads `~/.lerim/config.toml`, generates a `docker-compose.yml` in `~/.lerim/`, and runs `docker compose up -d`.
 
-By default the compose file references the pre-built GHCR image (`ghcr.io/lerim-dev/lerim`) tagged with the current package version. Use `--build` to build from the local Dockerfile, tag it as `lerim-lerim:local`, and force-recreate the container.
+By default the compose file references the pre-built GHCR image (`ghcr.io/lerim-dev/lerim`) tagged with the current package version. Use `--build` to build from the local Dockerfile, tag it as `lerim-lerim:local`, and force-recreate the container. After a successful local build, use `--no-build` to restart from the existing local image without rebuilding.
 
 After start, the CLI waits for `GET /api/health` to return `200 OK` before reporting success.
+
+Local builds use a cache-aware Dockerfile: third-party dependencies install from
+`uv.lock` before `src/` is copied, so normal source edits only reinstall the
+Lerim package layer. Docker compose startup has a default timeout of 1200
+seconds; override it with `LERIM_DOCKER_TIMEOUT_SECONDS` for unusually slow
+machines or networks.
 
 ### `lerim down`
 
@@ -64,6 +71,15 @@ lerim logs --json               # raw JSONL output
     <span class="param-badge default">default: off</span>
   </div>
   <p class="param-desc">Build from local Dockerfile instead of pulling the GHCR image.</p>
+</div>
+
+<div class="param-field">
+  <div class="param-header">
+    <span class="param-name">--no-build</span>
+    <span class="param-type">boolean</span>
+    <span class="param-badge default">default: off</span>
+  </div>
+  <p class="param-desc">Reuse the existing local-build image instead of rebuilding it.</p>
 </div>
 
 <div class="param-field">

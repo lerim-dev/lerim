@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { scopedHref, useProjectScope } from "@/lib/projectScope";
 import type {
 	ActivityFeedItem,
 	IntelligenceResponse,
@@ -11,8 +12,18 @@ import type {
 	StatsResponse,
 } from "@/lib/types";
 import LiveStatus from "@/components/LiveStatus";
+import ProjectScope from "@/components/ProjectScope";
 
 export default function OverviewPage() {
+	return (
+		<Suspense fallback={<div className="text-sm text-[var(--text-muted)]">Loading…</div>}>
+			<OverviewContent />
+		</Suspense>
+	);
+}
+
+function OverviewContent() {
+	const { project, setProject } = useProjectScope();
 	const [status, setStatus] = useState<PipelineStatusResponse | null>(null);
 	const [report, setReport] = useState<PipelineReportResponse | null>(null);
 	const [stats, setStats] = useState<StatsResponse | null>(null);
@@ -26,11 +37,11 @@ export default function OverviewPage() {
 		setError(null);
 		try {
 			const [statusData, reportData, statsData, intelData, activityData] = await Promise.all([
-				api.getPipelineStatus(),
-				api.getPipelineReport().catch(() => null),
-				api.getStats("week", true).catch(() => null),
-				api.getIntelligence(8).catch(() => null),
-				api.getActivityFeed(7, 8).catch(() => ({ items: [] })),
+				api.getPipelineStatus(project || undefined),
+				api.getPipelineReport(project || undefined).catch(() => null),
+				api.getStats("week", true, project || undefined).catch(() => null),
+				api.getIntelligence(8, project || undefined).catch(() => null),
+				api.getActivityFeed(7, 8, project || undefined).catch(() => ({ items: [] })),
 			]);
 			setStatus(statusData);
 			setReport(reportData);
@@ -42,7 +53,7 @@ export default function OverviewPage() {
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}, [project]);
 
 	useEffect(() => {
 		load();
@@ -63,14 +74,17 @@ export default function OverviewPage() {
 						Record health, graph readiness, and recent agent processing activity
 					</p>
 				</div>
-				<button
-					type="button"
-					onClick={load}
-					disabled={loading}
-					className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
-				>
-					{loading ? "Refreshing…" : "Refresh"}
-				</button>
+				<div className="flex flex-wrap items-center gap-2">
+					<ProjectScope value={project} onChange={setProject} />
+					<button
+						type="button"
+						onClick={load}
+						disabled={loading}
+						className="min-h-10 rounded-md border border-[var(--border)] px-3 text-xs text-[var(--text-secondary)] transition-colors hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
+					>
+						{loading ? "Refreshing…" : "Refresh"}
+					</button>
+				</div>
 			</div>
 
 			<div className="mt-4">
@@ -94,7 +108,7 @@ export default function OverviewPage() {
 				<section className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
 					<div className="mb-3 flex items-center justify-between">
 						<h2 className="text-sm font-medium text-[var(--text)]">Recent Operations</h2>
-						<Link className="text-xs text-[var(--accent-blue)] hover:underline" href="/operations">
+						<Link className="text-xs text-[var(--accent-blue)] hover:underline" href={scopedHref("/operations", project)}>
 							View all
 						</Link>
 					</div>
@@ -122,9 +136,9 @@ export default function OverviewPage() {
 						<h2 className="text-sm font-medium text-[var(--text)]">Where To Go Next</h2>
 					</div>
 					<div className="grid gap-2">
-						<Shortcut href="/context-graph" title="Explore the graph" body="See clusters and relationships between extracted context records." />
-						<Shortcut href="/context" title="Review context" body="Search and inspect evidence-backed records." />
-						<Shortcut href="/traces" title="Review sources" body="Inspect the source transcripts that feed context and graph compilation." />
+						<Shortcut href={scopedHref("/context-graph", project)} title="Explore the graph" body="See clusters and relationships between extracted context records." />
+						<Shortcut href={scopedHref("/context", project)} title="Review context" body="Search and inspect evidence-backed records." />
+						<Shortcut href={scopedHref("/traces", project)} title="Review sources" body="Inspect the source transcripts that feed context and graph compilation." />
 					</div>
 				</section>
 			</div>

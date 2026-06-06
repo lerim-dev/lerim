@@ -13,7 +13,7 @@ import tempfile
 from typing import Any, Callable
 
 from lerim.adapters import registry as adapter_registry
-from lerim.config.project_scope import match_session_project
+from lerim.config.project_scope import match_session_project, project_path_sql_scope
 from lerim.config.logging import logger
 from lerim.config.settings import PROJECT_TYPE_CUSTOM, get_config, reload_config
 from lerim.sessions.custom_traces import iter_custom_trace_sessions
@@ -479,6 +479,9 @@ def list_sessions_window(
     agent_types: list[str] | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
+    repo_path: str | None = None,
+    repo_query: str | None = None,
+    status: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """List sessions in a filtered window plus total row count."""
     _ensure_sessions_db_initialized()
@@ -495,6 +498,16 @@ def list_sessions_window(
     if until is not None:
         where.append("(start_time <= ? OR start_time IS NULL)")
         params.append(_to_iso(until))
+    if repo_path:
+        exact_path, child_path = project_path_sql_scope(repo_path)
+        where.append("(repo_path = ? OR repo_path LIKE ? ESCAPE '\\')")
+        params.extend([exact_path, child_path])
+    if repo_query:
+        where.append("(repo_name LIKE ? OR repo_path LIKE ?)")
+        params.extend([f"%{repo_query}%", f"%{repo_query}%"])
+    if status:
+        where.append("status = ?")
+        params.append(status)
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     limit = max(1, int(limit))
@@ -521,11 +534,14 @@ def list_sessions_window(
 def reset_indexed_sessions_for_project(repo_path: str) -> dict[str, int]:
     """Delete indexed session and queue state for one registered project path."""
     _ensure_sessions_db_initialized()
-    normalized = str(Path(repo_path).expanduser().resolve())
+    normalized, child_path = project_path_sql_scope(repo_path)
     with _connect() as conn:
         counts = _count_project_session_state(conn, normalized)
         _delete_project_session_jobs(conn, normalized)
-        conn.execute("DELETE FROM session_docs WHERE repo_path = ?", (normalized,))
+        conn.execute(
+            "DELETE FROM session_docs WHERE repo_path = ? OR repo_path LIKE ? ESCAPE '\\'",
+            (normalized, child_path),
+        )
         conn.commit()
     return counts
 
@@ -533,7 +549,7 @@ def reset_indexed_sessions_for_project(repo_path: str) -> dict[str, int]:
 def count_indexed_sessions_for_project(repo_path: str) -> dict[str, int]:
     """Count indexed session and queue state for one registered project path."""
     _ensure_sessions_db_initialized()
-    normalized = str(Path(repo_path).expanduser().resolve())
+    normalized, _child_path = project_path_sql_scope(repo_path)
     with _connect() as conn:
         return _count_project_session_state(conn, normalized)
 
@@ -561,25 +577,29 @@ def _count_project_session_state(
     conn: sqlite3.Connection, repo_path: str
 ) -> dict[str, int]:
     """Count session catalog rows that belong to repo_path."""
+    exact_path, child_path = project_path_sql_scope(repo_path)
     rows = conn.execute(
-        "SELECT run_id FROM session_docs WHERE repo_path = ?",
-        (repo_path,),
+        "SELECT run_id FROM session_docs WHERE repo_path = ? OR repo_path LIKE ? ESCAPE '\\'",
+        (exact_path, child_path),
     ).fetchall()
     run_ids = [str(row.get("run_id") or "") for row in rows if row.get("run_id")]
     if run_ids:
         placeholders = ",".join("?" for _ in run_ids)
         job_count = int(
             conn.execute(
-                f"SELECT COUNT(1) AS total FROM session_jobs WHERE repo_path = ? OR run_id IN ({placeholders})",
-                (repo_path, *run_ids),
+                f"""
+                SELECT COUNT(1) AS total FROM session_jobs
+                WHERE repo_path = ? OR repo_path LIKE ? ESCAPE '\\' OR run_id IN ({placeholders})
+                """,
+                (exact_path, child_path, *run_ids),
             ).fetchone()["total"]
             or 0
         )
     else:
         job_count = int(
             conn.execute(
-                "SELECT COUNT(1) AS total FROM session_jobs WHERE repo_path = ?",
-                (repo_path,),
+                "SELECT COUNT(1) AS total FROM session_jobs WHERE repo_path = ? OR repo_path LIKE ? ESCAPE '\\'",
+                (exact_path, child_path),
             ).fetchone()["total"]
             or 0
         )
@@ -592,18 +612,25 @@ def _count_project_session_state(
 
 def _delete_project_session_jobs(conn: sqlite3.Connection, repo_path: str) -> None:
     """Delete session jobs for repo_path, including jobs linked by indexed run id."""
+    exact_path, child_path = project_path_sql_scope(repo_path)
     rows = conn.execute(
-        "SELECT run_id FROM session_docs WHERE repo_path = ?",
-        (repo_path,),
+        "SELECT run_id FROM session_docs WHERE repo_path = ? OR repo_path LIKE ? ESCAPE '\\'",
+        (exact_path, child_path),
     ).fetchall()
     run_ids = [str(row.get("run_id") or "") for row in rows if row.get("run_id")]
     if not run_ids:
-        conn.execute("DELETE FROM session_jobs WHERE repo_path = ?", (repo_path,))
+        conn.execute(
+            "DELETE FROM session_jobs WHERE repo_path = ? OR repo_path LIKE ? ESCAPE '\\'",
+            (exact_path, child_path),
+        )
         return
     placeholders = ",".join("?" for _ in run_ids)
     conn.execute(
-        f"DELETE FROM session_jobs WHERE repo_path = ? OR run_id IN ({placeholders})",
-        (repo_path, *run_ids),
+        f"""
+        DELETE FROM session_jobs
+        WHERE repo_path = ? OR repo_path LIKE ? ESCAPE '\\' OR run_id IN ({placeholders})
+        """,
+        (exact_path, child_path, *run_ids),
     )
 
 
@@ -1495,14 +1522,21 @@ def retry_project_jobs(
     """Retry all failed or dead-letter jobs for a project. Returns count affected."""
     if not repo_path:
         return 0
+    exact_path, child_path = project_path_sql_scope(repo_path)
     return _transition_queue_jobs(
         new_status=JOB_STATUS_PENDING,
         reset_attempts=True,
         where_clause=(
-            "WHERE repo_path = ? AND job_type = ? "
+            "WHERE (repo_path = ? OR repo_path LIKE ? ESCAPE '\\') AND job_type = ? "
             "AND status IN (?, ?)"
         ),
-        params=[repo_path, job_type, JOB_STATUS_FAILED, JOB_STATUS_DEAD_LETTER],
+        params=[
+            exact_path,
+            child_path,
+            job_type,
+            JOB_STATUS_FAILED,
+            JOB_STATUS_DEAD_LETTER,
+        ],
     )
 
 
@@ -1514,11 +1548,15 @@ def skip_project_jobs(
     """Skip all dead_letter jobs for a project. Returns count affected."""
     if not repo_path:
         return 0
+    exact_path, child_path = project_path_sql_scope(repo_path)
     return _transition_queue_jobs(
         new_status=JOB_STATUS_DONE,
         reset_attempts=False,
-        where_clause="WHERE repo_path = ? AND job_type = ? AND status = ?",
-        params=[repo_path, job_type, JOB_STATUS_DEAD_LETTER],
+        where_clause=(
+            "WHERE (repo_path = ? OR repo_path LIKE ? ESCAPE '\\') "
+            "AND job_type = ? AND status = ?"
+        ),
+        params=[exact_path, child_path, job_type, JOB_STATUS_DEAD_LETTER],
     )
 
 
@@ -1592,8 +1630,9 @@ def list_queue_jobs(
 
     if project_filter:
         if project_exact:
-            where.append("repo_path = ?")
-            params.append(project_filter)
+            exact_path, child_path = project_path_sql_scope(project_filter)
+            where.append("(repo_path = ? OR repo_path LIKE ? ESCAPE '\\')")
+            params.extend([exact_path, child_path])
         else:
             where.append("repo_path LIKE ?")
             params.append(f"%{project_filter}%")

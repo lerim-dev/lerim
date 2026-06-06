@@ -1036,20 +1036,36 @@ class TestJobQueueDeadLetter:
         assert skip_session_job("dl-skipnope") is False
 
     def test_retry_project_jobs(self, sessions_db):
-        _seed_and_enqueue("dl-rp1", repo_path="/tmp/rp-proj")
-        _seed_and_enqueue("dl-rp2", repo_path="/tmp/rp-proj")
-        _seed_and_enqueue("dl-rp3", repo_path="/tmp/rp-proj")
+        repo_path = str(Path("/tmp/rp-proj").resolve())
+        child_path = str(Path("/tmp/rp-proj/packages/worker").resolve())
+        other_path = str(Path("/tmp/rp-other").resolve())
+        _seed_and_enqueue("dl-rp1", repo_path=repo_path)
+        _seed_and_enqueue("dl-rp2", repo_path=repo_path)
+        _seed_and_enqueue("dl-rp3", repo_path=repo_path)
+        _seed_and_enqueue("dl-rp-child", repo_path=child_path)
+        _seed_and_enqueue("dl-rp-other", repo_path=other_path)
         _set_job_status("dl-rp1", "dead_letter")
         _set_job_status("dl-rp2", "failed")
-        assert retry_project_jobs("/tmp/rp-proj") == 2
+        _set_job_status("dl-rp-child", "dead_letter")
+        _set_job_status("dl-rp-other", "dead_letter")
+        assert retry_project_jobs(repo_path) == 3
         conn = _db(sessions_db)
         rows = conn.execute(
-            "SELECT run_id, status FROM session_jobs WHERE repo_path = '/tmp/rp-proj'"
+            """
+            SELECT run_id, status FROM session_jobs
+            WHERE repo_path = ?
+               OR repo_path LIKE ?
+               OR repo_path = ?
+            """,
+            (repo_path, f"{repo_path}/%", other_path),
         ).fetchall()
-        assert {r["run_id"]: r["status"] for r in rows} == {
+        statuses = {r["run_id"]: r["status"] for r in rows}
+        assert statuses == {
             "dl-rp1": "pending",
             "dl-rp2": "pending",
             "dl-rp3": "pending",
+            "dl-rp-child": "pending",
+            "dl-rp-other": "dead_letter",
         }
         conn.close()
 
@@ -1057,16 +1073,35 @@ class TestJobQueueDeadLetter:
         assert retry_project_jobs("") == 0
 
     def test_skip_project_jobs(self, sessions_db):
-        _seed_and_enqueue("dl-sp1", repo_path="/tmp/sp-proj")
-        _seed_and_enqueue("dl-sp2", repo_path="/tmp/sp-proj")
+        repo_path = str(Path("/tmp/sp-proj").resolve())
+        child_path = str(Path("/tmp/sp-proj/packages/worker").resolve())
+        other_path = str(Path("/tmp/sp-other").resolve())
+        _seed_and_enqueue("dl-sp1", repo_path=repo_path)
+        _seed_and_enqueue("dl-sp2", repo_path=repo_path)
+        _seed_and_enqueue("dl-sp-child", repo_path=child_path)
+        _seed_and_enqueue("dl-sp-other", repo_path=other_path)
         _set_job_status("dl-sp1", "dead_letter")
         _set_job_status("dl-sp2", "dead_letter")
-        assert skip_project_jobs("/tmp/sp-proj") == 2
+        _set_job_status("dl-sp-child", "dead_letter")
+        _set_job_status("dl-sp-other", "dead_letter")
+        assert skip_project_jobs(repo_path) == 3
         conn = _db(sessions_db)
         rows = conn.execute(
-            "SELECT status FROM session_jobs WHERE repo_path = '/tmp/sp-proj'"
+            """
+            SELECT run_id, status FROM session_jobs
+            WHERE repo_path = ?
+               OR repo_path LIKE ?
+               OR repo_path = ?
+            """,
+            (repo_path, f"{repo_path}/%", other_path),
         ).fetchall()
-        assert all(r["status"] == "done" for r in rows)
+        statuses = {r["run_id"]: r["status"] for r in rows}
+        assert statuses == {
+            "dl-sp1": "done",
+            "dl-sp2": "done",
+            "dl-sp-child": "done",
+            "dl-sp-other": "dead_letter",
+        }
         conn.close()
 
     def test_skip_project_jobs_empty_path(self, sessions_db):
@@ -1399,11 +1434,16 @@ class TestQueueJobs:
         assert "lq-pf-2" not in run_ids
 
     def test_list_queue_jobs_project_exact(self, sessions_db):
-        _seed_and_enqueue("lq-pe-1", repo_path="/tmp/exact")
-        _seed_and_enqueue("lq-pe-2", repo_path="/tmp/exact-sub")
-        rows = list_queue_jobs(project_filter="/tmp/exact", project_exact=True)
+        repo_path = str(Path("/tmp/exact").resolve())
+        child_path = str(Path("/tmp/exact/packages/worker").resolve())
+        sibling_path = str(Path("/tmp/exact-sub").resolve())
+        _seed_and_enqueue("lq-pe-1", repo_path=repo_path)
+        _seed_and_enqueue("lq-pe-child", repo_path=child_path)
+        _seed_and_enqueue("lq-pe-2", repo_path=sibling_path)
+        rows = list_queue_jobs(project_filter=repo_path, project_exact=True)
         run_ids = {r["run_id"] for r in rows}
         assert "lq-pe-1" in run_ids
+        assert "lq-pe-child" in run_ids
         assert "lq-pe-2" not in run_ids
 
     def test_list_queue_jobs_limit(self, sessions_db):

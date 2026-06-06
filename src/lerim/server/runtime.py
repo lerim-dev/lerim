@@ -19,6 +19,7 @@ from lerim.agents.contracts import (
     ContextCuratorResultContract,
     IngestResultContract,
     ContextBriefResultContract,
+    RunClinicResultContract,
     WorkingMemoryResultContract,
 )
 from lerim.agents.trace_ingestion import TraceIngestionResult, TraceIngestionRunDetails, run_trace_ingestion
@@ -26,6 +27,7 @@ from lerim.agents.context_graph import run_context_graph
 from lerim.agents.context_curator import run_context_curator
 from lerim.agents.mlflow_observability import finish_mlflow_run, lerim_mlflow_run
 from lerim.agents.context_brief import compile_context_brief
+from lerim.agents.run_clinic import RunClinicPipeline
 from lerim.agents.working_memory import WorkingMemoryPipeline
 from lerim.config.settings import Config, get_config
 from lerim.context import ProjectIdentity, ScopeIdentity, resolve_project_identity, scope_from_project
@@ -54,6 +56,17 @@ from lerim.working_memory import (
     working_memory_paths,
     working_memory_window_start,
     write_current_working_memory_artifacts,
+)
+from lerim.run_clinic import (
+    RUN_CLINIC_FILENAME,
+    RUN_CLINIC_OPERATION,
+    RUN_CLINIC_REPORT_FILENAME,
+    RUN_CLINIC_WINDOW_DAYS,
+    build_run_clinic_manifest,
+    render_run_clinic_markdown,
+    run_clinic_paths,
+    run_clinic_window_start,
+    write_current_run_clinic_artifacts,
 )
 
 logger = logging.getLogger("lerim.runtime")
@@ -1328,6 +1341,221 @@ class LerimRuntime:
             return WorkingMemoryResultContract.model_validate(payload).model_dump(
                 mode="json"
             )
+        except Exception as exc:
+            _mark_run_failed(
+                artifact_paths=artifact_paths,
+                manifest=manifest,
+                exc=exc,
+            )
+            raise
+
+    # ------------------------------------------------------------------
+    # Run-clinic flow
+    # ------------------------------------------------------------------
+
+    def run_clinic(
+        self,
+        repo_root: str | Path | None = None,
+        *,
+        project_name: str | None = None,
+        force: bool = False,
+        trigger: str = "manual",
+    ) -> dict[str, Any]:
+        """Generate or skip one project's Run Clinic diagnostic artifact."""
+        resolved_repo_root = (
+            Path(repo_root).expanduser().resolve()
+            if repo_root
+            else Path(self._default_cwd or Path.cwd()).expanduser().resolve()
+        )
+        project_identity = resolve_project_identity(resolved_repo_root)
+        display_name = project_name or project_identity.project_slug
+        resolved_workspace_root = _resolve_runtime_roots(config=self.config)
+        store = _store_for_config(self.config)
+        store.register_project(project_identity)
+        current_paths = run_clinic_paths(self.config, project_identity.project_id)
+        current_manifest: dict[str, Any] = {}
+        if current_paths.current_manifest.is_file():
+            try:
+                current_manifest = json.loads(
+                    current_paths.current_manifest.read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError):
+                current_manifest = {}
+        previous_generated_at = str(current_manifest.get("generated_at") or "").strip()
+        changed_since_previous = count_changed_records_since(
+            store,
+            project_id=project_identity.project_id,
+            since=previous_generated_at or None,
+        )
+        previous_age = age_seconds_since(previous_generated_at or None)
+        current_exists = (
+            current_paths.current_file.is_file()
+            and current_paths.current_report.is_file()
+            and current_paths.current_manifest.is_file()
+        )
+        if (
+            current_exists
+            and not force
+            and changed_since_previous == 0
+            and previous_age is not None
+            and previous_age <= 24 * 3600
+        ):
+            payload = {
+                "status": "skipped",
+                "project": display_name,
+                "project_id": project_identity.project_id,
+                "trigger": trigger,
+                "generated_at": previous_generated_at or None,
+                "window_started_at": str(current_manifest.get("window_started_at") or "")
+                or None,
+                "window_days": int(
+                    current_manifest.get("window_days") or RUN_CLINIC_WINDOW_DAYS
+                ),
+                "context_db_path": str(self.config.context_db_path),
+                "workspace_root": str(resolved_workspace_root),
+                "run_folder": None,
+                "current_file": str(current_paths.current_file),
+                "current_manifest": str(current_paths.current_manifest),
+                "current_report": str(current_paths.current_report),
+                "records_considered": int(current_manifest.get("records_considered") or 0),
+                "records_included": int(current_manifest.get("records_included") or 0),
+                "recent_versions_considered": int(
+                    current_manifest.get("recent_versions_considered") or 0
+                ),
+                "sessions_considered": int(current_manifest.get("sessions_considered") or 0),
+                "records_changed_since_previous": 0,
+                "included_record_ids": list(
+                    current_manifest.get("included_record_ids") or []
+                ),
+                "skip_reason": "run_clinic_current_and_no_records_changed",
+                "cost_usd": 0.0,
+            }
+            return RunClinicResultContract.model_validate(payload).model_dump(mode="json")
+
+        run_id, run_folder = _new_run_folder(
+            resolved_workspace_root,
+            RUN_CLINIC_OPERATION,
+        )
+        artifact_paths = _build_artifact_paths(run_folder, include_session_log=False)
+        artifact_paths["run_clinic"] = run_folder / RUN_CLINIC_FILENAME
+        artifact_paths["run_clinic_report"] = run_folder / RUN_CLINIC_REPORT_FILENAME
+        artifact_paths["subagents_log"].write_text("", encoding="utf-8")
+        artifact_paths["agent_trace"].write_text("[]", encoding="utf-8")
+        started_at = utc_now_iso()
+        manifest = {
+            "run_id": run_id,
+            "operation": RUN_CLINIC_OPERATION,
+            "status": "running",
+            "started_at": started_at,
+            "project_id": project_identity.project_id,
+            "project": display_name,
+            "repo_path": str(project_identity.repo_path),
+            "workspace_root": str(resolved_workspace_root),
+            "run_folder": str(run_folder),
+            "artifacts": {key: str(path) for key, path in artifact_paths.items()},
+        }
+        _write_json_artifact(artifact_paths["manifest"], manifest)
+        _append_jsonl_artifact(
+            artifact_paths["events"],
+            {"ts": started_at, "event": "started", "run_id": run_id},
+        )
+
+        try:
+            generated_at_dt = datetime.now(timezone.utc)
+            generated_at = generated_at_dt.isoformat()
+            window_started_at = run_clinic_window_start(now=generated_at_dt)
+            project = ContextBriefProject(
+                name=display_name,
+                identity=project_identity,
+            )
+            final_state = RunClinicPipeline(
+                store=store,
+                project=project,
+                config=self.config,
+                window_started_at=window_started_at,
+            )()
+            data = final_state["data"]
+            report = dict(final_state["report"])
+            record_ids = tuple(final_state["record_ids"])
+            markdown = render_run_clinic_markdown(
+                project=project,
+                generated_at=generated_at,
+                window_started_at=window_started_at,
+                previous_generated_at=previous_generated_at or None,
+                generation_trigger=trigger,
+                data=data,
+                report=report,
+                current_file=current_paths.current_file,
+                run_folder=run_folder,
+            )
+            _write_text_with_newline(artifact_paths["run_clinic"], markdown)
+            _write_json_artifact(artifact_paths["run_clinic_report"], report)
+            response_text = f"Run Clinic generated with {len(record_ids)} cited record(s)."
+            _write_text_with_newline(artifact_paths["agent_log"], response_text)
+            _write_json_artifact(artifact_paths["agent_trace"], final_state["events"])
+            manifest = build_run_clinic_manifest(
+                run_id=run_id,
+                status="succeeded",
+                generated_at=generated_at,
+                window_started_at=window_started_at,
+                project=project,
+                data=data,
+                report=report,
+                changed_records_since_previous=changed_since_previous,
+                trigger=trigger,
+                current_file=current_paths.current_file,
+                current_report=current_paths.current_report,
+                run_folder=run_folder,
+            )
+            manifest["completed_at"] = utc_now_iso()
+            manifest["workspace_root"] = str(resolved_workspace_root)
+            manifest["artifacts"] = {
+                key: str(path) for key, path in artifact_paths.items()
+            }
+            _write_json_artifact(artifact_paths["manifest"], manifest)
+            _append_jsonl_artifact(
+                artifact_paths["events"],
+                {
+                    "ts": manifest["completed_at"],
+                    "event": "succeeded",
+                    "run_id": run_id,
+                    "records_considered": len(data.records),
+                    "records_included": len(record_ids),
+                    "recent_versions_considered": len(data.versions),
+                    "sessions_considered": len(data.sessions),
+                    "records_changed_since_previous": changed_since_previous,
+                },
+            )
+            write_current_run_clinic_artifacts(
+                paths=current_paths,
+                run_markdown=artifact_paths["run_clinic"],
+                run_manifest=artifact_paths["manifest"],
+                run_report=artifact_paths["run_clinic_report"],
+            )
+            payload = {
+                "status": "generated",
+                "project": display_name,
+                "project_id": project_identity.project_id,
+                "trigger": trigger,
+                "generated_at": generated_at,
+                "window_started_at": window_started_at,
+                "window_days": RUN_CLINIC_WINDOW_DAYS,
+                "context_db_path": str(self.config.context_db_path),
+                "workspace_root": str(resolved_workspace_root),
+                "run_folder": str(run_folder),
+                "current_file": str(current_paths.current_file),
+                "current_manifest": str(current_paths.current_manifest),
+                "current_report": str(current_paths.current_report),
+                "records_considered": len(data.records),
+                "records_included": len(record_ids),
+                "recent_versions_considered": len(data.versions),
+                "sessions_considered": len(data.sessions),
+                "records_changed_since_previous": changed_since_previous,
+                "included_record_ids": list(record_ids),
+                "skip_reason": None,
+                "cost_usd": 0.0,
+            }
+            return RunClinicResultContract.model_validate(payload).model_dump(mode="json")
         except Exception as exc:
             _mark_run_failed(
                 artifact_paths=artifact_paths,

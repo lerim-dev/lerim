@@ -10,6 +10,7 @@ import type {
   MessagesResponse,
   PipelineReportResponse,
   PipelineStatusResponse,
+  ProjectSummary,
   RecordFiltersResponse,
   RecordVersionsResponse,
   RecordsResponse,
@@ -21,6 +22,7 @@ import type {
   SkillTarget,
   SkillTargetsResponse,
   StatsResponse,
+  RunClinicResponse,
   TeamInfo,
   TimelineEvent,
   TimelineOperation,
@@ -218,6 +220,18 @@ function normalizeStats(raw: Record<string, unknown>): StatsResponse {
 function normalizePipelineStatus(raw: Record<string, unknown>): PipelineStatusResponse {
   const latest = objectOrNull(raw.latest_ingest);
   const queue = objectValue(raw.queue);
+  const scope = objectValue(raw.scope);
+  const projects = arrayValue(raw.projects).map(objectValue);
+  const projectScoped = String(scope.mode || "") === "project";
+  const projectSessions = projects.reduce((sum, project) => sum + asNumber(project.indexed_sessions_count), 0);
+  const projectRecords = projects.reduce((sum, project) => sum + asNumber(project.record_count), 0);
+  const projectErrors = projects.reduce((sum, project) => {
+    const projectQueue = objectValue(project.queue);
+    return sum + asNumber(projectQueue.failed) + asNumber(projectQueue.dead_letter);
+  }, 0);
+  const queueErrors = asNumber(queue.failed) + asNumber(queue.dead_letter);
+  const sessionTotal = asNumber(raw.sessions_indexed_count) || projectSessions;
+  const recordTotal = asNumber(raw.record_count) || projectRecords;
   return {
     last_ingest: latest
       ? {
@@ -227,17 +241,17 @@ function normalizePipelineStatus(raw: Record<string, unknown>): PipelineStatusRe
         }
       : null,
     sessions: {
-      total: asNumber(raw.sessions_indexed_count),
+      total: sessionTotal,
       last_24h: 0,
       last_7d: 0,
     },
     records: {
-      total: asNumber(raw.record_count),
-      active: asNumber(raw.record_count),
+      total: recordTotal,
+      active: recordTotal,
     },
     logs: {
       total: 0,
-      errors: asNumber(queue.failed) + asNumber(queue.dead_letter),
+      errors: projectScoped ? queueErrors || projectErrors : queueErrors,
     },
   };
 }
@@ -454,8 +468,15 @@ async function queryRecordVersions(params?: Record<string, string>): Promise<Rec
 }
 
 export const api = {
-  getStats: async (scope?: string, _extended?: boolean) => {
-    const raw = await apiFetch<Record<string, unknown>>(`/api/runs/stats?scope=${scope || "week"}`);
+  getProjects: async (): Promise<ProjectSummary[]> => {
+    const raw = await apiFetch<{ projects: ProjectSummary[] }>("/api/project/list");
+    return Array.isArray(raw.projects) ? raw.projects : [];
+  },
+
+  getStats: async (scope?: string, _extended?: boolean, project?: string) => {
+    const params: Record<string, string> = { scope: scope || "week" };
+    if (project) params.project = project;
+    const raw = await apiFetch<Record<string, unknown>>(`/api/runs/stats${toQuery(params)}`);
     return normalizeStats(raw);
   },
 
@@ -466,6 +487,9 @@ export const api = {
       offset: params?.offset || "0",
     };
     if (params?.agent_type) localParams.agent_type = params.agent_type;
+    if (params?.repo) localParams.repo = params.repo;
+    if (params?.processing_status) localParams.status = params.processing_status;
+    if (params?.project) localParams.project = params.project;
     const raw = await apiFetch<Record<string, unknown>>(`/api/runs${toQuery(localParams)}`);
     const sessions = arrayValue(raw.runs).map((run) => normalizeSession(objectValue(run)));
     const pagination = objectValue(raw.pagination);
@@ -476,10 +500,8 @@ export const api = {
   },
 
   getSession: async (runId: string) => {
-    const data = await api.getSessions({ scope: "all", limit: "200", offset: "0" });
-    const found = data.sessions.find((session) => session.run_id === runId);
-    if (!found) throw new Error("Session not found in the local dashboard window.");
-    return normalizeSessionDetail(found as unknown as Record<string, unknown>);
+    const raw = await apiFetch<Record<string, unknown>>(`/api/runs/${encodeURIComponent(runId)}`);
+    return normalizeSessionDetail(raw);
   },
 
   getSessionMessages: async (runId: string) => {
@@ -513,6 +535,7 @@ export const api = {
     if (params?.agent_type) localParams.agent_type = params.agent_type;
     if (params?.repo) localParams.repo = params.repo;
     if (params?.processing_status) localParams.status = params.processing_status;
+    if (params?.project) localParams.project = params.project;
     const raw = await apiFetch<Record<string, unknown>>(`/api/search${toQuery(localParams)}`);
     const sessions = arrayValue(raw.results).map((run) => normalizeSession(objectValue(run)));
     const pagination = objectValue(raw.pagination);
@@ -530,8 +553,8 @@ export const api = {
 
   getRecordVersions: queryRecordVersions,
 
-  getRecord: async (recordId: string) => {
-    const data = await queryRecords({ limit: "500" });
+  getRecord: async (recordId: string, project?: string) => {
+    const data = await queryRecords(project ? { limit: "500", project } : { limit: "500" });
     const found = data.records.find((record) => record.record_id === recordId);
     if (!found) throw new Error("Record not found.");
     return found;
@@ -595,18 +618,21 @@ export const api = {
 
   getLogs: async (_params?: Record<string, string>): Promise<LogsResponse> => ({ logs: [], total: 0 }),
 
-  getPipelineStatus: async () => {
-    const raw = await apiFetch<Record<string, unknown>>("/api/status");
+  getPipelineStatus: async (project?: string) => {
+    const qs = project ? toQuery({ scope: "project", project }) : "";
+    const raw = await apiFetch<Record<string, unknown>>(`/api/status${qs}`);
     return normalizePipelineStatus(raw);
   },
 
-  getTimeline: async (_days?: number) => {
-    const raw = await apiFetch<Record<string, unknown>>("/api/status");
+  getTimeline: async (_days?: number, project?: string) => {
+    const qs = project ? toQuery({ scope: "project", project }) : "";
+    const raw = await apiFetch<Record<string, unknown>>(`/api/status${qs}`);
     return normalizeTimeline(raw);
   },
 
-  getPipelineReport: async () => {
-    const raw = await apiFetch<Record<string, unknown>>("/api/refine/report");
+  getPipelineReport: async (project?: string) => {
+    const qs = project ? toQuery({ project }) : "";
+    const raw = await apiFetch<Record<string, unknown>>(`/api/refine/report${qs}`);
     return normalizeReport(raw);
   },
 
@@ -630,17 +656,18 @@ export const api = {
     };
   },
 
-  queryGraph: async (body: { max_nodes?: number; max_edges?: number; connected_only?: boolean }): Promise<GraphQueryResponse> => {
+  queryGraph: async (body: { max_nodes?: number; max_edges?: number; connected_only?: boolean; project?: string }): Promise<GraphQueryResponse> => {
     return apiFetch<GraphQueryResponse>("/api/graph/query", {
       method: "POST",
       body: JSON.stringify(body),
     });
   },
 
-  getIntelligence: async (_limit?: number) => {
+  getIntelligence: async (_limit?: number, project?: string) => {
+    const qs = project ? toQuery({ scope: "project", project }) : "";
     const [status, records] = await Promise.all([
-      apiFetch<Record<string, unknown>>("/api/status"),
-      queryRecords({ limit: "500" }),
+      apiFetch<Record<string, unknown>>(`/api/status${qs}`),
+      queryRecords(project ? { limit: "500", project } : { limit: "500" }),
     ]);
     return normalizeIntelligence(status, records.records);
   },
@@ -655,14 +682,20 @@ export const api = {
     return apiFetch<MemoryArtifactsResponse>(`/api/memory-artifacts${qs}`);
   },
 
+  getRunClinic: async (project?: string): Promise<RunClinicResponse> => {
+    const qs = project ? toQuery({ project }) : "";
+    return apiFetch<RunClinicResponse>(`/api/clinic${qs}`);
+  },
+
   retryAllDeadLetter: () =>
     apiFetch<{ retried: number }>("/api/jobs/retry-all", { method: "POST" }),
 
   skipAllDeadLetter: () =>
     apiFetch<{ skipped: number }>("/api/jobs/skip-all", { method: "POST" }),
 
-  getActivityFeed: async (_days?: number, _limit?: number) => {
-    const raw = await apiFetch<Record<string, unknown>>("/api/status");
+  getActivityFeed: async (_days?: number, _limit?: number, project?: string) => {
+    const qs = project ? toQuery({ scope: "project", project }) : "";
+    const raw = await apiFetch<Record<string, unknown>>(`/api/status${qs}`);
     return normalizeActivityFeed(raw);
   },
 };

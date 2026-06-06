@@ -12,7 +12,7 @@ The maintained test surface is DB-first.
 
 What we test:
 
-- unit tests for config, adapters, store, CLI, API, daemon, runtime, benchmarks, generated Context Brief, and Working Memory
+- unit tests for config, adapters, store, CLI, API, daemon, runtime, benchmarks, generated Context Brief, Working Memory, and Run Clinic
 - unit tests for release metadata preflight checks that gate package publishing
 - smoke tests for quick real-LLM trace-ingestion sanity
 - integration tests for real trace ingestion, context curation, context answering, context briefs, working memory, cloud ingest state, and multi-project scope flows
@@ -91,7 +91,7 @@ Design rule:
 - `context_answerer` and `context_curator` cases are mostly seeded-state-driven
 - `test_debug_entrypoint.py` keeps one real-LLM debugger entry point in each LLM-backed agent folder
 - scope/runtime/cloud/queue clusters use the smallest real setup that exercises that behavior
-- runtime cases cover generated Context Brief and Working Memory artifact layout, current-copy behavior, skip behavior, and empty-state generation
+- runtime cases cover generated Context Brief, Working Memory, and Run Clinic artifact layout, current-copy behavior, skip behavior, and empty-state generation
 
 Some trace-ingestion pressure cases generate a long trace dynamically instead of checking in a giant fixture. That is intentional. Use a generated trace when the test is about context pressure or pruning, not about exact transcript wording.
 
@@ -126,8 +126,9 @@ Rules:
 - ingest persistence tests cover idempotent replay when a session episode already exists
 - curate unit tests cover semantic clustering, action validation, and direct `ContextStore` mutation application
 - session catalog tests cover queue claim availability, content-hash refresh/change detection, and stable pagination ordering
-- session catalog tests cover retrying both failed and dead-letter queue jobs without display pagination limits
-- API/daemon tests cover degraded status reporting when the session catalog is unavailable
+- session catalog tests cover retrying both failed and dead-letter queue jobs without display pagination limits, including project child paths
+- API/daemon tests cover degraded status reporting when the session catalog is unavailable, project-scoped status latest/schedule fields, and project-scoped session/queue/reset counts under child paths
+- dashboard HTTP tests cover project-scoped sessions under root and child paths, exact run detail lookup, stats, search, graph endpoints, and generated artifact history filtering
 - server CLI tests cover the dashboard launcher contract, including backend startup checks and the Next.js dev command
 - server Docker compose tests cover GHCR startup, local build source-root resolution, no-build local image reuse, and generated compose hardening
 - daemon tests cover transient session-job heartbeat write failures
@@ -138,6 +139,7 @@ Rules:
 - profile tests cover bundled signal packs, registered custom YAML profiles, and project-level default source profiles
 - Context Brief tests cover cwd project resolution, fixed-section kind cleanup, freshness counts, markdown citations, CLI local reads, and artifact writes without live LLM calls
 - Working Memory tests cover separate artifact paths, continuation-handoff rendering, superseded-record replacement rendering, freshness counts, CLI local reads, and artifact writes without live LLM calls
+- Run Clinic tests cover diagnostic artifact paths, current report writes, freshness metadata, CLI local reads, and artifact writes without live LLM calls
 - MCP integration tests cover client config writers, dry-run/backup behavior, exposed MCP tool registration, in-process context search/brief calls, and trace-submit importer routing
 - Context store search tests cover derived-index generation metadata, fast-path retrieval, and stale-index repair without live LLM calls
 - Benchmark doc tests cover README launch links and visual references, duplicate demo media, public benchmark table values, artifact-path wording, and positioning guardrails for non-coding workflows
@@ -165,6 +167,7 @@ The current system is:
 - canonical run artifacts in `~/.lerim/workspace/`
 - generated Context Brief artifacts in `~/.lerim/workspace/current/<project_id>/CONTEXT_BRIEF.md`
 - generated Working Memory artifacts in `~/.lerim/workspace/current/<project_id>/WORKING_MEMORY.md`
+- generated Run Clinic artifacts in `~/.lerim/workspace/current/<project_id>/RUN_CLINIC.md` and `RUN_CLINIC.report.json`
 - local semantic retrieval via ONNX embeddings + `sqlite-vec` + FTS5 + RRF
 - ingest graph: deterministic window reads, model trace observation, model durable-signal filtering, model context writing, context-store persistence
 - curate graph: active-record inventory, semantic-neighbor clusters, model context-cluster review, model record-health review for records without prior cluster actions, validated store mutations

@@ -34,11 +34,10 @@ export default function MemoryTimelineChart({
 	scope,
 	loading = false,
 }: MemoryTimelineChartProps) {
-	const [project, setProject] = useState("");
 	const [kind, setKind] = useState("");
 	const points = useMemo(
-		() => buildMemoryTimeline(versions, scope, project, kind),
-		[versions, scope, project, kind],
+		() => buildMemoryTimeline(versions, scope, kind),
+		[versions, scope, kind],
 	);
 	const defaultKey = points.length ? points[points.length - 1].key : "";
 	const [selectedKey, setSelectedKey] = useState(defaultKey);
@@ -56,7 +55,6 @@ export default function MemoryTimelineChart({
 		}
 	}, [selectedVersion, versions]);
 
-	const projects = useMemo(() => uniqueSorted(versions.map((version) => version.project)), [versions]);
 	const kinds = useMemo(() => {
 		const available = new Set(uniqueSorted(versions.map((version) => version.record_kind)));
 		const extras = Array.from(available).filter((value) => !FEATURED_KINDS.includes(value));
@@ -86,22 +84,6 @@ export default function MemoryTimelineChart({
 						<p className="mt-1 text-xs text-[var(--text-muted)]">
 							Created, revised, archived, and active records
 						</p>
-					</div>
-
-					<div className="flex flex-wrap items-center gap-2">
-						<select
-							aria-label="Project"
-							value={project}
-							onChange={(event) => setProject(event.target.value)}
-							className="min-h-11 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs text-[var(--text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)]"
-						>
-							<option value="">All projects</option>
-							{projects.map((item) => (
-								<option key={item} value={item}>
-									{formatScopeLabel(item)}
-								</option>
-							))}
-						</select>
 					</div>
 				</div>
 
@@ -472,11 +454,10 @@ function buildChartOption(points: MemoryPoint[]): EChartsOption {
 function buildMemoryTimeline(
 	versions: ContextRecordVersion[],
 	scope: MemoryTimelineScope,
-	project: string,
 	kind: string,
 ): MemoryPoint[] {
 	const filtered = versions
-		.filter((version) => (!project || version.project === project) && (!kind || version.record_kind === kind))
+		.filter((version) => !kind || version.record_kind === kind)
 		.map((version) => ({ version, changedAt: parseDate(version.changed_at) }))
 		.filter((item): item is { version: ContextRecordVersion; changedAt: Date } => Boolean(item.changedAt))
 		.sort((left, right) => left.changedAt.getTime() - right.changedAt.getTime());

@@ -1,17 +1,28 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
+import { useProjectScope } from "@/lib/projectScope";
 import type { Session } from "@/lib/types";
 import SessionTable from "@/components/SessionTable";
 import RunViewerModal from "@/components/RunViewerModal";
 import TimeScope from "@/components/TimeScope";
+import ProjectScope from "@/components/ProjectScope";
 
 const PAGE_SIZE = 20;
 const DEFAULT_SORT = "start_time";
 const DEFAULT_ORDER: "asc" | "desc" = "desc";
 
 export default function SourcesPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-[var(--text-muted)]">Loading…</div>}>
+      <SourcesContent />
+    </Suspense>
+  );
+}
+
+function SourcesContent() {
+  const { project, setProject } = useProjectScope();
   const [scope, setScope] = useState("all");
   const [agent, setAgent] = useState("");
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -76,6 +87,7 @@ export default function SourcesPage() {
   function handleClear() {
     setSearchInput("");
     setSearchQuery("");
+    setProject("");
     setRepoFilter("");
     setStatusFilter("");
     setSort(DEFAULT_SORT);
@@ -86,7 +98,7 @@ export default function SourcesPage() {
   /* Reset offset when filters change */
   useEffect(() => {
     setOffset(0);
-  }, [scope, agent, repoFilter, statusFilter]);
+  }, [project, scope, agent, repoFilter, statusFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -100,6 +112,7 @@ export default function SourcesPage() {
         order,
       };
       if (agent) params.agent_type = agent;
+      if (project) params.project = project;
       if (repoFilter) params.repo = repoFilter;
       if (statusFilter) params.processing_status = statusFilter;
 
@@ -120,7 +133,7 @@ export default function SourcesPage() {
     } finally {
       setLoading(false);
     }
-  }, [scope, agent, searchQuery, repoFilter, statusFilter, sort, order, offset]);
+  }, [project, scope, agent, searchQuery, repoFilter, statusFilter, sort, order, offset]);
 
   useEffect(() => {
     load();
@@ -133,7 +146,7 @@ export default function SourcesPage() {
   const hasNext = offset + PAGE_SIZE < total;
 
   const hasActiveFilters =
-    searchInput !== "" || repoFilter !== "" || statusFilter !== "";
+    project !== "" || searchInput !== "" || repoFilter !== "" || statusFilter !== "";
 
   return (
     <>
@@ -150,7 +163,9 @@ export default function SourcesPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <ProjectScope value={project} onChange={setProject} />
+
           {/* Agent filter */}
           <select
             aria-label="Agent"

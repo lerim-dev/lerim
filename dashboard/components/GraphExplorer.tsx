@@ -15,8 +15,10 @@ import {
   type NodeData,
 } from "@antv/g6";
 import { api } from "@/lib/api";
+import { useProjectScope } from "@/lib/projectScope";
 import { formatRecordKind, formatRecordRole, formatScopeLabel, humanizeToken } from "@/lib/labels";
 import type { GraphEdge, GraphNode } from "@/lib/types";
+import ProjectScope from "@/components/ProjectScope";
 
 interface GraphExplorerProps {
   onRecordClick?: (recordId: string) => void;
@@ -703,6 +705,7 @@ export default function GraphExplorer({ onRecordClick }: GraphExplorerProps) {
   });
   const [clusterBy, setClusterBy] = useState<ClusterBy>("semantic");
   const [colorBy, setColorBy] = useState<ColorBy>("type");
+  const { project, setProject } = useProjectScope();
   const [maxNodes, setMaxNodes] = useState(DEFAULT_MAX_NODES);
   const [edgeLength, setEdgeLength] = useState(DEFAULT_EDGE_LENGTH);
   const [selected, setSelected] = useState<Selection>(null);
@@ -775,6 +778,7 @@ export default function GraphExplorer({ onRecordClick }: GraphExplorerProps) {
         max_nodes: maxNodes,
         max_edges: Math.max(maxNodes * 3, 240),
         connected_only: false,
+        ...(project ? { project } : {}),
       });
 
       setGraph({
@@ -789,7 +793,7 @@ export default function GraphExplorer({ onRecordClick }: GraphExplorerProps) {
     } finally {
       setLoading(false);
     }
-  }, [maxNodes]);
+  }, [maxNodes, project]);
 
   useEffect(() => {
     const reloadId = window.setTimeout(() => {
@@ -893,6 +897,7 @@ export default function GraphExplorer({ onRecordClick }: GraphExplorerProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <ProjectScope value={project} onChange={setProject} className="h-9 min-h-9 border-white/10 bg-white/[0.045] text-slate-300" />
           <div className="flex h-9 items-center gap-1 rounded-full border border-white/10 bg-white/[0.045] p-1 shadow-sm">
             {CLUSTER_OPTIONS.map((option) => (
               <button

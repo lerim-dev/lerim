@@ -1,18 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { PROJECT_QUERY_PARAM, scopedHref } from "@/lib/projectScope";
 
 const NAV_ITEMS = [
 	{ href: "/overview", label: "Overview", mobileLabel: "Home", icon: ActivityIcon },
 	{ href: "/analytics", label: "Insights", icon: InsightsIcon },
 	{ href: "/memory", label: "Briefs", icon: MemoryIcon },
+	{ href: "/clinic", label: "Clinic", icon: ClinicIcon },
 	{ href: "/context", label: "Records", icon: BrainIcon },
 	{ href: "/context-graph", label: "Graph", icon: PipelineIcon },
 	{ href: "/skills", label: "Skills", icon: SkillsIcon },
 	{ href: "/operations", label: "Operations", mobileLabel: "Ops", icon: LogsIcon },
 	{ href: "/traces", label: "Sources", mobileLabel: "Sources", icon: TableIcon, secondary: true },
 ];
+
+const UNSCOPED_ROUTES = new Set(["/settings", "/skills"]);
 
 export default function Sidebar({
 	collapsed,
@@ -22,6 +26,8 @@ export default function Sidebar({
 	onToggleCollapsed: () => void;
 }) {
 	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	const project = searchParams.get(PROJECT_QUERY_PARAM) || "";
 
 	return (
 		<>
@@ -60,10 +66,11 @@ export default function Sidebar({
 					<div className="flex flex-col gap-0.5">
 						{NAV_ITEMS.map(({ href, label, icon: Icon, secondary }) => {
 							const active = isActiveRoute(pathname, href);
+							const scoped = UNSCOPED_ROUTES.has(href) ? href : scopedHref(href, project);
 							return (
 								<Link
 									key={href}
-									href={href}
+									href={scoped}
 									title={collapsed ? label : undefined}
 									aria-current={active ? "page" : undefined}
 									className={`grid h-11 grid-cols-[3rem_minmax(0,1fr)] items-center overflow-hidden rounded-md text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)] ${
@@ -118,10 +125,11 @@ export default function Sidebar({
 				<nav aria-label="Mobile primary" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 gap-1 border-t border-[var(--border)] bg-[rgba(17,24,39,0.96)] px-1 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 backdrop-blur min-[520px]:grid-cols-9 md:hidden">
 				{[...NAV_ITEMS, { href: "/settings", label: "Settings", mobileLabel: "Settings", icon: GearIcon }].map(({ href, label, mobileLabel, icon: Icon }) => {
 					const active = isActiveRoute(pathname, href);
+					const scoped = UNSCOPED_ROUTES.has(href) ? href : scopedHref(href, project);
 					return (
 						<Link
 							key={href}
-							href={href}
+							href={scoped}
 							aria-label={label}
 							aria-current={active ? "page" : undefined}
 							className={`flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)] ${
@@ -179,6 +187,24 @@ function ActivityIcon({ className }: { className?: string }) {
 			strokeLinejoin="round"
 		>
 			<path d="M2 12h4l3-9 4 18 3-9h4" />
+		</svg>
+	);
+}
+
+function ClinicIcon({ className }: { className?: string }) {
+	return (
+		<svg
+			className={className}
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth={2}
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		>
+			<path d="M4 19h16" />
+			<path d="M6 15l4-4 3 3 6-7" />
+			<path d="M16 7h3v3" />
 		</svg>
 	);
 }
