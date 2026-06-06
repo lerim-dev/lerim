@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.26] - 2026-06-06
+
+### Added
+- Added project selection to the dashboard surfaces that read project-scoped
+  data, including overview, analytics, context, graph, traces, memory artifacts,
+  operations, and Run Clinic.
+- Added the Run Clinic dashboard artifact surface and project-scoped generated
+  artifact history views.
+
+### Changed
+- Kept selected projects in dashboard navigation URLs while leaving shared
+  Skills and Settings views unscoped.
+- Labeled shared runtime and multi-project operation rows clearly when they
+  appear inside a project-scoped dashboard view.
+
+### Fixed
+- Scoped dashboard status, queue, source-session, graph, artifact-history, and
+  record-open reads to the selected project, including child workspace paths.
+- Prevented cross-project artifact history and mixed-project operation totals
+  from leaking into project-scoped dashboard views.
+
 ## [0.3.25] - 2026-06-02
 
 ### Added
