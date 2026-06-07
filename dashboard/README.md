@@ -18,5 +18,12 @@ from the local Dockerfile.
 and installs dashboard npm dependencies if they are missing. The UI proxies
 `/api` to the backend at `http://localhost:8765`.
 
+For manual dashboard development against a backend on another port, set
+`LERIM_API_URL`, for example:
+
+```bash
+LERIM_API_URL=http://127.0.0.1:18765 npm run dev -- --port 3002
+```
+
 The dashboard is read-only. Use the CLI for write actions such as `lerim ingest`,
 `lerim curate`, `lerim answer`, and queue retry/skip.

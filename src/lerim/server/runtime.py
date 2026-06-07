@@ -1584,7 +1584,7 @@ class LerimRuntime:
             else Path(self._default_cwd or Path.cwd()).expanduser().resolve()
         )
         project_identity = resolve_project_identity(resolved_repo_root)
-        resolved_project_ids = project_ids or [project_identity.project_id]
+        resolved_project_ids = project_ids if project_ids is not None else [project_identity.project_id]
         now = datetime.now(timezone.utc)
         run_id = f"answer-{now.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
 

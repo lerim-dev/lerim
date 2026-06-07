@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from pydantic import ValidationError
+from pydantic_core import ValidationError as CoreValidationError
 
 from lerim.agents.dspy_compat import dspy
 
@@ -118,7 +119,7 @@ def plain_value(value: Any) -> Any:
 
 def is_recoverable_model_error(exc: Exception) -> bool:
     """Return whether a model/provider/parsing failure should be retried."""
-    if isinstance(exc, ValidationError):
+    if isinstance(exc, (ValidationError, CoreValidationError)):
         return True
     if isinstance(exc, dspy.LMError):
         return True

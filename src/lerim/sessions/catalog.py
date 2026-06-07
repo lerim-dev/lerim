@@ -29,6 +29,27 @@ SESSION_JOB_ACTIVE = {JOB_STATUS_PENDING, JOB_STATUS_RUNNING}
 SESSION_JOB_CLAIM_NEWEST = "newest"
 SESSION_JOB_CLAIM_OLDEST = "oldest"
 SESSION_JOB_CLAIM_ORDERS = {SESSION_JOB_CLAIM_NEWEST, SESSION_JOB_CLAIM_OLDEST}
+SESSION_PROCESSING_STATUS_SQL = """CASE sj.status
+    WHEN 'pending' THEN 'queued'
+    WHEN 'running' THEN 'processing'
+    WHEN 'done' THEN 'processed'
+    WHEN 'failed' THEN 'failed'
+    WHEN 'dead_letter' THEN 'blocked'
+    ELSE CASE d.status
+        WHEN 'completed' THEN 'indexed'
+        WHEN 'done' THEN 'indexed'
+        ELSE COALESCE(d.status, 'indexed')
+    END
+END"""
+SESSION_SORT_COLUMNS = {
+    "agent_type",
+    "duration_ms",
+    "error_count",
+    "message_count",
+    "start_time",
+    "tool_call_count",
+    "total_tokens",
+}
 _DB_INIT_LOCK = threading.Lock()
 _DB_INITIALIZED_PATH: Path | None = None
 _LOCAL_RUNNING_LEASES_LOCK = threading.Lock()
@@ -56,6 +77,29 @@ def _utc_now() -> datetime:
 def _iso_now() -> str:
     """Return current UTC datetime as ISO8601 text."""
     return _utc_now().isoformat()
+
+
+def normalize_session_processing_status(
+    *,
+    doc_status: str | None,
+    job_status: str | None = None,
+) -> str:
+    """Map catalog and extraction-job statuses to dashboard processing states."""
+    job = str(job_status or "").strip()
+    if job == JOB_STATUS_PENDING:
+        return "queued"
+    if job == JOB_STATUS_RUNNING:
+        return "processing"
+    if job == JOB_STATUS_DONE:
+        return "processed"
+    if job == JOB_STATUS_FAILED:
+        return "failed"
+    if job == JOB_STATUS_DEAD_LETTER:
+        return "blocked"
+    doc = str(doc_status or "").strip()
+    if doc in {"completed", "done"}:
+        return "indexed"
+    return doc or "indexed"
 
 
 def note_local_running_job(run_id: str) -> None:
@@ -183,6 +227,56 @@ def init_sessions_db() -> None:
                     )
                     """
         )
+        doc_columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(session_docs)").fetchall()
+        }
+        doc_additive_columns = {
+            "repo_path": "TEXT",
+            "repo_name": "TEXT",
+            "start_time": "TEXT",
+            "content": "TEXT",
+            "indexed_at": "TEXT",
+            "status": "TEXT DEFAULT 'completed'",
+            "duration_ms": "INTEGER DEFAULT 0",
+            "message_count": "INTEGER DEFAULT 0",
+            "tool_call_count": "INTEGER DEFAULT 0",
+            "error_count": "INTEGER DEFAULT 0",
+            "total_tokens": "INTEGER DEFAULT 0",
+            "summaries": "TEXT",
+            "summary_text": "TEXT",
+            "turns_json": "TEXT",
+            "session_path": "TEXT",
+            "content_hash": "TEXT",
+            "tags": "TEXT",
+            "outcome": "TEXT",
+        }
+        for name, ddl in doc_additive_columns.items():
+            if name not in doc_columns:
+                conn.execute(f"ALTER TABLE session_docs ADD COLUMN {name} {ddl}")
+        now = _iso_now()
+        conn.execute(
+            "UPDATE session_docs SET indexed_at = ? WHERE indexed_at IS NULL OR indexed_at = ''",
+            (now,),
+        )
+        conn.execute(
+            "UPDATE session_docs SET status = ? WHERE status IS NULL OR status = ''",
+            ("completed",),
+        )
+        for name in (
+            "duration_ms",
+            "message_count",
+            "tool_call_count",
+            "error_count",
+            "total_tokens",
+        ):
+            conn.execute(
+                f"UPDATE session_docs SET {name} = 0 WHERE {name} IS NULL"
+            )
+        conn.execute(
+            "UPDATE session_docs SET content = COALESCE(NULLIF(content, ''), summary_text, '') "
+            "WHERE content IS NULL OR content = ''"
+        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_session_docs_run ON session_docs (run_id)"
         )
@@ -192,6 +286,26 @@ def init_sessions_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_session_docs_time ON session_docs (start_time)"
         )
+
+        fts_needs_rebuild = False
+        if conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sessions_fts'"
+        ).fetchone():
+            fts_columns = [
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(sessions_fts)").fetchall()
+            ]
+            if fts_columns != ["run_id", "agent_type", "repo_name", "content"]:
+                for trigger in (
+                    "session_docs_ai",
+                    "session_docs_ad",
+                    "session_docs_au",
+                ):
+                    conn.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+                conn.execute("DROP TABLE sessions_fts")
+                fts_needs_rebuild = True
+        else:
+            fts_needs_rebuild = True
 
         conn.execute(
             """
@@ -205,9 +319,11 @@ def init_sessions_db() -> None:
                     )
                     """
         )
+        for trigger in ("session_docs_ai", "session_docs_ad", "session_docs_au"):
+            conn.execute(f"DROP TRIGGER IF EXISTS {trigger}")
         conn.execute(
             """
-                    CREATE TRIGGER IF NOT EXISTS session_docs_ai AFTER INSERT ON session_docs BEGIN
+                    CREATE TRIGGER session_docs_ai AFTER INSERT ON session_docs BEGIN
                         INSERT INTO sessions_fts(rowid, run_id, agent_type, repo_name, content)
                         VALUES (new.id, new.run_id, new.agent_type, new.repo_name, new.content);
                     END
@@ -215,7 +331,7 @@ def init_sessions_db() -> None:
         )
         conn.execute(
             """
-                    CREATE TRIGGER IF NOT EXISTS session_docs_ad AFTER DELETE ON session_docs BEGIN
+                    CREATE TRIGGER session_docs_ad AFTER DELETE ON session_docs BEGIN
                         INSERT INTO sessions_fts(sessions_fts, rowid, run_id, agent_type, repo_name, content)
                         VALUES ('delete', old.id, old.run_id, old.agent_type, old.repo_name, old.content);
                     END
@@ -223,7 +339,7 @@ def init_sessions_db() -> None:
         )
         conn.execute(
             """
-                    CREATE TRIGGER IF NOT EXISTS session_docs_au AFTER UPDATE ON session_docs BEGIN
+                    CREATE TRIGGER session_docs_au AFTER UPDATE ON session_docs BEGIN
                         INSERT INTO sessions_fts(sessions_fts, rowid, run_id, agent_type, repo_name, content)
                         VALUES ('delete', old.id, old.run_id, old.agent_type, old.repo_name, old.content);
                         INSERT INTO sessions_fts(rowid, run_id, agent_type, repo_name, content)
@@ -231,6 +347,8 @@ def init_sessions_db() -> None:
                     END
                     """
         )
+        if fts_needs_rebuild:
+            conn.execute("INSERT INTO sessions_fts(sessions_fts) VALUES('rebuild')")
 
         conn.execute(
             """
@@ -257,6 +375,65 @@ def init_sessions_db() -> None:
                     )
                     """
         )
+        job_columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(session_jobs)").fetchall()
+        }
+        job_additive_columns = {
+            "job_type": "TEXT NOT NULL DEFAULT 'extract'",
+            "agent_type": "TEXT",
+            "session_path": "TEXT",
+            "start_time": "TEXT",
+            "status": "TEXT NOT NULL DEFAULT 'pending'",
+            "attempts": "INTEGER DEFAULT 0",
+            "max_attempts": "INTEGER DEFAULT 3",
+            "trigger": "TEXT",
+            "available_at": "TEXT",
+            "claimed_at": "TEXT",
+            "completed_at": "TEXT",
+            "heartbeat_at": "TEXT",
+            "error": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+            "repo_path": "TEXT",
+        }
+        for name, ddl in job_additive_columns.items():
+            if name not in job_columns:
+                conn.execute(f"ALTER TABLE session_jobs ADD COLUMN {name} {ddl}")
+        conn.execute(
+            "UPDATE session_jobs SET job_type = ? WHERE job_type IS NULL OR job_type = ''",
+            (JOB_TYPE_EXTRACT,),
+        )
+        conn.execute(
+            "UPDATE session_jobs SET status = ? WHERE status IS NULL OR status = ''",
+            (JOB_STATUS_PENDING,),
+        )
+        conn.execute(
+            "UPDATE session_jobs SET available_at = ? WHERE available_at IS NULL OR available_at = ''",
+            (now,),
+        )
+        conn.execute(
+            "UPDATE session_jobs SET created_at = ? WHERE created_at IS NULL OR created_at = ''",
+            (now,),
+        )
+        conn.execute(
+            "UPDATE session_jobs SET updated_at = ? WHERE updated_at IS NULL OR updated_at = ''",
+            (now,),
+        )
+        conn.execute(
+            "UPDATE session_jobs SET status = ? WHERE status = 'queued'",
+            (JOB_STATUS_PENDING,),
+        )
+        conn.execute(
+            "UPDATE session_jobs SET status = ? WHERE status = 'completed'",
+            (JOB_STATUS_DONE,),
+        )
+        if "last_error" in job_columns:
+            conn.execute(
+                "UPDATE session_jobs SET error = last_error "
+                "WHERE (error IS NULL OR error = '') "
+                "AND last_error IS NOT NULL AND last_error != ''"
+            )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_session_jobs_status_available ON session_jobs (status, available_at)"
         )
@@ -482,6 +659,8 @@ def list_sessions_window(
     repo_path: str | None = None,
     repo_query: str | None = None,
     status: str | None = None,
+    sort_by: str = "start_time",
+    order: str = "desc",
 ) -> tuple[list[dict[str, Any]], int]:
     """List sessions in a filtered window plus total row count."""
     _ensure_sessions_db_initialized()
@@ -490,45 +669,103 @@ def list_sessions_window(
 
     if agent_types:
         placeholders = ",".join("?" for _ in agent_types)
-        where.append(f"agent_type IN ({placeholders})")
+        where.append(f"d.agent_type IN ({placeholders})")
         params.extend(agent_types)
     if since is not None:
-        where.append("(start_time >= ? OR start_time IS NULL)")
+        where.append("(d.start_time >= ? OR d.start_time IS NULL)")
         params.append(_to_iso(since))
     if until is not None:
-        where.append("(start_time <= ? OR start_time IS NULL)")
+        where.append("(d.start_time <= ? OR d.start_time IS NULL)")
         params.append(_to_iso(until))
     if repo_path:
         exact_path, child_path = project_path_sql_scope(repo_path)
-        where.append("(repo_path = ? OR repo_path LIKE ? ESCAPE '\\')")
+        where.append("(d.repo_path = ? OR d.repo_path LIKE ? ESCAPE '\\')")
         params.extend([exact_path, child_path])
     if repo_query:
-        where.append("(repo_name LIKE ? OR repo_path LIKE ?)")
+        where.append("(d.repo_name LIKE ? OR d.repo_path LIKE ?)")
         params.extend([f"%{repo_query}%", f"%{repo_query}%"])
     if status:
-        where.append("status = ?")
-        params.append(status)
+        where.append(f"({SESSION_PROCESSING_STATUS_SQL} = ? OR d.status = ?)")
+        params.extend([status, status])
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     limit = max(1, int(limit))
     offset = max(0, int(offset))
+    normalized_sort = sort_by if sort_by in SESSION_SORT_COLUMNS else "start_time"
+    normalized_order = "ASC" if str(order).lower() == "asc" else "DESC"
+    order_sql = f"d.{normalized_sort} {normalized_order}, d.indexed_at DESC, d.id DESC"
 
     with _connect() as conn:
         total_row = conn.execute(
-            f"SELECT COUNT(1) AS total FROM session_docs {where_sql}",
-            params,
+            f"""SELECT COUNT(1) AS total
+                FROM session_docs d
+                LEFT JOIN session_jobs sj
+                  ON sj.run_id = d.run_id AND sj.job_type = ?
+                {where_sql}""",
+            [JOB_TYPE_EXTRACT, *params],
         ).fetchone()
         rows = conn.execute(
             f"""
-            SELECT *
-            FROM session_docs
+            SELECT d.*, sj.status AS extraction_status,
+                   {SESSION_PROCESSING_STATUS_SQL} AS processing_status
+            FROM session_docs d
+            LEFT JOIN session_jobs sj
+              ON sj.run_id = d.run_id AND sj.job_type = ?
             {where_sql}
-            ORDER BY start_time DESC, indexed_at DESC, id DESC
+            ORDER BY {order_sql}
             LIMIT ? OFFSET ?
             """,
-            [*params, limit, offset],
+            [JOB_TYPE_EXTRACT, *params, limit, offset],
         ).fetchall()
     return rows, int((total_row or {}).get("total") or 0)
+
+
+def list_session_agent_types_window(
+    *,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    repo_path: str | None = None,
+    repo_query: str | None = None,
+    status: str | None = None,
+) -> list[str]:
+    """List distinct session agent types for the full filtered window."""
+    _ensure_sessions_db_initialized()
+    where: list[str] = []
+    params: list[Any] = []
+
+    if since is not None:
+        where.append("(d.start_time >= ? OR d.start_time IS NULL)")
+        params.append(_to_iso(since))
+    if until is not None:
+        where.append("(d.start_time <= ? OR d.start_time IS NULL)")
+        params.append(_to_iso(until))
+    if repo_path:
+        exact_path, child_path = project_path_sql_scope(repo_path)
+        where.append("(d.repo_path = ? OR d.repo_path LIKE ? ESCAPE '\\')")
+        params.extend([exact_path, child_path])
+    if repo_query:
+        where.append("(d.repo_name LIKE ? OR d.repo_path LIKE ?)")
+        params.extend([f"%{repo_query}%", f"%{repo_query}%"])
+    if status:
+        where.append(f"({SESSION_PROCESSING_STATUS_SQL} = ? OR d.status = ?)")
+        params.extend([status, status])
+
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT DISTINCT d.agent_type
+                FROM session_docs d
+                LEFT JOIN session_jobs sj
+                  ON sj.run_id = d.run_id AND sj.job_type = ?
+                {where_sql}
+                ORDER BY d.agent_type ASC""",
+            [JOB_TYPE_EXTRACT, *params],
+        ).fetchall()
+    return [
+        str(row.get("agent_type") or "")
+        for row in rows
+        if str(row.get("agent_type") or "").strip()
+    ]
 
 
 def reset_indexed_sessions_for_project(repo_path: str) -> dict[str, int]:
@@ -1778,19 +2015,20 @@ def latest_service_run(job_type: str) -> dict[str, Any] | None:
     }
 
 
-def list_service_runs(*, limit: int = 20) -> list[dict[str, Any]]:
+def list_service_runs(*, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
     """Return latest service runs across all job types, newest first."""
     _ensure_sessions_db_initialized()
     safe_limit = max(1, int(limit))
+    safe_offset = max(0, int(offset))
     with _connect() as conn:
         rows = conn.execute(
             """
             SELECT id, job_type, status, started_at, completed_at, trigger, details_json
             FROM service_runs
             ORDER BY started_at DESC, id DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            (safe_limit,),
+            (safe_limit, safe_offset),
         ).fetchall()
     items: list[dict[str, Any]] = []
     for row in rows:

@@ -90,6 +90,7 @@ class ContextAnswerPipeline(dspy.Module):
                 {
                     "kind": "model_step",
                     "stage": "plan_retrieval",
+                    "function": "PlanContextRetrieval",
                     "attempts": plan_attempts,
                     "action_count": len(actions),
                     "rationale": prediction_payload(plan, output_field="plan").get(
@@ -124,18 +125,19 @@ class ContextAnswerPipeline(dspy.Module):
                 validation_retry_target="complete corrected context answer",
             )
         events.extend(retry_events)
-        answer_payload = prediction_payload(answer, output_field="answer")
+        answer_payload = prediction_payload(answer, output_field="response")
         supporting_record_ids = valid_supporting_record_ids(
             answer_payload.get("supporting_record_ids"),
             retrieval["payload"],
         )
         events.append(
-            {
-                "kind": "model_step",
-                "stage": "write_answer",
-                "attempts": answer_attempts,
-                "supporting_record_ids": supporting_record_ids,
-            }
+                {
+                    "kind": "model_step",
+                    "stage": "write_answer",
+                    "function": "AnswerFromContext",
+                    "attempts": answer_attempts,
+                    "supporting_record_ids": supporting_record_ids,
+                }
         )
         return {
             "result": ContextAnswerResult(
@@ -171,7 +173,7 @@ def run_context_answer_pipeline(
     store.register_project(project_identity)
     pipeline = ContextAnswerPipeline(
         store=store,
-        project_ids=project_ids or [project_identity.project_id],
+        project_ids=project_ids if project_ids is not None else [project_identity.project_id],
         config=config,
         plan_step=(steps or {}).get("plan"),
         answer_step=(steps or {}).get("answer"),
@@ -442,7 +444,7 @@ def validate_answer_result(
     retrieval_payload: dict[str, Any],
 ) -> str | None:
     """Reject structured answer payloads that cannot be shown to users."""
-    answer_payload = prediction_payload(result, output_field="answer")
+    answer_payload = prediction_payload(result, output_field="response")
     answer = str(answer_payload.get("answer") or "").strip()
     if is_placeholder_only_answer(answer):
         return (

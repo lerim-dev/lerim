@@ -73,4 +73,4 @@ class AnswerFromContext(dspy.Signature):
     question: str = dspy.InputField(desc="QUESTION")
     hints: str = dspy.InputField(desc="HINTS")
     retrieval_json: str = dspy.InputField(desc="RETRIEVAL JSON")
-    answer: ContextAnswer = dspy.OutputField(desc="Grounded answer")
+    response: ContextAnswer = dspy.OutputField(desc="Grounded answer response")

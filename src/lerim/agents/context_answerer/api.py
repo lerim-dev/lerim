@@ -32,7 +32,7 @@ def run_context_answerer(
 ) -> ContextAnswerResult | tuple[ContextAnswerResult, list[dict[str, Any]]]:
     """Plan retrieval, execute store reads, and synthesize a grounded answer."""
     cfg = config or get_config()
-    resolved_project_ids = project_ids or [project_identity.project_id]
+    resolved_project_ids = project_ids if project_ids is not None else [project_identity.project_id]
     with mlflow_span(
         "lerim.agent.context_answerer",
         span_type="AGENT",

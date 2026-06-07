@@ -50,13 +50,19 @@ function MemoryContent() {
 		const load = useCallback(async (selectedProject?: string) => {
 			const seq = loadSeqRef.current + 1;
 			loadSeqRef.current = seq;
+			const targetProject = (selectedProject ?? project).trim();
 			setLoading(true);
 			setError(null);
+			if (!targetProject) {
+				setData(null);
+				setActiveVersions({});
+				setLoading(false);
+				return;
+			}
 			try {
-				const payload = await api.getMemoryArtifacts(selectedProject || project || undefined);
+				const payload = await api.getMemoryArtifacts(targetProject);
 				if (seq !== loadSeqRef.current) return;
 				setData(payload);
-				if (!project && payload.selected_project) setProject(payload.selected_project);
 				setActiveVersions({});
 			} catch (err) {
 				if (seq === loadSeqRef.current) {
@@ -94,7 +100,7 @@ function MemoryContent() {
 					<button
 						type="button"
 						onClick={() => load(project || undefined)}
-						disabled={loading}
+						disabled={loading || !project}
 						className="min-h-10 rounded-md border border-[var(--border)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
 					>
 						{loading ? "Refreshing..." : "Refresh"}
@@ -108,32 +114,41 @@ function MemoryContent() {
 				</div>
 			)}
 
-			<section className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
-				<div className="grid gap-3 text-xs text-[var(--text-secondary)] md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
-					<div className="min-w-0">
-						<div className="flex flex-wrap items-center gap-2">
-							<span className="font-medium text-[var(--text)]">{data?.selected_project || "Project"}</span>
-							{data?.project_id && (
-								<span className="rounded-md bg-white/[0.04] px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">
-									{data.project_id}
-								</span>
-							)}
+				{project && (
+					<section className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+						<div className="grid gap-3 text-xs text-[var(--text-secondary)] md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
+							<div className="min-w-0">
+								<div className="flex flex-wrap items-center gap-2">
+									<span className="font-medium text-[var(--text)]">{data?.selected_project || project}</span>
+									{data?.project_id && (
+										<span className="rounded-md bg-white/[0.04] px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">
+											{data.project_id}
+										</span>
+									)}
+								</div>
+								<p className="mt-1 truncate text-[var(--text-muted)]">{data?.repo_path || "Loading project memory..."}</p>
+							</div>
+							<StatusChip label="Latest generated" value={formatDateTime(latestGenerated)} />
+							<StatusChip
+								label="Freshness"
+								value={staleCount ? `${staleCount} stale artifact${staleCount === 1 ? "" : "s"}` : "Both current"}
+								tone={staleCount ? "warn" : "good"}
+							/>
 						</div>
-						<p className="mt-1 truncate text-[var(--text-muted)]">{data?.repo_path || "Loading project memory..."}</p>
-					</div>
-					<StatusChip label="Latest generated" value={formatDateTime(latestGenerated)} />
-					<StatusChip
-						label="Freshness"
-						value={staleCount ? `${staleCount} stale artifact${staleCount === 1 ? "" : "s"}` : "Both current"}
-						tone={staleCount ? "warn" : "good"}
-					/>
-				</div>
-			</section>
+					</section>
+				)}
 
 			{loading && !data ? (
 				<div className="mt-8 grid gap-3 lg:grid-cols-2">
 					<div className="h-96 animate-pulse rounded-lg border border-[var(--border)] bg-white/[0.03]" />
 					<div className="h-96 animate-pulse rounded-lg border border-[var(--border)] bg-white/[0.03]" />
+				</div>
+			) : !project ? (
+				<div className="mt-8 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-6 py-10 text-center">
+					<p className="text-sm font-medium text-[var(--text)]">Select a project to view briefs.</p>
+					<p className="mt-2 text-sm text-[var(--text-muted)]">
+						Briefs are project-specific and are not generated for All projects.
+					</p>
 				</div>
 			) : data ? (
 				<div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_16rem] 2xl:grid-cols-[minmax(0,1fr)_18rem]">

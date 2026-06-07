@@ -2,7 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   async rewrites() {
-    const apiUrl = process.env.LERIM_API_URL || "http://localhost:8765";
+    const apiUrl =
+      process.env.LERIM_API_URL ||
+      process.env.NEXT_PUBLIC_LERIM_API_BASE ||
+      "http://localhost:8765";
     return [
       {
         source: "/api/:path*",

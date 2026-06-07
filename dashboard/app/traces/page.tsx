@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState, useCallback, useRef } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useProjectScope } from "@/lib/projectScope";
 import type { Session } from "@/lib/types";
@@ -12,6 +13,9 @@ import ProjectScope from "@/components/ProjectScope";
 const PAGE_SIZE = 20;
 const DEFAULT_SORT = "start_time";
 const DEFAULT_ORDER: "asc" | "desc" = "desc";
+const SOURCE_SCOPES = new Set(["today", "week", "month", "all"]);
+const SOURCE_STATUSES = new Set(["indexed", "queued", "processing", "processed", "failed", "blocked"]);
+const SOURCE_SORTS = new Set(["start_time", "agent_type", "message_count", "tool_call_count", "error_count", "total_tokens", "duration_ms"]);
 
 export default function SourcesPage() {
   return (
@@ -22,28 +26,41 @@ export default function SourcesPage() {
 }
 
 function SourcesContent() {
-  const { project, setProject } = useProjectScope();
-  const [scope, setScope] = useState("all");
-  const [agent, setAgent] = useState("");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
+  const { project } = useProjectScope();
+  const initialParams = new URLSearchParams(search);
+  const initialScope = initialParams.get("scope") || "all";
+  const initialStatus = initialParams.get("status") || "";
+  const initialSearch = searchParams.get("q") || "";
+  const [scope, setScope] = useState(SOURCE_SCOPES.has(initialScope) ? initialScope : "all");
+  const [agent, setAgent] = useState(initialParams.get("agent") || "");
+  const [agentOptions, setAgentOptions] = useState<string[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   /* Search */
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState(SOURCE_STATUSES.has(initialStatus) ? initialStatus : "");
 
-  const [searchInput, setSearchInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchInput, setSearchInput] = useState(initialSearch);
+  const [searchQuery, setSearchQuery] = useState(initialSearch);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadSeqRef = useRef(0);
+  const clearingRef = useRef(false);
+  const syncingFromUrlRef = useRef("");
+  const previousProjectRef = useRef(project);
 
   /* Repo filter */
-  const [repoFilter, setRepoFilter] = useState("");
+  const [repoFilter, setRepoFilter] = useState(initialParams.get("repo") || "");
 
   /* Sorting */
-  const [sort, setSort] = useState(DEFAULT_SORT);
-  const [order, setOrder] = useState<"asc" | "desc">(DEFAULT_ORDER);
+  const initialSort = initialParams.get("sort") || DEFAULT_SORT;
+  const [sort, setSort] = useState(SOURCE_SORTS.has(initialSort) ? initialSort : DEFAULT_SORT);
+  const [order, setOrder] = useState<"asc" | "desc">(initialParams.get("order") === "asc" ? "asc" : DEFAULT_ORDER);
 
   /* Pagination */
   const [offset, setOffset] = useState(0);
@@ -54,8 +71,9 @@ function SourcesContent() {
   /* Retry-all loading guard */
   const [retrying, setRetrying] = useState(false);
 
-  /* Collect unique agent names for the filter dropdown */
-  const agents = Array.from(new Set(sessions.map((s) => s.agent_type).filter((a): a is string => a != null))).sort();
+  const agents = agentOptions.length > 0
+    ? agentOptions
+    : Array.from(new Set(sessions.map((s) => s.agent_type).filter((a): a is string => a != null))).sort();
 
   /* Debounced search input */
   function handleSearchChange(value: string) {
@@ -86,15 +104,123 @@ function SourcesContent() {
 
   /* Clear all filters */
   function handleClear() {
+    clearingRef.current = true;
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
     setSearchInput("");
     setSearchQuery("");
-    setProject("");
+    router.replace(pathname, { scroll: false });
+    setScope("all");
+    setAgent("");
     setRepoFilter("");
     setStatusFilter("");
     setSort(DEFAULT_SORT);
     setOrder(DEFAULT_ORDER);
     setOffset(0);
   }
+
+  const handleProjectChange = useCallback((nextProject: string) => {
+    const params = new URLSearchParams(search);
+    const cleaned = nextProject.trim();
+    if (cleaned) {
+      params.set("project", cleaned);
+    } else {
+      params.delete("project");
+    }
+    params.delete("agent");
+    setAgent("");
+    setOffset(0);
+    const next = params.toString();
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+  }, [pathname, router, search]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const nextScope = normalizeSourceScope(params.get("scope"));
+    const nextAgent = params.get("agent") || "";
+    const nextSearch = params.get("q") || "";
+    const nextRepo = params.get("repo") || "";
+    const nextStatus = normalizeSourceStatus(params.get("status"));
+    const nextSort = normalizeSourceSort(params.get("sort"));
+    const nextOrder = normalizeSourceOrder(params.get("order"));
+    let changed = false;
+    if (scope !== nextScope) {
+      setScope(nextScope);
+      changed = true;
+    }
+    if (agent !== nextAgent) {
+      setAgent(nextAgent);
+      changed = true;
+    }
+    if (searchInput !== nextSearch) {
+      setSearchInput(nextSearch);
+      changed = true;
+    }
+    if (searchQuery !== nextSearch) {
+      setSearchQuery(nextSearch);
+      changed = true;
+    }
+    if (repoFilter !== nextRepo) {
+      setRepoFilter(nextRepo);
+      changed = true;
+    }
+    if (statusFilter !== nextStatus) {
+      setStatusFilter(nextStatus);
+      changed = true;
+    }
+    if (sort !== nextSort) {
+      setSort(nextSort);
+      changed = true;
+    }
+    if (order !== nextOrder) {
+      setOrder(nextOrder);
+      changed = true;
+    }
+    if (changed) syncingFromUrlRef.current = search;
+  }, [agent, order, repoFilter, scope, search, searchInput, searchQuery, sort, statusFilter]);
+
+  useEffect(() => {
+    if (previousProjectRef.current !== project) {
+      previousProjectRef.current = project;
+      if (agent) {
+        const params = new URLSearchParams(search);
+        params.delete("agent");
+        const next = params.toString();
+        router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+      }
+      setAgent("");
+    }
+  }, [agent, pathname, project, router, search]);
+
+  useEffect(() => {
+    if (clearingRef.current) {
+      if (searchParams.toString()) {
+        router.replace(pathname, { scroll: false });
+        return;
+      }
+      clearingRef.current = false;
+    }
+    if (syncingFromUrlRef.current === search) {
+      syncingFromUrlRef.current = "";
+      return;
+    }
+    const params = new URLSearchParams();
+    if (project) params.set("project", project);
+    if (scope !== "all") params.set("scope", scope);
+    if (agent) params.set("agent", agent);
+    if (searchQuery) params.set("q", searchQuery);
+    if (repoFilter) params.set("repo", repoFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    if (sort !== DEFAULT_SORT) params.set("sort", sort);
+    if (order !== DEFAULT_ORDER) params.set("order", order);
+    const next = params.toString();
+    const current = search;
+    if (next !== current) {
+      router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+    }
+  }, [agent, order, pathname, project, repoFilter, router, scope, search, searchParams, searchQuery, sort, statusFilter]);
 
   /* Reset offset when filters change */
   useEffect(() => {
@@ -130,10 +256,12 @@ function SourcesContent() {
       if (seq !== loadSeqRef.current) return;
       setSessions(data.sessions);
       setTotal(data.total);
+      setAgentOptions(data.agent_options || []);
     } catch (err) {
       if (seq === loadSeqRef.current) {
         setSessions([]);
         setTotal(0);
+        setAgentOptions([]);
         setError(
           err instanceof Error ? err.message : "Failed to load sessions"
         );
@@ -154,7 +282,7 @@ function SourcesContent() {
   const hasNext = offset + PAGE_SIZE < total;
 
   const hasActiveFilters =
-    project !== "" || searchInput !== "" || repoFilter !== "" || statusFilter !== "";
+    project !== "" || scope !== "all" || agent !== "" || searchInput !== "" || repoFilter !== "" || statusFilter !== "";
 
   return (
     <>
@@ -174,7 +302,7 @@ function SourcesContent() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <ProjectScope value={project} onChange={setProject} />
+          <ProjectScope value={project} onChange={handleProjectChange} />
 
           {/* Agent filter */}
           <select
@@ -185,6 +313,7 @@ function SourcesContent() {
             className="rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1.5 text-xs text-[var(--text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)]"
           >
             <option value="">All agents</option>
+            {agent && !agents.includes(agent) && <option value={agent}>{agent}</option>}
             {agents.map((a) => (
               <option key={a} value={a}>
                 {a}
@@ -422,4 +551,23 @@ function SourcesContent() {
       )}
     </>
   );
+}
+
+function normalizeSourceScope(value: string | null) {
+  const scope = value || "all";
+  return SOURCE_SCOPES.has(scope) ? scope : "all";
+}
+
+function normalizeSourceStatus(value: string | null) {
+  const status = value || "";
+  return SOURCE_STATUSES.has(status) ? status : "";
+}
+
+function normalizeSourceSort(value: string | null) {
+  const sort = value || DEFAULT_SORT;
+  return SOURCE_SORTS.has(sort) ? sort : DEFAULT_SORT;
+}
+
+function normalizeSourceOrder(value: string | null): "asc" | "desc" {
+  return value === "asc" ? "asc" : DEFAULT_ORDER;
 }

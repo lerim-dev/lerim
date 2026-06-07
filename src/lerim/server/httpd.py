@@ -68,12 +68,17 @@ from lerim.adapters.common import load_jsonl_dict_lines
 from lerim.config.providers import list_provider_models
 from lerim.server.dashboard_data import build_extract_report, extract_session_details
 from lerim.sessions.catalog import (
+    JOB_TYPE_EXTRACT,
+    SESSION_PROCESSING_STATUS_SQL,
+    SESSION_SORT_COLUMNS,
     count_session_jobs_by_status,
     fetch_session_doc,
     init_sessions_db,
+    list_session_agent_types_window,
     latest_service_run,
     list_session_jobs,
     list_sessions_window,
+    normalize_session_processing_status,
 )
 from lerim.working_memory import (
     WORKING_MEMORY_FILENAME,
@@ -97,6 +102,7 @@ DASHBOARD_DIR = _REPO_DASHBOARD if _REPO_DASHBOARD.is_dir() else Path("/opt/leri
 MAX_BODY_BYTES = 1_000_000
 READ_ONLY_MESSAGE = "Dashboard is read-only. Use CLI commands for write actions."
 _REPORT_CACHE: dict[str, dict[str, Any]] = {}
+_SESSION_SORT_COLUMNS = {column: f"d.{column}" for column in SESSION_SORT_COLUMNS}
 
 
 def _iso_now() -> str:
@@ -133,6 +139,13 @@ def _scope_bounds(scope: str | None) -> tuple[datetime | None, datetime]:
     if normalized == "all":
         return None, now
     return now - timedelta(days=7), now
+
+
+def _session_order_sql(sort: str, order: str) -> str:
+    """Return a safe session ORDER BY expression for dashboard lists."""
+    column = _SESSION_SORT_COLUMNS.get(sort, "d.start_time")
+    direction = "ASC" if str(order).lower() == "asc" else "DESC"
+    return f"{column} {direction}, d.indexed_at DESC, d.id DESC"
 
 
 def _dashboard_project_scope(
@@ -249,6 +262,13 @@ def _empty_extract_report(error: str) -> dict[str, Any]:
 def _serialize_run(row: dict[str, Any], projects: dict[str, str] | None = None) -> dict[str, Any]:
     """Normalize a DB row to dashboard run JSON payload shape."""
     started = row.get("start_time")
+    status = str(row.get("status") or "completed")
+    processing_status = str(row.get("processing_status") or "").strip()
+    if not processing_status:
+        processing_status = normalize_session_processing_status(
+            doc_status=status,
+            job_status=row.get("extraction_status"),
+        )
     repo_name = row.get("repo_name") or ""
     session_path = str(row.get("session_path") or "")
     # Extract project name from repo_path (folder path) or session_path
@@ -279,7 +299,8 @@ def _serialize_run(row: dict[str, Any], projects: dict[str, str] | None = None) 
     return {
         "run_id": run_id,
         "agent_type": row.get("agent_type") or "unknown",
-        "status": row.get("status") or "completed",
+        "status": status,
+        "processing_status": processing_status,
         "started_at": started,
         "duration_ms": int(row.get("duration_ms") or 0),
         "message_count": int(row.get("message_count") or 0),
@@ -723,6 +744,27 @@ def _graph_node_payload(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _graph_record_fallback_payload(row: sqlite3.Row) -> dict[str, Any]:
+    """Serialize one record row as a graph node when projection rows are absent."""
+    title = str(row["title"] or "").strip()
+    body = str(row["body"] or "").strip()
+    label = title or body[:80] or row["record_id"]
+    return {
+        "id": row["record_id"],
+        "label": label,
+        "kind": "record",
+        "record_kind": row["kind"],
+        "record_role": row["record_role"] or "general",
+        "role_payload": row["role_payload"],
+        "summary": body[:240],
+        "project": row["scope_label"],
+        "status": row["status"],
+        "semantic_cluster": row["kind"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
 def _graph_edge_payload(row: sqlite3.Row) -> dict[str, Any]:
     """Serialize a context graph edge row for the dashboard graph UI."""
     return {
@@ -735,6 +777,48 @@ def _graph_edge_payload(row: sqlite3.Row) -> dict[str, Any]:
         "weight": row["confidence"],
         "evidence_record_ids": _decode_json_list(row["evidence_record_ids"]),
         "status": row["status"],
+    }
+
+
+def _parse_log_timestamp(raw: Any) -> datetime | None:
+    """Parse a structured log timestamp for dashboard filtering."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _dashboard_log_payload(entry: dict[str, Any], projects: dict[str, str]) -> dict[str, Any]:
+    """Normalize one JSONL log record for the dashboard log table."""
+    extra = entry.get("extra") if isinstance(entry.get("extra"), dict) else {}
+    project = (
+        extra.get("project")
+        or extra.get("project_name")
+        or extra.get("scope_label")
+        or ""
+    )
+    if not project:
+        repo_path = str(
+            extra.get("repo_path")
+            or extra.get("project_path")
+            or extra.get("cwd")
+            or ""
+        ).strip()
+        if repo_path:
+            matched = match_session_project(repo_path, projects)
+            project = matched[0] if matched else ""
+    return {
+        "ts": str(entry.get("ts") or ""),
+        "level": str(entry.get("level") or "info"),
+        "module": str(entry.get("module") or "") or None,
+        "message": str(entry.get("message") or "") or None,
+        "project": str(project or "") or None,
     }
 
 
@@ -842,6 +926,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         status_filter = _query_param(query, "status").strip()
         repo_filter = _query_param(query, "repo").strip()
         project = _query_param(query, "project") or None
+        sort = _query_param(query, "sort", "start_time").strip()
+        order = _query_param(query, "order", "desc").strip()
         limit = _parse_int(
             _query_param(query, "limit", "30"), 30, minimum=1, maximum=200
         )
@@ -864,16 +950,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 repo_path=repo_path,
                 repo_query=repo_filter or None,
                 status=status_filter or None,
+                sort_by=sort,
+                order=order,
+            )
+            agent_options = list_session_agent_types_window(
+                since=since,
+                until=until,
+                repo_path=repo_path,
+                repo_query=repo_filter or None,
+                status=status_filter or None,
             )
         except sqlite3.Error as exc:
             payload = _session_catalog_unavailable(exc)
-            payload.update({"runs": [], "pagination": {"offset": offset, "total": 0, "has_more": False}})
+            payload.update({
+                "runs": [],
+                "agent_options": [],
+                "pagination": {"offset": offset, "total": 0, "has_more": False},
+            })
             self._json(payload)
             return
         runs = [_serialize_run(row, config.projects) for row in rows]
         self._json(
             {
                 "runs": runs,
+                "agent_options": agent_options,
                 "pagination": {
                     "offset": offset,
                     "total": total,
@@ -891,6 +991,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         status_filter = _query_param(query, "status").strip()
         repo_filter = _query_param(query, "repo").strip()
         project = _query_param(query, "project") or None
+        sort = _query_param(query, "sort", "start_time").strip()
+        order = _query_param(query, "order", "desc").strip()
         limit = _parse_int(
             _query_param(query, "limit", "30"), 30, minimum=1, maximum=200
         )
@@ -903,6 +1005,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return
         since, until = _scope_bounds(scope)
+        try:
+            init_sessions_db()
+        except sqlite3.Error as exc:
+            payload = _session_catalog_unavailable(exc)
+            payload.update(
+                {
+                    "mode": "fts" if run_query else "keyword",
+                    "results": [],
+                    "agent_options": [],
+                    "pagination": {"offset": offset, "total": 0, "has_more": False},
+                }
+            )
+            self._json(payload)
+            return
         where = []
         params: list[Any] = []
         if since is not None:
@@ -914,8 +1030,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             where.append("d.agent_type = ?")
             params.append(agent)
         if status_filter:
-            where.append("d.status = ?")
-            params.append(status_filter)
+            where.append(f"({SESSION_PROCESSING_STATUS_SQL} = ? OR d.status = ?)")
+            params.extend([status_filter, status_filter])
         if repo_filter:
             where.append("(d.repo_name LIKE ? OR d.repo_path LIKE ?)")
             params.extend([f"%{repo_filter}%", f"%{repo_filter}%"])
@@ -924,41 +1040,65 @@ class DashboardHandler(BaseHTTPRequestHandler):
             where.append("(d.repo_path = ? OR d.repo_path LIKE ? ESCAPE '\\')")
             params.extend([exact_path, child_path])
         where_sql = (" AND " + " AND ".join(where)) if where else ""
+        order_sql = _session_order_sql(sort, order)
         try:
             with sqlite3.connect(config.sessions_db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 if run_query:
                     search_sql = f"""\
-SELECT d.run_id, d.agent_type, d.status, d.start_time, d.duration_ms, d.message_count, \
+SELECT d.run_id, d.agent_type, d.status, {SESSION_PROCESSING_STATUS_SQL} AS processing_status, \
+d.start_time, d.duration_ms, d.message_count, \
 d.tool_call_count, d.error_count, d.total_tokens, d.repo_name, d.repo_path, d.summary_text, \
-snippet(sessions_fts, 3, '<mark>', '</mark>', '...', 24) AS snippet \
+snippet(sessions_fts, 3, '<mark>', '</mark>', '...', 24) AS snippet, sj.status AS extraction_status \
 FROM sessions_fts JOIN session_docs d ON d.id = sessions_fts.rowid \
-WHERE sessions_fts MATCH ?{where_sql} ORDER BY d.start_time DESC LIMIT ? OFFSET ?"""
+LEFT JOIN session_jobs sj ON sj.run_id = d.run_id AND sj.job_type = ? \
+WHERE sessions_fts MATCH ?{where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?"""
                     rows = conn.execute(
-                        search_sql, [run_query, *params, limit, offset]
+                        search_sql, [JOB_TYPE_EXTRACT, run_query, *params, limit, offset]
                     ).fetchall()
                     count_sql = f"""\
 SELECT COUNT(1) AS total FROM sessions_fts JOIN session_docs d ON d.id = sessions_fts.rowid \
+LEFT JOIN session_jobs sj ON sj.run_id = d.run_id AND sj.job_type = ? \
 WHERE sessions_fts MATCH ?{where_sql}"""
                     total = int(
-                        conn.execute(count_sql, [run_query, *params]).fetchone()["total"]
+                        conn.execute(count_sql, [JOB_TYPE_EXTRACT, run_query, *params]).fetchone()["total"]
                         or 0
                     )
+                    agent_rows = conn.execute(
+                        f"""\
+SELECT DISTINCT d.agent_type FROM sessions_fts JOIN session_docs d ON d.id = sessions_fts.rowid \
+LEFT JOIN session_jobs sj ON sj.run_id = d.run_id AND sj.job_type = ? \
+WHERE sessions_fts MATCH ?{where_sql} ORDER BY d.agent_type ASC""",
+                        [JOB_TYPE_EXTRACT, run_query, *params],
+                    ).fetchall()
                 else:
                     search_sql = f"""\
-SELECT d.run_id, d.agent_type, d.status, d.start_time, d.duration_ms, d.message_count, \
+SELECT d.run_id, d.agent_type, d.status, {SESSION_PROCESSING_STATUS_SQL} AS processing_status, \
+d.start_time, d.duration_ms, d.message_count, \
 d.tool_call_count, d.error_count, d.total_tokens, d.repo_name, d.repo_path, d.summary_text, d.summary_text AS snippet \
-FROM session_docs d WHERE 1=1{where_sql} ORDER BY d.start_time DESC LIMIT ? OFFSET ?"""
-                    rows = conn.execute(search_sql, [*params, limit, offset]).fetchall()
+, sj.status AS extraction_status FROM session_docs d \
+LEFT JOIN session_jobs sj ON sj.run_id = d.run_id AND sj.job_type = ? \
+WHERE 1=1{where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?"""
+                    rows = conn.execute(search_sql, [JOB_TYPE_EXTRACT, *params, limit, offset]).fetchall()
                     count_sql = f"""\
-SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
-                    total = int(conn.execute(count_sql, params).fetchone()["total"] or 0)
+SELECT COUNT(1) AS total FROM session_docs d \
+LEFT JOIN session_jobs sj ON sj.run_id = d.run_id AND sj.job_type = ? \
+WHERE 1=1{where_sql}"""
+                    total = int(conn.execute(count_sql, [JOB_TYPE_EXTRACT, *params]).fetchone()["total"] or 0)
+                    agent_rows = conn.execute(
+                        f"""\
+SELECT DISTINCT d.agent_type FROM session_docs d \
+LEFT JOIN session_jobs sj ON sj.run_id = d.run_id AND sj.job_type = ? \
+WHERE 1=1{where_sql} ORDER BY d.agent_type ASC""",
+                        [JOB_TYPE_EXTRACT, *params],
+                    ).fetchall()
         except sqlite3.Error as exc:
             payload = _session_catalog_unavailable(exc)
             payload.update(
                 {
                     "mode": "fts" if run_query else "keyword",
                     "results": [],
+                    "agent_options": [],
                     "pagination": {"offset": offset, "total": 0, "has_more": False},
                 }
             )
@@ -973,6 +1113,11 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             {
                 "mode": "fts" if run_query else "keyword",
                 "results": results,
+                "agent_options": [
+                    str(row["agent_type"] or "")
+                    for row in agent_rows
+                    if str(row["agent_type"] or "").strip()
+                ],
                 "pagination": {
                     "offset": offset,
                     "total": total,
@@ -1157,6 +1302,95 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             "last_curate": _format_service_run(last_curate_raw),
         }
         self._json(payload)
+
+    def _api_logs(self, query: dict[str, list[str]]) -> None:
+        """Return structured Lerim JSONL logs with project and time filters."""
+        config = get_config()
+        raw_level = _query_param(query, "level").strip().upper()
+        raw_since = _query_param(query, "since").strip()
+        raw_until = _query_param(query, "until").strip()
+        project = _query_param(query, "project") or None
+        limit = _parse_int(_query_param(query, "limit", "50"), 50, minimum=1, maximum=500)
+        try:
+            project_name, repo_path, project_id = _dashboard_project_scope(config, project)
+        except ValueError as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        since = _parse_log_timestamp(raw_since)
+        until = _parse_log_timestamp(raw_until)
+        if raw_since and since is None:
+            self._error(HTTPStatus.BAD_REQUEST, "Invalid since timestamp")
+            return
+        if raw_until and until is None:
+            self._error(HTTPStatus.BAD_REQUEST, "Invalid until timestamp")
+            return
+        log_root = config.global_data_dir.expanduser() / "logs"
+        rows: list[dict[str, Any]] = []
+        for path in sorted(
+            log_root.glob("[0-9][0-9][0-9][0-9]/[0-9][0-9]/[0-9][0-9]/lerim.jsonl"),
+            reverse=True,
+        ):
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line in reversed(lines):
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                ts = _parse_log_timestamp(entry.get("ts"))
+                if since and (ts is None or ts < since):
+                    continue
+                if until and (ts is None or ts > until):
+                    continue
+                if raw_level and str(entry.get("level") or "").upper() != raw_level:
+                    continue
+                payload = _dashboard_log_payload(entry, config.projects or {})
+                if project_name:
+                    extra = entry.get("extra") if isinstance(entry.get("extra"), dict) else {}
+                    labels = {
+                        str(extra.get("project") or ""),
+                        str(extra.get("project_name") or ""),
+                        str(extra.get("scope_label") or ""),
+                    }
+                    ids = {
+                        str(extra.get("project_id") or ""),
+                        str(extra.get("scope_id") or ""),
+                    }
+                    paths = [
+                        str(extra.get("repo_path") or ""),
+                        str(extra.get("project_path") or ""),
+                        str(extra.get("cwd") or ""),
+                    ]
+                    path_match = False
+                    for raw_path in paths:
+                        if not raw_path.strip():
+                            continue
+                        matched = match_session_project(raw_path, config.projects or {})
+                        if matched and matched[0] == project_name:
+                            path_match = True
+                            break
+                    if (
+                        project_name not in labels
+                        and (project_id or "") not in ids
+                        and not path_match
+                    ):
+                        continue
+                    if not payload["project"]:
+                        payload["project"] = project_name
+                rows.append(payload)
+        rows.sort(key=lambda item: str(item.get("ts") or ""), reverse=True)
+        self._json({
+            "logs": rows[:limit],
+            "total": len(rows),
+            "project": project_name or "",
+            "repo_path": repo_path or "",
+        })
 
     def _api_refine_report(self, query: dict[str, list[str]]) -> None:
         """Return cached or freshly built extraction quality report."""
@@ -1355,9 +1589,9 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             }
         )
 
-    def _api_graph_query(self) -> None:
+    def _api_graph_query(self, body: dict[str, Any] | None = None) -> None:
         """Return learned context graph nodes and edges for the dashboard."""
-        body = self._read_json_body()
+        body = body if body is not None else self._read_json_body()
         max_nodes = _parse_int(str(body.get("max_nodes") or ""), 140, minimum=1, maximum=400)
         max_edges = _parse_int(str(body.get("max_edges") or ""), 300, minimum=0, maximum=1000)
         connected_only = bool(body.get("connected_only"))
@@ -1387,33 +1621,43 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 "graph_mode": "empty",
             })
             return
-        store = ContextStore(config.context_db_path)
-        store.initialize()
-        if project_id and repo_path:
-            total_records = project_record_counts(config, Path(repo_path))["active"]
-        else:
-            for path in (config.projects or {}).values():
-                identity = resolve_project_identity(Path(path).expanduser().resolve())
-                store.register_project(identity)
-                graph_project_ids.append(identity.project_id)
-            if graph_project_ids:
-                total_payload = store.query(
-                    entity="records",
-                    mode="count",
-                    project_ids=graph_project_ids,
-                    status="active",
-                )
-                total_records = int(total_payload.get("count") or 0)
-            else:
-                total_records = 0
+        if not project_id:
+            graph_project_ids = [
+                resolve_project_identity(Path(path).expanduser().resolve()).project_id
+                for path in (config.projects or {}).values()
+            ]
         now = datetime.now(timezone.utc).isoformat()
+        if graph_project_ids:
+            with sqlite3.connect(config.context_db_path) as count_conn:
+                total_records = int(
+                    count_conn.execute(
+                        f"""SELECT COUNT(1)
+                            FROM records
+                            WHERE status = 'active'
+                              AND valid_from <= ?
+                              AND (valid_until IS NULL OR valid_until >= ?)
+                              AND project_id IN ({_placeholders(graph_project_ids)})""",
+                        [now, now, *graph_project_ids],
+                    ).fetchone()[0]
+                    or 0
+                )
+        else:
+            total_records = 0
         if graph_project_ids:
             project_placeholder_sql = _placeholders(graph_project_ids)
             node_project_sql = f" AND cn.project_id IN ({project_placeholder_sql})"
-            edge_project_sql = f" AND ce.project_id IN ({project_placeholder_sql})"
+            edge_project_sql = (
+                f" AND ce.project_id IN ({project_placeholder_sql})"
+                f" AND scn.project_id IN ({project_placeholder_sql})"
+                f" AND tcn.project_id IN ({project_placeholder_sql})"
+                " AND scn.status = 'active'"
+                " AND tcn.status = 'active'"
+            )
+            edge_project_params = [*graph_project_ids, *graph_project_ids, *graph_project_ids]
         else:
             node_project_sql = " AND 1 = 0"
             edge_project_sql = " AND 1 = 0"
+            edge_project_params = []
         current_node_sql = """cn.status = 'active'
                   AND r.status = 'active'
                   AND r.valid_from <= ?
@@ -1429,6 +1673,46 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
         edge_current_params = [now, now, now, now]
         with sqlite3.connect(config.context_db_path) as conn:
             conn.row_factory = sqlite3.Row
+            table_names = {
+                row["name"]
+                for row in conn.execute(
+                    """SELECT name FROM sqlite_master
+                       WHERE type IN ('table', 'view')
+                         AND name IN ('context_nodes', 'context_edges')"""
+                ).fetchall()
+            }
+            if {"context_nodes", "context_edges"} - table_names:
+                fallback_rows = conn.execute(
+                    f"""SELECT record_id, kind, record_role, role_payload, title, body,
+                              scope_label, status, created_at, updated_at
+                       FROM records
+                       WHERE status = 'active'
+                         AND valid_from <= ?
+                         AND (valid_until IS NULL OR valid_until >= ?)
+                         AND project_id IN ({project_placeholder_sql})
+                       ORDER BY updated_at DESC
+                       LIMIT ?""",
+                    [now, now, *graph_project_ids, max_nodes],
+                ).fetchall() if graph_project_ids else []
+                self._json({
+                    "nodes": [_graph_record_fallback_payload(row) for row in fallback_rows],
+                    "edges": [],
+                    "total_records": total_records,
+                    "matching_records": total_records,
+                    "selected_project": selected_project or "",
+                    "project_id": project_id or "",
+                    "returned_nodes": len(fallback_rows),
+                    "returned_edges": 0,
+                    "truncated": total_records > len(fallback_rows),
+                    "dropped_edge_count": 0,
+                    "graph_node_count": 0,
+                    "active_edge_count": 0,
+                    "connected_node_count": 0,
+                    "projection_ready": False,
+                    "used_record_fallback": bool(fallback_rows),
+                    "graph_mode": "record_fallback" if fallback_rows else "empty",
+                })
+                return
             graph_node_count = int(
                 conn.execute(
                     f"""SELECT COUNT(1)
@@ -1443,10 +1727,12 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 conn.execute(
                     f"""SELECT COUNT(1)
                         FROM context_edges ce
+                        JOIN context_nodes scn ON scn.node_id = ce.source_node_id
+                        JOIN context_nodes tcn ON tcn.node_id = ce.target_node_id
                         JOIN records sr ON sr.record_id = ce.source_node_id
                         JOIN records tr ON tr.record_id = ce.target_node_id
                         WHERE {current_edge_sql}{edge_project_sql}""",
-                    [*edge_current_params, *graph_project_ids],
+                    [*edge_current_params, *edge_project_params],
                 ).fetchone()[0]
                 or 0
             )
@@ -1455,39 +1741,56 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                     f"""SELECT COUNT(DISTINCT node_id) FROM (
                         SELECT ce.source_node_id AS node_id
                         FROM context_edges ce
+                        JOIN context_nodes scn ON scn.node_id = ce.source_node_id
+                        JOIN context_nodes tcn ON tcn.node_id = ce.target_node_id
                         JOIN records sr ON sr.record_id = ce.source_node_id
                         JOIN records tr ON tr.record_id = ce.target_node_id
                         WHERE {current_edge_sql}{edge_project_sql}
                         UNION
                         SELECT ce.target_node_id AS node_id
                         FROM context_edges ce
+                        JOIN context_nodes scn ON scn.node_id = ce.source_node_id
+                        JOIN context_nodes tcn ON tcn.node_id = ce.target_node_id
                         JOIN records sr ON sr.record_id = ce.source_node_id
                         JOIN records tr ON tr.record_id = ce.target_node_id
                         WHERE {current_edge_sql}{edge_project_sql}
                     )""",
                     [
                         *edge_current_params,
-                        *graph_project_ids,
+                        *edge_project_params,
                         *edge_current_params,
-                        *graph_project_ids,
+                        *edge_project_params,
                     ],
                 ).fetchone()[0]
                 or 0
             )
             if graph_node_count == 0:
+                fallback_rows = conn.execute(
+                    f"""SELECT record_id, kind, record_role, role_payload, title, body,
+                              scope_label, status, created_at, updated_at
+                       FROM records
+                       WHERE status = 'active'
+                         AND valid_from <= ?
+                         AND (valid_until IS NULL OR valid_until >= ?)
+                         AND project_id IN ({project_placeholder_sql})
+                       ORDER BY updated_at DESC
+                       LIMIT ?""",
+                    [now, now, *graph_project_ids, max_nodes],
+                ).fetchall() if graph_project_ids else []
                 self._json({
-                    "nodes": [],
+                    "nodes": [_graph_record_fallback_payload(row) for row in fallback_rows],
                     "edges": [],
                     "total_records": total_records,
                     "selected_project": selected_project or "",
                     "project_id": project_id or "",
-                    "returned_nodes": 0,
+                    "returned_nodes": len(fallback_rows),
                     "returned_edges": 0,
                     "graph_node_count": graph_node_count,
                     "active_edge_count": active_edge_count,
                     "connected_node_count": connected_node_count,
                     "projection_ready": False,
-                    "graph_mode": "empty",
+                    "used_record_fallback": bool(fallback_rows),
+                    "graph_mode": "record_fallback" if fallback_rows else "empty",
                 })
                 return
             edge_rows = conn.execute(
@@ -1495,15 +1798,18 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                           ce.relation_kind, ce.label, ce.rationale,
                           ce.evidence_record_ids, ce.confidence, ce.status
                    FROM context_edges ce
+                   JOIN context_nodes scn ON scn.node_id = ce.source_node_id
+                   JOIN context_nodes tcn ON tcn.node_id = ce.target_node_id
                    JOIN records sr ON sr.record_id = ce.source_node_id
                    JOIN records tr ON tr.record_id = ce.target_node_id
                    WHERE {current_edge_sql}{edge_project_sql}
                    ORDER BY ce.confidence DESC, ce.updated_at DESC
                    LIMIT ?""",
-                (*edge_current_params, *graph_project_ids, max_edges),
+                (*edge_current_params, *edge_project_params, max_edges),
             ).fetchall()
             selected_ids: list[str] = []
             seen_ids: set[str] = set()
+            fallback_rows: list[sqlite3.Row] = []
             for row in edge_rows:
                 for node_id in (row["source_node_id"], row["target_node_id"]):
                     if node_id not in seen_ids:
@@ -1549,38 +1855,60 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 return
             node_rows = conn.execute(
                 f"""SELECT cn.node_id, cn.node_type, COALESCE(r.kind, cn.node_type) AS record_kind,
-                          COALESCE(r.record_role, 'general') AS record_role, r.role_payload,
-                          cn.label, cn.summary, cn.status, cn.semantic_cluster,
-                          cn.scope_label, cn.created_at, cn.updated_at
-                   FROM context_nodes cn
-                   JOIN records r ON r.record_id = cn.node_id
-                   WHERE {current_node_sql}{node_project_sql}
-                     AND cn.node_id IN ({_placeholders(selected_ids)})""",
+	                          COALESCE(r.record_role, 'general') AS record_role, r.role_payload,
+	                          cn.label, cn.summary, cn.status, cn.semantic_cluster,
+	                          cn.scope_label, cn.created_at, cn.updated_at
+	                   FROM context_nodes cn
+	                   JOIN records r ON r.record_id = cn.node_id
+	                   WHERE {current_node_sql}{node_project_sql}
+	                     AND cn.node_id IN ({_placeholders(selected_ids)})""",
                 [*node_current_params, *graph_project_ids, *selected_ids],
             ).fetchall()
             selected_set = {row["node_id"] for row in node_rows}
+            remaining = max_nodes - len(node_rows)
+            if remaining > 0 and not connected_only:
+                fallback_rows = conn.execute(
+                    f"""SELECT r.record_id, r.kind, r.record_role, r.role_payload, r.title, r.body,
+                              r.scope_label, r.status, r.created_at, r.updated_at
+                       FROM records r
+                       WHERE r.status = 'active'
+                         AND r.valid_from <= ?
+                         AND (r.valid_until IS NULL OR r.valid_until >= ?)
+                         AND r.project_id IN ({project_placeholder_sql})
+                         AND NOT EXISTS (
+                             SELECT 1 FROM context_nodes cn
+                             WHERE cn.node_id = r.record_id
+                               AND cn.status = 'active'
+                               AND cn.project_id IN ({project_placeholder_sql})
+                         )
+                       ORDER BY r.updated_at DESC
+                       LIMIT ?""",
+                    [now, now, *graph_project_ids, *graph_project_ids, remaining],
+                ).fetchall()
             returned_edges = [
                 row
                 for row in edge_rows
                 if row["source_node_id"] in selected_set and row["target_node_id"] in selected_set
             ]
+        nodes = [_graph_node_payload(row) for row in node_rows]
+        nodes.extend(_graph_record_fallback_payload(row) for row in fallback_rows)
         self._json({
-            "nodes": [_graph_node_payload(row) for row in node_rows],
+            "nodes": nodes,
             "edges": [_graph_edge_payload(row) for row in returned_edges],
             "total_records": total_records,
             "matching_records": total_records,
             "selected_project": selected_project or "",
             "project_id": project_id or "",
-            "returned_nodes": len(node_rows),
+            "returned_nodes": len(nodes),
             "returned_edges": len(returned_edges),
-            "truncated": graph_node_count > len(node_rows),
+            "truncated": total_records > len(nodes),
             "dropped_edge_count": max(0, active_edge_count - len(returned_edges)),
             "graph_node_count": graph_node_count,
             "active_edge_count": active_edge_count,
             "connected_node_count": connected_node_count,
             "projection_ready": active_edge_count > 0,
-            "used_record_fallback": False,
-            "graph_mode": "learned_graph" if returned_edges else "record_fallback",
+            "used_record_fallback": bool(fallback_rows),
+            "graph_mode": "mixed_graph" if fallback_rows else "learned_graph",
         })
 
     def _handle_api_get(self, path: str, query: dict[str, list[str]]) -> None:
@@ -1623,9 +1951,13 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
             return
         if path == "/api/records/filters":
             project = _query_param(query, "project") or None
-            payload = api_record_filters(project=project)
+            status_f = _query_param(query, "status") or None
+            payload = api_record_filters(project=project, status=status_f)
             status = int(payload.pop("status_code", HTTPStatus.OK))
             self._json(payload, status=status)
+            return
+        if path == "/api/logs":
+            self._api_logs(query)
             return
         if path.startswith("/api/records/"):
             try:
@@ -1692,7 +2024,11 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 f"Failed to save config: {exc}",
             )
 
-    def _handle_api_post(self, path: str) -> None:
+    def _handle_api_post(
+        self,
+        path: str,
+        query: dict[str, list[str]] | None = None,
+    ) -> None:
         """Dispatch POST API routes to supported actions."""
         def read_body() -> dict[str, Any] | None:
             try:
@@ -1755,8 +2091,33 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 )
             return
         if path == "/api/graph/query":
+            body = read_body()
+            if body is None:
+                return
+            query_project = _query_param(query or {}, "project").strip()
+            body_project = str(body.get("project") or "").strip()
+            if query_project:
+                if body_project:
+                    config = get_config()
+                    try:
+                        _query_name, _query_path, query_project_id = _dashboard_project_scope(
+                            config, query_project
+                        )
+                        _body_name, _body_path, body_project_id = _dashboard_project_scope(
+                            config, body_project
+                        )
+                    except ValueError as exc:
+                        self._error(HTTPStatus.BAD_REQUEST, str(exc))
+                        return
+                    if body_project_id != query_project_id:
+                        self._error(
+                            HTTPStatus.BAD_REQUEST,
+                            "Conflicting graph project in query string and JSON body",
+                        )
+                        return
+                body["project"] = query_project
             try:
-                self._api_graph_query()
+                self._api_graph_query(body)
             except ValueError as exc:
                 self._error(HTTPStatus.BAD_REQUEST, str(exc))
             except sqlite3.Error as exc:
@@ -1784,6 +2145,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 "updated_since",
                 "updated_until",
                 "valid_at",
+                "q",
                 "order_by",
                 "limit",
                 "offset",
@@ -1817,6 +2179,7 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
                 updated_since=str(body.get("updated_since") or "").strip() or None,
                 updated_until=str(body.get("updated_until") or "").strip() or None,
                 valid_at=str(body.get("valid_at") or "").strip() or None,
+                query_text=str(body.get("q") or "").strip() or None,
                 order_by=str(body.get("order_by") or "created_at"),
                 limit=limit,
                 offset=offset,
@@ -1999,7 +2362,8 @@ SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1{where_sql}"""
     def do_POST(self) -> None:  # noqa: N802
         """Serve read-only POST API endpoints."""
         parsed = urlparse(self.path)
-        self._handle_api_post(parsed.path or "/")
+        query = parse_qs(parsed.query or "", keep_blank_values=True)
+        self._handle_api_post(parsed.path or "/", query)
 
     def do_PUT(self) -> None:  # noqa: N802
         """Reject mutating PUT requests in read-only dashboard mode."""

@@ -315,7 +315,6 @@ def project_record_counts(config: Config, project_path: Path) -> dict[str, int]:
     """Count active, archived, and total records for one registered project."""
     store = _context_store(config)
     identity = resolve_project_identity(project_path)
-    store.register_project(identity)
     active_payload = store.query(
         entity="records",
         mode="count",
@@ -443,7 +442,9 @@ def api_answer(
     """Run one answer query against the runtime agent and return result dict."""
     config = get_config()
     selected_projects: list[tuple[str, Path]] = []
-    normalized_scope = "project" if str(scope).strip().lower() == "project" else "all"
+    normalized_scope = (
+        "project" if project or str(scope).strip().lower() == "project" else "all"
+    )
     try:
         selected_projects = _resolve_selected_projects(
             config=config,
@@ -459,6 +460,16 @@ def api_answer(
             "cost_usd": 0.0,
         }
 
+    if normalized_scope == "project" and not selected_projects:
+        return {
+            "answer": "No registered project is selected for project-scoped answering.",
+            "agent_session_id": "",
+            "projects_used": [],
+            "error": False,
+            "cost_usd": 0.0,
+            "scope": normalized_scope,
+        }
+
     agent = LerimRuntime()
     project_ids: list[str] = []
     repo_root: str | Path | None = None
@@ -470,7 +481,7 @@ def api_answer(
         repo_root = selected_projects[0][1]
     response, session_id, cost_usd, debug = agent.answer(
         question,
-        project_ids=project_ids or None,
+        project_ids=project_ids,
         repo_root=repo_root,
         include_debug=bool(verbose),
     )
@@ -504,6 +515,7 @@ def api_query(
     updated_since: str | None = None,
     updated_until: str | None = None,
     valid_at: str | None = None,
+    query_text: str | None = None,
     order_by: str = "created_at",
     limit: int = 20,
     offset: int = 0,
@@ -511,7 +523,9 @@ def api_query(
 ) -> dict[str, Any]:
     """Run one deterministic context query against the canonical context store."""
     config = get_config()
-    normalized_scope = "project" if str(scope).strip().lower() == "project" else "all"
+    normalized_scope = (
+        "project" if project or str(scope).strip().lower() == "project" else "all"
+    )
     normalized_status = str(status or "").strip().lower()
     normalized_entity = str(entity or "").strip().lower()
     include_archived = normalized_entity == "records" and normalized_status == "all"
@@ -534,7 +548,6 @@ def api_query(
     project_ids: list[str] = []
     for _name, path in selected_projects:
         identity = resolve_project_identity(path)
-        store.register_project(identity)
         project_ids.append(identity.project_id)
 
     try:
@@ -552,6 +565,7 @@ def api_query(
             updated_since=updated_since,
             updated_until=updated_until,
             valid_at=valid_at,
+            query_text=query_text,
             order_by=order_by,
             limit=limit,
             offset=offset,
@@ -580,7 +594,10 @@ def api_query(
     }
 
 
-def api_record_filters(project: str | None = None) -> dict[str, Any]:
+def api_record_filters(
+    project: str | None = None,
+    status: str | None = None,
+) -> dict[str, Any]:
     """Return complete distinct record filter options for the dashboard."""
     config = get_config()
     store = _context_store(config)
@@ -603,49 +620,57 @@ def api_record_filters(project: str | None = None) -> dict[str, Any]:
     project_ids: list[str] = []
     for _name, path in selected_projects:
         identity = resolve_project_identity(path)
-        store.register_project(identity)
         project_ids.append(identity.project_id)
     if not project_ids:
         return {"types": [], "roles": [], "projects": [], "error": False}
     placeholders = ", ".join("?" for _ in project_ids)
     now = datetime.now(timezone.utc).isoformat()
-    active_current_sql = (
-        "status = 'active' AND valid_from <= ? "
-        "AND (valid_until IS NULL OR valid_until >= ?)"
-    )
-    active_params = (now, now, *project_ids)
+    normalized_status = str(status or "active").strip().lower()
+    if normalized_status == "archived":
+        record_state_sql = "status = 'archived'"
+        state_params: tuple[Any, ...] = ()
+    elif normalized_status == "all":
+        record_state_sql = "1=1"
+        state_params = ()
+    else:
+        record_state_sql = (
+            "status = 'active' AND valid_from <= ? "
+            "AND (valid_until IS NULL OR valid_until >= ?)"
+        )
+        state_params = (now, now)
+    query_params = (*state_params, *project_ids)
     with store.connect() as conn:
         kind_rows = conn.execute(
             f"""
             SELECT DISTINCT kind AS value
             FROM records
-            WHERE {active_current_sql}
+            WHERE {record_state_sql}
               AND project_id IN ({placeholders})
               AND COALESCE(TRIM(kind), '') != ''
             ORDER BY kind ASC
             """,
-            active_params,
+            query_params,
         ).fetchall()
         role_rows = conn.execute(
             f"""
             SELECT DISTINCT COALESCE(record_role, 'general') AS value
             FROM records
-            WHERE {active_current_sql}
+            WHERE {record_state_sql}
               AND project_id IN ({placeholders})
               AND COALESCE(TRIM(record_role), '') != ''
             ORDER BY value ASC
             """,
-            active_params,
+            query_params,
         ).fetchall()
         project_rows = conn.execute(
             f"""
             SELECT DISTINCT project_id AS value
             FROM records
-            WHERE {active_current_sql}
+            WHERE {record_state_sql}
               AND project_id IN ({placeholders})
             ORDER BY value ASC
             """,
-            active_params,
+            query_params,
         ).fetchall()
     project_names_by_id = {
         resolve_project_identity(path).project_id: name for name, path in selected_projects
@@ -1060,34 +1085,43 @@ def _recent_activity(
     allowed_projects: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return normalized recent service activity for status UI."""
-    rows = list_service_runs(limit=max(1, int(limit)))
+    page_limit = max(1, int(limit))
+    rows = list_service_runs(limit=page_limit)
     items: list[dict[str, Any]] = []
     if allowed_projects:
-        for run in rows:
-            details = run.get("details") if isinstance(run.get("details"), dict) else {}
-            projects_metrics = (
-                details.get("projects_metrics")
-                if isinstance(details.get("projects_metrics"), dict)
-                else {}
-            )
-            matched = sorted(
-                name for name in allowed_projects if name in projects_metrics
-            )
-            if matched:
-                items.extend(_normalize_activity_item(run, name) for name in matched)
-                continue
-            item = _normalize_activity_item(run)
-            projects = item.get("projects")
-            if isinstance(projects, list) and any(
-                str(name) in allowed_projects for name in projects
-            ):
-                items.append(item)
-            elif item.get("project_label") in allowed_projects:
-                items.append(item)
+        offset = 0
+        while rows and len(items) < page_limit:
+            for run in rows:
+                details = (
+                    run.get("details") if isinstance(run.get("details"), dict) else {}
+                )
+                projects_metrics = (
+                    details.get("projects_metrics")
+                    if isinstance(details.get("projects_metrics"), dict)
+                    else {}
+                )
+                matched = sorted(
+                    name for name in allowed_projects if name in projects_metrics
+                )
+                if matched:
+                    items.extend(_normalize_activity_item(run, name) for name in matched)
+                    continue
+                item = _normalize_activity_item(run)
+                projects = item.get("projects")
+                if isinstance(projects, list) and any(
+                    str(name) in allowed_projects for name in projects
+                ):
+                    items.append(item)
+                elif item.get("project_label") in allowed_projects:
+                    items.append(item)
+            offset += len(rows)
+            if len(items) >= page_limit or len(rows) < page_limit:
+                break
+            rows = list_service_runs(limit=page_limit, offset=offset)
     else:
         items = [_normalize_activity_item(run) for run in rows]
     items = [item for item in items if not _is_empty_activity_item(item)]
-    return items
+    return items[:page_limit]
 
 
 def _latest_activity_payload(
@@ -1293,7 +1327,11 @@ def api_status(
 ) -> dict[str, Any]:
     """Return runtime status summary."""
     config = get_config()
-    normalized_scope = "project" if str(scope).strip().lower() == "project" else "all"
+    normalized_scope = (
+        "project"
+        if project or str(scope).strip().lower() == "project"
+        else "all"
+    )
     try:
         selected_projects = _resolve_selected_projects(
             config=config,

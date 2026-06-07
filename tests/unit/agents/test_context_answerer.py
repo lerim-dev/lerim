@@ -132,6 +132,55 @@ class TestRunAnswerSignature:
         assert result.answer == "There is 1 active decision."
         assert result.supporting_record_ids == []
 
+    def test_empty_project_ids_do_not_fallback_to_project_identity(self, tmp_path):
+        identity = ProjectIdentity(
+            project_id="proj_abc",
+            project_slug="test",
+            repo_path=tmp_path,
+        )
+        store = ContextStore(tmp_path / "context.sqlite3")
+        store.initialize()
+        store.register_project(identity)
+        store.create_record(
+            project_id=identity.project_id,
+            session_id=None,
+            kind="decision",
+            title="Scoped decision",
+            body="This record must not leak into an empty project selection.",
+            decision="Keep explicit empty project selections empty.",
+            why="Empty project selections must not fall back to the project identity.",
+        )
+
+        class FakeModelSteps:
+            def PlanContextRetrieval(self, **_kwargs):
+                return {
+                    "actions": [
+                        {
+                            "action_type": "count",
+                            "kind": "decision",
+                            "status": "active",
+                            "rationale": "Count active decisions.",
+                        }
+                    ],
+                    "rationale": "Use exact count.",
+                }
+
+            def AnswerFromContext(self, **kwargs):
+                retrieval = json.loads(kwargs["retrieval_json"])
+                count = retrieval["results"][0]["count"]
+                return {"answer": f"There are {count} active decisions."}
+
+        result = run_context_answerer(
+            context_db_path=tmp_path / "context.sqlite3",
+            project_identity=identity,
+            project_ids=[],
+            session_id="sess_empty_scope",
+            question="what decisions exist?",
+            steps=_pipeline_steps(FakeModelSteps()),
+        )
+
+        assert result.answer == "There are 0 active decisions."
+
     def test_retries_search_plan_without_query(self, tmp_path):
         identity = ProjectIdentity(
             project_id="proj_abc",
@@ -419,5 +468,7 @@ class TestRunAnswerSignature:
             "retrieval",
             "model_step",
         ]
+        assert events[0]["function"] == "PlanContextRetrieval"
+        assert events[-1]["function"] == "AnswerFromContext"
         assert events[1]["action_type"] == "list"
         assert events[-1]["supporting_record_ids"] == []

@@ -2252,6 +2252,7 @@ class ContextStore:
         updated_since: str | None = None,
         updated_until: str | None = None,
         valid_at: str | None = None,
+        query_text: str | None = None,
         order_by: str = "created_at",
         limit: int = 20,
         offset: int = 0,
@@ -2276,6 +2277,7 @@ class ContextStore:
             record_role=record_role,
             source_profile=source_profile,
             status=status,
+            query_text=query_text,
             updated_since=updated_since,
             updated_until=updated_until,
             valid_at=valid_at,
@@ -2300,6 +2302,7 @@ class ContextStore:
                 updated_since=updated_since,
                 updated_until=updated_until,
                 valid_at=valid_at,
+                query_text=query_text,
                 order_by=order_field,
                 limit=limit,
                 offset=offset,
@@ -2345,6 +2348,7 @@ class ContextStore:
         record_role: str | None,
         source_profile: str | None = None,
         status: str | None,
+        query_text: str | None,
         updated_since: str | None,
         updated_until: str | None,
         valid_at: str | None,
@@ -2360,6 +2364,7 @@ class ContextStore:
                     ("record_role", record_role),
                     ("status", status),
                     ("source_profile", source_profile),
+                    ("query_text", query_text),
                     ("updated_since", updated_since),
                     ("updated_until", updated_until),
                     ("valid_at", valid_at),
@@ -2368,6 +2373,8 @@ class ContextStore:
             )
         if entity_name in {"sessions", "versions"} and include_archived is not None:
             unsupported.append("include_archived")
+        if entity_name == "versions" and query_text is not None:
+            unsupported.append("query_text")
         return unsupported
 
     def _query_records(
@@ -2385,12 +2392,14 @@ class ContextStore:
         updated_since: str | None,
         updated_until: str | None,
         valid_at: str | None,
+        query_text: str | None,
         order_by: str,
         limit: int,
         offset: int,
         include_total: bool,
         include_archived: bool,
     ) -> dict[str, Any]:
+        compiled_query = retrieval.compile_safe_fts_query(query_text or "")
         filter_sql, params = self._build_record_filter_sql(
             project_ids=project_ids,
             kind_filters=[kind] if kind else None,
@@ -2404,26 +2413,54 @@ class ContextStore:
             updated_until=updated_until,
             valid_at=valid_at,
             include_archived=include_archived,
-            table_alias="",
+            table_alias="records" if compiled_query else "",
         )
         with self.connect() as conn:
+            if compiled_query:
+                self._prepare_search_fts(conn)
             total = None
             if include_total or mode == "count":
-                total = int(
-                    conn.execute(f"SELECT COUNT(1) AS total FROM records WHERE {filter_sql}", tuple(params)).fetchone()["total"]
-                )
+                if compiled_query:
+                    total = int(
+                        conn.execute(
+                            f"""
+                            SELECT COUNT(1) AS total
+                            FROM records_fts
+                            JOIN records ON records.record_id = records_fts.record_id
+                            WHERE records_fts MATCH ? AND {filter_sql}
+                            """,
+                            tuple([compiled_query] + params),
+                        ).fetchone()["total"]
+                    )
+                else:
+                    total = int(
+                        conn.execute(f"SELECT COUNT(1) AS total FROM records WHERE {filter_sql}", tuple(params)).fetchone()["total"]
+                    )
             if mode == "count":
                 return {"entity": "records", "mode": "count", "count": int(total or 0)}
-            rows = conn.execute(
-                f"""
-                SELECT *
-                FROM records
-                WHERE {filter_sql}
-                ORDER BY {order_by} DESC, record_id DESC
-                LIMIT ? OFFSET ?
-                """,
-                tuple(params + [max(1, int(limit)), max(0, int(offset))]),
-            ).fetchall()
+            if compiled_query:
+                rows = conn.execute(
+                    f"""
+                    SELECT records.*
+                    FROM records_fts
+                    JOIN records ON records.record_id = records_fts.record_id
+                    WHERE records_fts MATCH ? AND {filter_sql}
+                    ORDER BY bm25(records_fts) ASC, records.{order_by} DESC, records.record_id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    tuple([compiled_query] + params + [max(1, int(limit)), max(0, int(offset))]),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    f"""
+                    SELECT *
+                    FROM records
+                    WHERE {filter_sql}
+                    ORDER BY {order_by} DESC, record_id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    tuple(params + [max(1, int(limit)), max(0, int(offset))]),
+                ).fetchall()
         return {
             "entity": "records",
             "mode": "list",

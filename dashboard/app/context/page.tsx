@@ -1,12 +1,15 @@
 "use client";
 
 import { Suspense, useEffect, useState, useCallback, useRef } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useProjectScope } from "@/lib/projectScope";
 import { formatRecordKind, formatRecordRole, formatScopeLabel } from "@/lib/labels";
 import type { ContextRecord, IntelligenceResponse } from "@/lib/types";
 import RecordEditor from "@/components/RecordEditor";
 import ProjectScope from "@/components/ProjectScope";
+
+const RECORD_STATUS_FILTERS = ["active", "archived", "all"] as const;
 
 export default function ContextPage() {
 	return (
@@ -18,12 +21,20 @@ export default function ContextPage() {
 
 function ContextContent() {
 	/* ---- filter state ---- */
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	const search = searchParams.toString();
+	const requestedStatus = searchParams.get("status") || "active";
+	const urlStatus = RECORD_STATUS_FILTERS.includes(requestedStatus as typeof RECORD_STATUS_FILTERS[number])
+		? requestedStatus
+		: "active";
 	const [searchQuery, setSearchQuery] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
 	const { project, setProject } = useProjectScope();
 	const [selectedType, setSelectedType] = useState("");
 	const [selectedRole, setSelectedRole] = useState("");
-	const [statusFilter, setStatusFilter] = useState("active");
+	const [statusFilter, setStatusFilter] = useState(urlStatus);
 
 	/* ---- filter options from server ---- */
 	const [filterTypes, setFilterTypes] = useState<string[]>([]);
@@ -49,6 +60,25 @@ function ContextContent() {
 	const recordsSeqRef = useRef(0);
 	const intelSeqRef = useRef(0);
 
+	useEffect(() => {
+		setStatusFilter((current) => (current === urlStatus ? current : urlStatus));
+	}, [urlStatus]);
+
+	const setStatus = useCallback((nextStatus: string) => {
+		const normalized = RECORD_STATUS_FILTERS.includes(nextStatus as typeof RECORD_STATUS_FILTERS[number])
+			? nextStatus
+			: "active";
+		setStatusFilter(normalized);
+		const params = new URLSearchParams(search);
+		if (normalized === "active") {
+			params.delete("status");
+		} else {
+			params.set("status", normalized);
+		}
+		const query = params.toString();
+		router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+	}, [pathname, router, search]);
+
 	/* ---- debounce search ---- */
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	useEffect(() => {
@@ -66,7 +96,7 @@ function ContextContent() {
 		const seq = filtersSeqRef.current + 1;
 		filtersSeqRef.current = seq;
 		api
-			.getRecordFilters(project || undefined)
+			.getRecordFilters(project || undefined, statusFilter)
 			.then((f) => {
 				if (seq !== filtersSeqRef.current) return;
 				setFilterTypes(f.types);
@@ -82,7 +112,7 @@ function ContextContent() {
 					setSelectedRole("");
 				}
 			});
-	}, [project]);
+	}, [project, statusFilter]);
 
 	/* ---- load records ---- */
 	const load = useCallback(async () => {
@@ -173,7 +203,7 @@ function ContextContent() {
 					<select
 						aria-label="Record status"
 						value={statusFilter}
-						onChange={(e) => setStatusFilter(e.target.value)}
+						onChange={(e) => setStatus(e.target.value)}
 						className="min-h-9 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1.5 text-xs text-[var(--text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-blue)]"
 					>
 						<option value="active">Active</option>

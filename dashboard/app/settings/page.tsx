@@ -47,7 +47,12 @@ export default function SettingsPage() {
 
   return (
     <>
-      <h1 className="text-lg font-semibold text-[var(--text)]">Settings</h1>
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-lg font-semibold text-[var(--text)]">Settings</h1>
+        <span className="rounded-md bg-white/[0.06] px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+          Global
+        </span>
+      </div>
 
       <div className="mt-6 space-y-4">
         <section className="rounded-lg border border-[var(--border)] bg-[var(--bg-subtle)]">

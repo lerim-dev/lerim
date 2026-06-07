@@ -60,6 +60,7 @@ function toQuery(params?: Record<string, string>) {
 }
 
 function normalizeSession(run: Record<string, unknown>): Session {
+  const status = asNullableString(run.status);
   return {
     run_id: String(run.run_id || ""),
     agent_type: asNullableString(run.agent_type),
@@ -67,8 +68,8 @@ function normalizeSession(run: Record<string, unknown>): Session {
     source_trace_ref: asNullableString(run.session_path),
     project: asNullableString(run.project),
     start_time: asNullableString(run.started_at),
-    status: asNullableString(run.status),
-    processing_status: asNullableString(run.status),
+    status,
+    processing_status: asNullableString(run.processing_status) || status,
     duration_ms: asNullableNumber(run.duration_ms),
     message_count: asNumber(run.message_count),
     tool_call_count: asNumber(run.tool_call_count),
@@ -229,7 +230,21 @@ function normalizePipelineStatus(raw: Record<string, unknown>): PipelineStatusRe
     const projectQueue = objectValue(project.queue);
     return sum + asNumber(projectQueue.failed) + asNumber(projectQueue.dead_letter);
   }, 0);
+  const projectQueueTotal = projects.reduce((sum, project) => {
+    const projectQueue = objectValue(project.queue);
+    return sum
+      + asNumber(projectQueue.pending)
+      + asNumber(projectQueue.running)
+      + asNumber(projectQueue.done)
+      + asNumber(projectQueue.failed)
+      + asNumber(projectQueue.dead_letter);
+  }, 0);
   const queueErrors = asNumber(queue.failed) + asNumber(queue.dead_letter);
+  const queueTotal = asNumber(queue.pending)
+    + asNumber(queue.running)
+    + asNumber(queue.done)
+    + asNumber(queue.failed)
+    + asNumber(queue.dead_letter);
   const sessionTotal = asNumber(raw.sessions_indexed_count) || projectSessions;
   const activeRecordTotal = asNumber(raw.active_record_count) || asNumber(raw.record_count) || projectRecords;
   const recordTotal = asNumber(raw.total_record_count) || activeRecordTotal;
@@ -251,7 +266,7 @@ function normalizePipelineStatus(raw: Record<string, unknown>): PipelineStatusRe
       active: activeRecordTotal,
     },
     logs: {
-      total: 0,
+      total: projectScoped ? projectQueueTotal : queueTotal,
       errors: projectScoped ? queueErrors || projectErrors : queueErrors,
     },
   };
@@ -431,6 +446,7 @@ async function queryRecords(params?: Record<string, string>): Promise<RecordsRes
       record_role: params?.record_role || undefined,
       status: params?.status || undefined,
       source_session_id: params?.source_session_id || undefined,
+      q: params?.q || undefined,
       order_by: "updated_at",
       limit: Number(params?.limit || 200),
       offset: Number(params?.offset || 0),
@@ -491,6 +507,8 @@ export const api = {
       limit: params?.limit || "30",
       offset: params?.offset || "0",
     };
+    if (params?.sort) localParams.sort = params.sort;
+    if (params?.order) localParams.order = params.order;
     if (params?.agent_type) localParams.agent_type = params.agent_type;
     if (params?.repo) localParams.repo = params.repo;
     if (params?.processing_status) localParams.status = params.processing_status;
@@ -499,9 +517,13 @@ export const api = {
     throwIfCatalogUnavailable(raw);
     const sessions = arrayValue(raw.runs).map((run) => normalizeSession(objectValue(run)));
     const pagination = objectValue(raw.pagination);
+    const agentOptions = arrayValue(raw.agent_options)
+      .map((value) => asNullableString(value))
+      .filter((value): value is string => value != null);
     return {
       sessions,
       total: asNumber(pagination.total) || sessions.length,
+      agent_options: agentOptions,
     };
   },
 
@@ -540,6 +562,8 @@ export const api = {
       offset: params?.offset || "0",
       query: params?.q || "",
     };
+    if (params?.sort) localParams.sort = params.sort;
+    if (params?.order) localParams.order = params.order;
     if (params?.agent_type) localParams.agent_type = params.agent_type;
     if (params?.repo) localParams.repo = params.repo;
     if (params?.processing_status) localParams.status = params.processing_status;
@@ -548,14 +572,21 @@ export const api = {
     throwIfCatalogUnavailable(raw);
     const sessions = arrayValue(raw.results).map((run) => normalizeSession(objectValue(run)));
     const pagination = objectValue(raw.pagination);
+    const agentOptions = arrayValue(raw.agent_options)
+      .map((value) => asNullableString(value))
+      .filter((value): value is string => value != null);
     return {
       sessions,
       total: asNumber(pagination.total) || sessions.length,
+      agent_options: agentOptions,
     } satisfies SessionsResponse;
   },
 
-  getRecordFilters: async (project?: string): Promise<RecordFiltersResponse> => {
-    const qs = project ? toQuery({ project }) : "";
+  getRecordFilters: async (project?: string, status?: string): Promise<RecordFiltersResponse> => {
+    const params: Record<string, string> = {};
+    if (project) params.project = project;
+    if (status) params.status = status;
+    const qs = toQuery(params);
     return apiFetch<RecordFiltersResponse>(`/api/records/filters${qs}`);
   },
 
@@ -628,7 +659,14 @@ export const api = {
     });
   },
 
-  getLogs: async (_params?: Record<string, string>): Promise<LogsResponse> => ({ logs: [], total: 0 }),
+  getLogs: async (params?: Record<string, string>): Promise<LogsResponse> => {
+    const query = toQuery(
+      Object.fromEntries(
+        Object.entries(params || {}).filter(([, value]) => value != null && value !== ""),
+      ),
+    );
+    return apiFetch<LogsResponse>(`/api/logs${query}`);
+  },
 
   getPipelineStatus: async (project?: string) => {
     const qs = project ? toQuery({ scope: "project", project }) : "";
@@ -681,7 +719,7 @@ export const api = {
     const qs = project ? toQuery({ scope: "project", project }) : "";
     const [status, records] = await Promise.all([
       apiFetch<Record<string, unknown>>(`/api/status${qs}`),
-      queryRecords(project ? { limit: "500", project } : { limit: "500" }),
+      queryRecords(project ? { limit: "500", project, status: "all" } : { limit: "500", status: "all" }),
     ]);
     return normalizeIntelligence(status, records.records);
   },

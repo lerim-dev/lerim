@@ -149,17 +149,19 @@ def _init_test_db(db_path: Path) -> None:
 			)
 		""")
         conn.execute("""
-			CREATE TABLE IF NOT EXISTS session_jobs (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				run_id TEXT UNIQUE,
-				status TEXT DEFAULT 'pending',
-				project TEXT,
-				attempts INTEGER DEFAULT 0,
-				last_error TEXT,
-				created_at TEXT,
-				updated_at TEXT
-			)
-		""")
+				CREATE TABLE IF NOT EXISTS session_jobs (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					run_id TEXT,
+					job_type TEXT DEFAULT 'extract',
+					status TEXT DEFAULT 'pending',
+					project TEXT,
+					attempts INTEGER DEFAULT 0,
+					last_error TEXT,
+					created_at TEXT,
+					updated_at TEXT,
+					UNIQUE(run_id, job_type)
+				)
+			""")
         conn.execute("""
 			CREATE TABLE IF NOT EXISTS service_runs (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -254,14 +256,14 @@ def _seed_jobs(db_path: Path) -> None:
     """Insert sample job queue rows into the test DB."""
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            """INSERT INTO session_jobs (run_id, status, project, attempts, created_at)
-			VALUES (?, ?, ?, ?, ?)""",
-            ("run-0000", "pending", "myproject", 0, "2026-03-20T10:00:00Z"),
+            """INSERT INTO session_jobs (run_id, job_type, status, project, attempts, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)""",
+            ("run-0000", "extract", "pending", "myproject", 0, "2026-03-20T10:00:00Z"),
         )
         conn.execute(
-            """INSERT INTO session_jobs (run_id, status, project, attempts, created_at)
-			VALUES (?, ?, ?, ?, ?)""",
-            ("run-0001", "dead_letter", "myproject", 3, "2026-03-20T10:00:00Z"),
+            """INSERT INTO session_jobs (run_id, job_type, status, project, attempts, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)""",
+            ("run-0001", "extract", "dead_letter", "myproject", 3, "2026-03-20T10:00:00Z"),
         )
 
 
@@ -413,8 +415,9 @@ def _seed_single_graph_record(
     project_name: str,
     record_id: str,
     title: str,
+    with_node: bool = True,
 ) -> None:
-    """Insert one graph node for a registered test project."""
+    """Insert one active record, optionally with a graph node projection."""
     ContextStore(db_path).initialize()
     now = "2026-03-20T10:00:00Z"
     identity = resolve_project_identity(project_path)
@@ -460,26 +463,49 @@ def _seed_single_graph_record(
                 now,
             ),
         )
-        conn.execute(
-            """INSERT INTO context_nodes (
-                node_id, project_id, scope_type, scope_id, scope_label, node_type,
-                label, summary, status, semantic_cluster, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                record_id,
-                identity.project_id,
-                "project",
-                identity.project_id,
-                project_name,
-                "fact",
-                title,
-                f"{title} summary",
-                "active",
-                "semantic_dashboard",
-                now,
-                now,
-            ),
-        )
+        if with_node:
+            conn.execute(
+                """INSERT INTO context_nodes (
+                    node_id, project_id, scope_type, scope_id, scope_label, node_type,
+                    label, summary, status, semantic_cluster, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    record_id,
+                    identity.project_id,
+                    "project",
+                    identity.project_id,
+                    project_name,
+                    "fact",
+                    title,
+                    f"{title} summary",
+                    "active",
+                    "semantic_dashboard",
+                    now,
+                    now,
+                ),
+            )
+
+
+def _project_timestamps(db_path: Path) -> dict[tuple[str, str], str]:
+    """Return project/scope updated_at values for read-only mutation checks."""
+    with sqlite3.connect(db_path) as conn:
+        project_rows = conn.execute(
+            "SELECT project_id, updated_at FROM projects ORDER BY project_id"
+        ).fetchall()
+        scope_rows = conn.execute(
+            "SELECT scope_type, scope_id, updated_at FROM scopes ORDER BY scope_type, scope_id"
+        ).fetchall()
+    result = {
+        ("projects", str(row[0])): str(row[1])
+        for row in project_rows
+    }
+    result.update(
+        {
+            (f"scopes:{row[0]}", str(row[1])): str(row[2])
+            for row in scope_rows
+        }
+    )
+    return result
 
 
 def _write_dashboard_trace(path: Path) -> None:
@@ -895,6 +921,120 @@ def test_get_runs_filters_registered_project(test_server):
     assert {run["project"] for run in body["runs"]} == {"myproject"}
 
 
+def test_get_runs_returns_agent_options_for_full_filtered_window(test_server):
+    """GET /api/runs agent options are not limited to the current page."""
+    port, config, tmp_path = test_server
+    with sqlite3.connect(config.sessions_db_path) as conn:
+        conn.execute(
+            """INSERT INTO session_docs
+               (run_id, agent_type, repo_name, repo_path, start_time, status,
+                duration_ms, message_count, tool_call_count, error_count,
+                total_tokens, summary_text, session_path, indexed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "codex-agent-run",
+                "codex",
+                "myrepo",
+                str(tmp_path / "myproject"),
+                "2026-03-30T10:00:00Z",
+                "completed",
+                1000,
+                1,
+                0,
+                0,
+                100,
+                "Codex run",
+                "",
+                "2026-03-30T10:00:00Z",
+            ),
+        )
+
+    status, body = _api_get(port, "/api/runs?scope=all&project=myproject&limit=1")
+
+    assert status == 200
+    assert len(body["runs"]) == 1
+    assert body["pagination"]["total"] == 5
+    assert body["agent_options"] == ["claude", "codex"]
+
+
+def test_get_search_returns_agent_options_for_full_filtered_window(test_server):
+    """GET /api/search agent options are not limited to the current page."""
+    port, config, tmp_path = test_server
+    with sqlite3.connect(config.sessions_db_path) as conn:
+        cursor = conn.execute(
+            """INSERT INTO session_docs
+               (run_id, agent_type, repo_name, repo_path, start_time, status,
+                duration_ms, message_count, tool_call_count, error_count,
+                total_tokens, summary_text, session_path, indexed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "codex-search-run",
+                "codex",
+                "myrepo",
+                str(tmp_path / "myproject"),
+                "2026-03-30T10:00:00Z",
+                "completed",
+                1000,
+                1,
+                0,
+                0,
+                100,
+                "Summary for codex search",
+                "",
+                "2026-03-30T10:00:00Z",
+            ),
+        )
+        conn.execute(
+            """INSERT INTO sessions_fts(rowid, run_id, agent_type, repo_name, summary_text)
+               VALUES (?, ?, ?, ?, ?)""",
+            (cursor.lastrowid, "codex-search-run", "codex", "myrepo", "Summary for codex search"),
+        )
+
+    status, body = _api_get(
+        port,
+        "/api/search?scope=all&project=myproject&query=Summary&limit=1",
+    )
+
+    assert status == 200
+    assert len(body["results"]) == 1
+    assert body["pagination"]["total"] == 5
+    assert body["agent_options"] == ["claude", "codex"]
+
+
+def test_get_runs_filters_dashboard_processing_status(test_server):
+    """GET /api/runs status filter uses dashboard processing states."""
+    port, _, _ = test_server
+    queued_status, queued = _api_get(port, "/api/runs?scope=all&status=queued")
+    blocked_status, blocked = _api_get(port, "/api/runs?scope=all&status=blocked")
+    indexed_status, indexed = _api_get(port, "/api/runs?scope=all&status=indexed")
+
+    assert queued_status == 200
+    assert blocked_status == 200
+    assert indexed_status == 200
+    assert [run["run_id"] for run in queued["runs"]] == ["run-0000"]
+    assert queued["runs"][0]["processing_status"] == "queued"
+    assert [run["run_id"] for run in blocked["runs"]] == ["run-0001"]
+    assert blocked["runs"][0]["processing_status"] == "blocked"
+    assert indexed["pagination"]["total"] == 4
+    assert {run["processing_status"] for run in indexed["runs"]} == {"indexed"}
+
+
+def test_get_runs_applies_requested_sort_order(test_server):
+    """GET /api/runs applies supported dashboard sort fields."""
+    port, _, _ = test_server
+    asc_status, asc_body = _api_get(
+        port, "/api/runs?scope=all&sort=message_count&order=asc"
+    )
+    desc_status, desc_body = _api_get(
+        port, "/api/runs?scope=all&sort=message_count&order=desc"
+    )
+
+    assert asc_status == 200
+    assert desc_status == 200
+    assert asc_body["runs"][0]["message_count"] <= asc_body["runs"][-1]["message_count"]
+    assert desc_body["runs"][0]["message_count"] >= desc_body["runs"][-1]["message_count"]
+
+
 def test_get_runs_degrades_when_session_catalog_unavailable(test_server, monkeypatch):
     """GET /api/runs returns stable JSON when the session catalog is unhealthy."""
     port, _, _ = test_server
@@ -1197,6 +1337,34 @@ def test_get_record_filters_route_scopes_project(test_server):
     assert body["projects"] == ["myproject"]
 
 
+def test_get_record_filters_route_follows_status(test_server):
+    """GET /api/records/filters returns options for the selected record status."""
+    port, config, tmp_path = test_server
+    project_path = tmp_path / "myproject"
+    identity = resolve_project_identity(project_path)
+    store = ContextStore(config.context_db_path)
+    store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="preference",
+        title="Archived preference",
+        body="Archived preference body.",
+        record_role="procedure",
+        scope_label="myproject",
+        status="archived",
+    )
+
+    status, body = _api_get(
+        port,
+        "/api/records/filters?project=myproject&status=archived",
+    )
+
+    assert status == 200
+    assert body["types"] == ["preference"]
+    assert body["roles"] == ["procedure"]
+    assert body["projects"] == ["myproject"]
+
+
 def test_get_search_without_query(test_server):
     """GET /api/search (no FTS query) returns keyword-mode results."""
     port, _, _ = test_server
@@ -1216,6 +1384,62 @@ def test_get_search_filters_registered_project(test_server):
     assert body["mode"] == "keyword"
     assert body["pagination"]["total"] == 4
     assert {result["project"] for result in body["results"]} == {"myproject"}
+
+
+def test_get_logs_filters_by_project_metadata(test_server):
+    """GET /api/logs filters structured logs by project metadata and paths."""
+    port, config, tmp_path = test_server
+    log_dir = config.global_data_dir / "logs" / "2026" / "03" / "20"
+    log_dir.mkdir(parents=True)
+    project_path = tmp_path / "myproject"
+    entries = [
+        {
+            "ts": "2026-03-20T10:00:00+00:00",
+            "level": "INFO",
+            "module": "ingest",
+            "message": "project label match",
+            "extra": {"project": "myproject"},
+        },
+        {
+            "ts": "2026-03-20T10:01:00+00:00",
+            "level": "WARNING",
+            "module": "curate",
+            "message": "repo path match",
+            "extra": {"repo_path": str(project_path / "packages" / "worker")},
+        },
+        {
+            "ts": "2026-03-20T10:02:00+00:00",
+            "level": "ERROR",
+            "module": "other",
+            "message": "other project",
+            "extra": {"project": "otherproject"},
+        },
+        {
+            "ts": "2026-03-20T10:03:00+00:00",
+            "level": "INFO",
+            "module": "runtime",
+            "message": "unscoped",
+            "extra": {},
+        },
+    ]
+    (log_dir / "lerim.jsonl").write_text(
+        "\n".join(json.dumps(entry) for entry in entries) + "\n",
+        encoding="utf-8",
+    )
+
+    status, body = _api_get(
+        port,
+        "/api/logs?project=myproject&since=2026-03-20T09:59:00Z&until=2026-03-20T10:02:00Z&limit=10",
+    )
+
+    assert status == 200
+    assert body["total"] == 2
+    assert body["project"] == "myproject"
+    assert [entry["message"] for entry in body["logs"]] == [
+        "repo path match",
+        "project label match",
+    ]
+    assert {entry["project"] for entry in body["logs"]} == {"myproject"}
 
 
 def test_get_unknown_api_route(test_server):
@@ -1500,6 +1724,201 @@ def test_post_graph_query_all_scope_excludes_unregistered_projects(test_server):
     assert {node["project"] for node in body["nodes"]} == {"myproject"}
 
 
+def test_post_graph_query_all_scope_includes_multiple_registered_projects(test_server):
+    """POST /api/graph/query without project includes all registered projects."""
+    port, config, tmp_path = test_server
+    beta_path = tmp_path / "betaproject"
+    beta_path.mkdir()
+    config.projects["betaproject"] = str(beta_path)
+    _seed_single_graph_record(
+        config.context_db_path,
+        beta_path,
+        project_name="betaproject",
+        record_id="rec_beta",
+        title="Beta graph record",
+    )
+
+    status, body = _api_post(
+        port,
+        "/api/graph/query",
+        {"max_nodes": 20, "max_edges": 20},
+    )
+
+    assert status == 200
+    assert body["selected_project"] == ""
+    assert body["total_records"] == 3
+    assert {node["id"] for node in body["nodes"]} == {"rec_a", "rec_b", "rec_beta"}
+    assert {node["project"] for node in body["nodes"]} == {"myproject", "betaproject"}
+
+
+def test_post_graph_query_all_scope_includes_partial_record_fallback(test_server):
+    """All-project graph appends active records missing projection rows."""
+    port, config, tmp_path = test_server
+    beta_path = tmp_path / "betaproject"
+    beta_path.mkdir()
+    config.projects["betaproject"] = str(beta_path)
+    _seed_single_graph_record(
+        config.context_db_path,
+        beta_path,
+        project_name="betaproject",
+        record_id="rec_beta",
+        title="Beta fallback record",
+        with_node=False,
+    )
+
+    status, body = _api_post(
+        port,
+        "/api/graph/query",
+        {"max_nodes": 20, "max_edges": 20},
+    )
+
+    assert status == 200
+    assert body["graph_node_count"] == 2
+    assert body["total_records"] == 3
+    assert body["returned_nodes"] == 3
+    assert body["used_record_fallback"] is True
+    assert body["graph_mode"] == "mixed_graph"
+    assert {node["id"] for node in body["nodes"]} == {"rec_a", "rec_b", "rec_beta"}
+    assert {node["project"] for node in body["nodes"]} == {"myproject", "betaproject"}
+
+
+def test_post_graph_query_does_not_mutate_project_rows(test_server):
+    """POST /api/graph/query reads project graph data without touching project metadata."""
+    port, config, _ = test_server
+    before = _project_timestamps(config.context_db_path)
+
+    status, _body = _api_post(
+        port,
+        "/api/graph/query",
+        {"project": "myproject", "max_nodes": 20, "max_edges": 20},
+    )
+
+    assert status == 200
+    assert _project_timestamps(config.context_db_path) == before
+
+
+def test_post_graph_query_all_scope_does_not_mutate_project_rows(test_server):
+    """All-project graph reads do not upsert registered project rows."""
+    port, config, _ = test_server
+    before = _project_timestamps(config.context_db_path)
+
+    status, _body = _api_post(
+        port,
+        "/api/graph/query",
+        {"max_nodes": 20, "max_edges": 20},
+    )
+
+    assert status == 200
+    assert _project_timestamps(config.context_db_path) == before
+
+
+def test_post_graph_query_uses_record_fallback_when_projection_has_no_nodes(test_server):
+    """Graph query returns record nodes when active records lack graph projections."""
+    port, config, tmp_path = test_server
+    beta_path = tmp_path / "betaproject"
+    beta_path.mkdir()
+    config.projects["betaproject"] = str(beta_path)
+    _seed_single_graph_record(
+        config.context_db_path,
+        beta_path,
+        project_name="betaproject",
+        record_id="rec_beta",
+        title="Beta fallback record",
+        with_node=False,
+    )
+
+    status, body = _api_post(
+        port,
+        "/api/graph/query",
+        {"project": "betaproject", "max_nodes": 20, "max_edges": 20},
+    )
+
+    assert status == 200
+    assert body["selected_project"] == "betaproject"
+    assert body["graph_node_count"] == 0
+    assert body["returned_nodes"] == 1
+    assert body["used_record_fallback"] is True
+    assert body["graph_mode"] == "record_fallback"
+    assert body["nodes"][0]["id"] == "rec_beta"
+    assert body["nodes"][0]["project"] == "betaproject"
+
+
+def test_post_graph_query_uses_record_fallback_when_projection_tables_missing(test_server):
+    """Legacy context DBs without graph projection tables still return records."""
+    port, config, _ = test_server
+    with sqlite3.connect(config.context_db_path) as conn:
+        conn.execute("DROP TABLE context_edges")
+        conn.execute("DROP TABLE context_nodes")
+
+    status, body = _api_post(
+        port,
+        "/api/graph/query",
+        {"project": "myproject", "max_nodes": 20, "max_edges": 20},
+    )
+
+    assert status == 200
+    assert body["selected_project"] == "myproject"
+    assert body["graph_node_count"] == 0
+    assert body["active_edge_count"] == 0
+    assert body["projection_ready"] is False
+    assert body["used_record_fallback"] is True
+    assert body["graph_mode"] == "record_fallback"
+    assert {node["id"] for node in body["nodes"]} == {"rec_a", "rec_b"}
+
+
+def test_post_graph_query_all_scope_does_not_count_edges_to_unregistered_nodes(test_server):
+    """All-project graph edge counts ignore endpoints outside registered projects."""
+    port, config, tmp_path = test_server
+    unregistered_path = tmp_path / "unregistered"
+    unregistered_path.mkdir()
+    _seed_single_graph_record(
+        config.context_db_path,
+        unregistered_path,
+        project_name="unregistered",
+        record_id="rec_unregistered",
+        title="Unregistered graph record",
+    )
+    myproject_id = resolve_project_identity(tmp_path / "myproject").project_id
+    now = "2026-03-20T10:00:00Z"
+    with sqlite3.connect(config.context_db_path) as conn:
+        conn.execute(
+            """INSERT INTO context_edges (
+                edge_id, project_id, scope_type, scope_id, scope_label, source_node_id,
+                target_node_id, relation_kind, label, rationale, evidence_record_ids,
+                confidence, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "edge_cross_scope",
+                myproject_id,
+                "project",
+                myproject_id,
+                "myproject",
+                "rec_a",
+                "rec_unregistered",
+                "supports",
+                "Cross-scope stale edge",
+                "This edge should not count for registered-project graph scope.",
+                json.dumps(["rec_a", "rec_unregistered"]),
+                0.8,
+                "active",
+                now,
+                now,
+            ),
+        )
+
+    status, body = _api_post(
+        port,
+        "/api/graph/query",
+        {"max_nodes": 20, "max_edges": 20},
+    )
+
+    assert status == 200
+    assert body["active_edge_count"] == 1
+    assert body["connected_node_count"] == 2
+    assert {edge["id"] for edge in body["edges"]} == {"edge_ab"}
+    assert {node["id"] for node in body["nodes"]} == {"rec_a", "rec_b"}
+
+
 def test_post_graph_query_filters_registered_project(test_server):
     """POST /api/graph/query filters learned graph rows by project id."""
     port, _, tmp_path = test_server
@@ -1554,6 +1973,66 @@ def test_post_graph_query_switches_between_registered_projects(test_server):
     assert {node["id"] for node in alpha["nodes"]} == {"rec_a", "rec_b"}
     assert {node["id"] for node in beta["nodes"]} == {"rec_beta"}
     assert {node["project"] for node in beta["nodes"]} == {"betaproject"}
+
+
+def test_post_graph_query_accepts_project_query_parameter(test_server):
+    """POST /api/graph/query?project=... uses query project when body omits it."""
+    port, config, tmp_path = test_server
+    beta_path = tmp_path / "betaproject"
+    beta_path.mkdir()
+    config.projects["betaproject"] = str(beta_path)
+    _seed_single_graph_record(
+        config.context_db_path,
+        beta_path,
+        project_name="betaproject",
+        record_id="rec_beta",
+        title="Beta-only graph record",
+    )
+
+    status, body = _api_post(
+        port,
+        "/api/graph/query?project=betaproject",
+        {"max_nodes": 20, "max_edges": 20},
+    )
+
+    assert status == 200
+    assert body["selected_project"] == "betaproject"
+    assert {node["id"] for node in body["nodes"]} == {"rec_beta"}
+
+
+def test_post_graph_query_accepts_equivalent_query_and_body_projects(test_server):
+    """POST /api/graph/query accepts project aliases that resolve to the same id."""
+    port, _, tmp_path = test_server
+    status, body = _api_post(
+        port,
+        "/api/graph/query?project=myproject",
+        {
+            "project": str(tmp_path / "myproject" / "packages" / "worker"),
+            "max_nodes": 20,
+            "max_edges": 20,
+        },
+    )
+
+    assert status == 200
+    assert body["selected_project"] == "myproject"
+    assert {node["id"] for node in body["nodes"]} == {"rec_a", "rec_b"}
+
+
+def test_post_graph_query_rejects_conflicting_project_query_parameter(test_server):
+    """POST /api/graph/query rejects conflicting body and query projects."""
+    port, config, tmp_path = test_server
+    beta_path = tmp_path / "betaproject"
+    beta_path.mkdir()
+    config.projects["betaproject"] = str(beta_path)
+
+    status, body = _api_post_error(
+        port,
+        "/api/graph/query?project=betaproject",
+        {"project": "myproject", "max_nodes": 20, "max_edges": 20},
+    )
+
+    assert status == 400
+    assert body["error"] == "Conflicting graph project in query string and JSON body"
 
 
 def test_post_graph_query_rejects_unknown_project(test_server):
@@ -1804,6 +2283,101 @@ def test_search_with_fts_query(test_server):
     assert "results" in body
 
 
+def test_search_migrates_legacy_catalog_before_query(tmp_path, monkeypatch):
+    """GET /api/search migrates older session catalog schemas before reading rows."""
+    config = make_config(tmp_path)
+    project_path = tmp_path / "myproject"
+    project_path.mkdir()
+    config = replace(config, projects={"myproject": str(project_path)})
+    config.sessions_db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(config.sessions_db_path) as conn:
+        conn.execute(
+            """CREATE TABLE session_docs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT UNIQUE,
+                agent_type TEXT,
+                repo_name TEXT,
+                repo_path TEXT,
+                start_time TEXT,
+                status TEXT,
+                summary_text TEXT,
+                session_path TEXT,
+                indexed_at TEXT
+            )"""
+        )
+        conn.execute(
+            """CREATE VIRTUAL TABLE sessions_fts
+               USING fts5(run_id, agent_type, repo_name, summary_text,
+                          content='session_docs', content_rowid='id')"""
+        )
+        conn.execute(
+            """CREATE TABLE session_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT UNIQUE,
+                status TEXT DEFAULT 'pending',
+                attempts INTEGER DEFAULT 0,
+                last_error TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )"""
+        )
+        cursor = conn.execute(
+            """INSERT INTO session_docs
+               (run_id, agent_type, repo_name, repo_path, start_time, status,
+                summary_text, session_path, indexed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "legacy-run",
+                "claude",
+                "myrepo",
+                str(project_path),
+                "2026-03-20T10:00:00Z",
+                "completed",
+                "Legacy Summary",
+                "",
+                "2026-03-20T10:00:00Z",
+            ),
+        )
+        conn.execute(
+            """INSERT INTO sessions_fts(rowid, run_id, agent_type, repo_name, summary_text)
+               VALUES (?, ?, ?, ?, ?)""",
+            (cursor.lastrowid, "legacy-run", "claude", "myrepo", "Legacy Summary"),
+        )
+        conn.execute(
+            """INSERT INTO session_jobs
+               (run_id, status, attempts, last_error, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                "legacy-run",
+                "pending",
+                0,
+                None,
+                "2026-03-20T10:00:00Z",
+                "2026-03-20T10:00:00Z",
+            ),
+        )
+    monkeypatch.setattr("lerim.server.httpd.get_config", lambda: config)
+    monkeypatch.setattr("lerim.server.api.get_config", lambda: config)
+    monkeypatch.setattr("lerim.sessions.catalog.get_config", lambda: config)
+
+    from lerim.server.httpd import DashboardHandler
+
+    server, port = _start_test_server(DashboardHandler)
+    try:
+        status, body = _api_get(
+            port,
+            "/api/search?query=Legacy&scope=all&project=myproject",
+        )
+    finally:
+        server.shutdown()
+
+    assert status == 200
+    assert body["mode"] == "fts"
+    assert body.get("catalog_available") is not False
+    assert [row["run_id"] for row in body["results"]] == ["legacy-run"]
+    assert body["results"][0]["duration_ms"] == 0
+
+
 def test_post_empty_body(test_server):
     """POST /api/answer with empty body returns 400."""
     port, _, _ = test_server
@@ -1866,6 +2440,16 @@ def test_get_search_with_filters(test_server):
     status, body = _api_get(port, "/api/search?scope=all&status=completed&repo=myrepo")
     assert status == 200
     assert "results" in body
+
+
+def test_get_search_filters_dashboard_processing_status(test_server):
+    """GET /api/search status filter uses dashboard processing states."""
+    port, _, _ = test_server
+    status, body = _api_get(port, "/api/search?scope=all&status=blocked&repo=myrepo")
+
+    assert status == 200
+    assert [run["run_id"] for run in body["results"]] == ["run-0001"]
+    assert body["results"][0]["processing_status"] == "blocked"
 
 
 # ── Helper function unit tests ───────────────────────────────────────

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.30] - 2026-06-07
+
+### Fixed
+- Fixed dashboard operation detail logs so they honor the selected project
+  instead of falling back to shared logs.
+- Fixed project-scoped operations activity by paging through the session catalog
+  until matching project runs are found.
+- Hardened source-session catalog migrations and FTS rebuilds so older or
+  malformed catalogs recover into a healthy indexed state for graph and source
+  views.
+
 ## [0.3.29] - 2026-06-06
 
 ### Fixed

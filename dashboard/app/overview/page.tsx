@@ -99,7 +99,7 @@ function OverviewContent() {
 			</div>
 
 			<div className="mt-4">
-				<LiveStatus shared={Boolean(project)} />
+				<LiveStatus shared />
 			</div>
 
 			{error && (

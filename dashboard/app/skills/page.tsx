@@ -227,7 +227,12 @@ export default function SkillsPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-[var(--text)]">Skills</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg font-semibold text-[var(--text)]">Skills</h1>
+            <span className="rounded-md bg-white/[0.06] px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+              Global
+            </span>
+          </div>
           <p className="mt-1 max-w-2xl text-sm text-[var(--text-secondary)]">
             Registered instruction artifacts, evidence-backed proposals, and review gates.
           </p>

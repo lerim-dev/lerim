@@ -7,6 +7,7 @@ from typing import Literal
 
 import pytest
 from pydantic import BaseModel, ValidationError
+from pydantic_core import ValidationError as CoreValidationError
 
 from lerim.agents.model_helpers import (
     call_model_step,
@@ -70,6 +71,21 @@ def test_recoverable_error_detection_includes_pydantic_validation_error() -> Non
         StrictKindModel.model_validate({"kind": "constraint}"})
 
     assert is_recoverable_model_error(exc.value) is True
+
+
+def test_recoverable_error_detection_includes_pydantic_core_validation_error() -> None:
+    assert is_recoverable_model_error(
+        CoreValidationError.from_exception_data(
+            "CoreModel",
+            [
+                {
+                    "type": "missing",
+                    "loc": ("answer",),
+                    "input": {},
+                }
+            ],
+        )
+    ) is True
 
 
 def test_model_retry_observation_is_compact_json_guidance() -> None:

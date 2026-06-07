@@ -317,6 +317,26 @@ def test_api_answer_includes_debug_when_verbose(monkeypatch, tmp_path) -> None:
     assert payload["debug"]["retrieval_actions"][0]["action_type"] == "count"
 
 
+def test_api_answer_empty_project_selection_returns_no_support(monkeypatch, tmp_path) -> None:
+    """api_answer keeps empty project selections from falling back to the server repo."""
+    cfg = make_config(tmp_path)
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+    class _UnexpectedRuntime:
+        def answer(self, *_args, **_kwargs):
+            raise AssertionError("project-scoped empty selection must not call the LLM")
+
+    monkeypatch.setattr(api_mod, "LerimRuntime", lambda: _UnexpectedRuntime())
+
+    payload = api_mod.api_answer("what do we know?", scope="project")
+
+    assert payload["error"] is False
+    assert payload["scope"] == "project"
+    assert payload["projects_used"] == []
+    assert payload["agent_session_id"] == ""
+    assert "No registered project" in payload["answer"]
+
+
 def test_api_query_empty_project_selection_returns_empty_scope(
     monkeypatch,
     tmp_path,
@@ -345,7 +365,7 @@ def test_api_query_empty_project_selection_returns_empty_scope(
     store.create_record(
         project_id=identity.project_id,
         session_id="sess_removed",
-        kind="decision",
+        kind="fact",
         title="Removed project record",
         body="This should not leak into empty project selections.",
         decision="Keep removed project rows scoped out.",
@@ -359,6 +379,50 @@ def test_api_query_empty_project_selection_returns_empty_scope(
     assert payload["projects_used"] == []
     assert payload["scope"] == "project"
     assert payload["count"] == 0
+
+
+def test_api_query_records_text_search_filters_rows(
+    monkeypatch,
+    tmp_path,
+    mock_embeddings,
+) -> None:
+    """api_query applies record text search while preserving project scope."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    cfg = replace(make_config(tmp_path), projects={"project": str(project_root)})
+    identity = resolve_project_identity(project_root)
+    store = ContextStore(cfg.context_db_path)
+    store.initialize()
+    store.register_project(identity)
+    store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="fact",
+        title="Needle dashboard project selector",
+        body="Project switching must update record search results.",
+    )
+    store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="fact",
+        title="Unrelated runtime note",
+        body="This row should not match the dashboard query.",
+    )
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+    payload = api_mod.api_query(
+        entity="records",
+        mode="list",
+        scope="project",
+        project="project",
+        query_text="needle",
+        include_total=True,
+    )
+
+    assert payload["error"] is False
+    assert payload["projects_used"] == ["project"]
+    assert payload["total"] == 1
+    assert [row["title"] for row in payload["rows"]] == ["Needle dashboard project selector"]
 
 
 def test_api_query_status_all_includes_active_and_archived_records(
@@ -416,6 +480,46 @@ def test_api_query_status_all_includes_active_and_archived_records(
     assert all_payload["count"] == 2
     assert active_payload["count"] == 1
     assert archived_payload["count"] == 1
+
+
+def test_api_query_project_parameter_implies_project_scope(
+    monkeypatch,
+    tmp_path,
+    mock_embeddings,
+) -> None:
+    """api_query(project=...) must not silently run an all-project query."""
+    project_a = tmp_path / "proj-a"
+    project_b = tmp_path / "proj-b"
+    project_a.mkdir()
+    project_b.mkdir()
+    cfg = replace(
+        make_config(tmp_path),
+        projects={"proj-a": str(project_a), "proj-b": str(project_b)},
+    )
+    store = ContextStore(cfg.context_db_path)
+    store.initialize()
+    for path in (project_a, project_b):
+        identity = resolve_project_identity(path)
+        store.register_project(identity)
+        store.create_record(
+            project_id=identity.project_id,
+            session_id=None,
+            kind="fact",
+            title=f"{path.name} record",
+            body=f"{path.name} scoped record.",
+        )
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+    payload = api_mod.api_query(
+        entity="records",
+        mode="count",
+        project="proj-a",
+    )
+
+    assert payload["error"] is False
+    assert payload["scope"] == "project"
+    assert payload["projects_used"] == ["proj-a"]
+    assert payload["count"] == 1
 
 
 def test_api_query_versions_does_not_receive_record_archival_filter(
@@ -504,6 +608,62 @@ def test_api_record_filters_reads_distinct_values_without_limit_sampling(
     assert payload["roles"] == ["general", "procedure"]
     assert payload["projects"] == ["project"]
     assert payload["error"] is False
+
+
+def test_api_record_filters_follow_status_selection(
+    monkeypatch,
+    tmp_path,
+    mock_embeddings,
+) -> None:
+    """Record filters reflect the selected active, archived, or all status."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    cfg = replace(make_config(tmp_path), projects={"project": str(project_root)})
+    identity = resolve_project_identity(project_root)
+    store = ContextStore(cfg.context_db_path)
+    store.initialize()
+    store.register_project(identity)
+    store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="preference",
+        title="Active",
+        body="Active body.",
+        record_role="general",
+        scope_label="project",
+    )
+    store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="constraint",
+        title="Archived",
+        body="Archived body.",
+        record_role="procedure",
+        scope_label="project",
+        status="archived",
+    )
+    store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="fact",
+        title="Future active",
+        body="Future active body.",
+        record_role="gotcha",
+        scope_label="project",
+        valid_from="2999-01-01T00:00:00+00:00",
+    )
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+    active = api_record_filters(project="project", status="active")
+    archived = api_record_filters(project="project", status="archived")
+    all_statuses = api_record_filters(project="project", status="all")
+
+    assert active["types"] == ["preference"]
+    assert active["roles"] == ["general"]
+    assert archived["types"] == ["constraint"]
+    assert archived["roles"] == ["procedure"]
+    assert all_statuses["types"] == ["constraint", "fact", "preference"]
+    assert all_statuses["roles"] == ["general", "gotcha", "procedure"]
 
 
 def test_api_record_filters_use_registered_project_scope(
@@ -1564,6 +1724,54 @@ def test_api_status_reports_projects_and_unscoped(
     assert project_a_payload["total_record_count"] == 3
 
 
+def test_api_status_project_parameter_implies_project_scope(
+    monkeypatch, tmp_path, mock_embeddings
+) -> None:
+    """api_status(project=...) returns project counts even without scope=project."""
+    project_a = tmp_path / "proj-a"
+    project_b = tmp_path / "proj-b"
+    project_a.mkdir()
+    project_b.mkdir()
+    cfg = replace(
+        make_config(tmp_path),
+        projects={"proj-a": str(project_a), "proj-b": str(project_b)},
+    )
+    store = api_mod.ContextStore(cfg.context_db_path)
+    store.initialize()
+    for path, title in ((project_a, "A record"), (project_b, "B record")):
+        identity = api_mod.resolve_project_identity(path)
+        store.register_project(identity)
+        store.create_record(
+            project_id=identity.project_id,
+            session_id=None,
+            kind="fact",
+            title=title,
+            body=title,
+        )
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    monkeypatch.setattr(api_mod, "list_platforms", lambda path: [])
+    monkeypatch.setattr(api_mod, "count_fts_indexed", lambda: 0)
+    monkeypatch.setattr(api_mod, "count_session_jobs_by_status", lambda: {})
+    monkeypatch.setattr(api_mod, "latest_service_run", lambda svc: None)
+    monkeypatch.setattr(
+        api_mod, "queue_health_snapshot", lambda: {"degraded": False, "advice": ""}
+    )
+    monkeypatch.setattr(
+        api_mod,
+        "_queue_counts_for_repo",
+        lambda **kwargs: ({"pending": 0, "dead_letter": 0}, None, None),
+    )
+    monkeypatch.setattr(api_mod, "count_unscoped_sessions_by_agent", lambda projects: {})
+    monkeypatch.setattr(api_mod, "list_session_jobs", lambda **kwargs: [])
+    monkeypatch.setattr(api_mod, "list_service_runs", lambda **kwargs: [])
+
+    result = api_status(project="proj-a")
+
+    assert result["scope"]["mode"] == "project"
+    assert result["record_count"] == 1
+    assert [project["name"] for project in result["projects"]] == ["proj-a"]
+
+
 def test_api_status_project_scope_counts_child_session_paths(
     monkeypatch, tmp_path, mock_embeddings
 ) -> None:
@@ -1783,6 +1991,46 @@ def test_api_status_project_scope_latest_uses_scoped_activity(
     assert result["scope"]["skipped_unscoped"] == 0
     assert result["schedule"]["ingest"]["last_started_at"] == repo_ingest["started_at"]
     assert result["schedule"]["curate"]["last_started_at"] == repo_curate["started_at"]
+
+
+def test_recent_activity_project_scope_paginates_to_matching_runs(
+    monkeypatch,
+) -> None:
+    """Project activity should not vanish behind newer runs from other projects."""
+    newer_other_runs = [
+        {
+            "id": f"other-{idx}",
+            "job_type": "ingest",
+            "status": "completed",
+            "started_at": f"2026-03-21T{idx:02d}:00:00+00:00",
+            "completed_at": f"2026-03-21T{idx:02d}:01:00+00:00",
+            "trigger": "daemon",
+            "details": {"projects_metrics": {"other": {"sessions_analyzed": 1}}},
+        }
+        for idx in range(12)
+    ]
+    repo_run = {
+        "id": "repo-ingest",
+        "job_type": "ingest",
+        "status": "completed",
+        "started_at": "2026-03-20T10:00:00+00:00",
+        "completed_at": "2026-03-20T10:01:00+00:00",
+        "trigger": "manual",
+        "details": {"projects_metrics": {"repo": {"sessions_analyzed": 2}}},
+    }
+    runs = newer_other_runs + [repo_run]
+
+    def page_runs(*, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
+        """Return a page of synthetic service runs."""
+        return runs[offset : offset + limit]
+
+    monkeypatch.setattr(api_mod, "list_service_runs", page_runs)
+
+    activity = api_mod._recent_activity(limit=12, allowed_projects={"repo"})
+
+    assert [item["id"] for item in activity] == ["repo-ingest"]
+    assert activity[0]["projects"] == ["repo"]
+    assert activity[0]["sessions_analyzed"] == 2
 
 
 def test_runtime_identity_uses_docker_env(monkeypatch) -> None:

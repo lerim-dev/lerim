@@ -419,6 +419,20 @@ class TestAnswerFlow:
         _, session_id, _, _ = rt.answer("hello", session_id="fixed-id", repo_root=tmp_path)
         assert session_id == "fixed-id"
 
+    def test_answer_preserves_empty_project_ids(self, tmp_path, monkeypatch):
+        rt = _build_runtime(tmp_path, monkeypatch)
+        captured: dict[str, object] = {}
+
+        def _fake_run_context_answerer(**kwargs):
+            captured["project_ids"] = kwargs["project_ids"]
+            return ContextAnswerResult(answer="No supporting records were found.")
+
+        monkeypatch.setattr("lerim.server.runtime.run_context_answerer", _fake_run_context_answerer)
+
+        rt.answer("what do we know?", project_ids=[], repo_root=tmp_path)
+
+        assert captured["project_ids"] == []
+
     def test_answer_does_not_short_circuit_known_phrases(self, tmp_path, monkeypatch):
         rt = _build_runtime(tmp_path, monkeypatch)
         captured: dict[str, object] = {}

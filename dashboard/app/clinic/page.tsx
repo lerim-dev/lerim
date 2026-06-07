@@ -34,13 +34,19 @@ function ClinicContent() {
 	const load = useCallback(async (selectedProject?: string) => {
 		const seq = loadSeqRef.current + 1;
 		loadSeqRef.current = seq;
+		const targetProject = (selectedProject ?? project).trim();
 		setLoading(true);
 		setError(null);
+		if (!targetProject) {
+			setData(null);
+			setActiveVersionId("");
+			setLoading(false);
+			return;
+		}
 		try {
-			const payload = await api.getRunClinic(selectedProject || project || undefined);
+			const payload = await api.getRunClinic(targetProject);
 			if (seq !== loadSeqRef.current) return;
 			setData(payload);
-			if (!project && payload.selected_project) setProject(payload.selected_project);
 			setActiveVersionId("");
 		} catch (err) {
 			if (seq === loadSeqRef.current) {
@@ -78,7 +84,7 @@ function ClinicContent() {
 					<button
 						type="button"
 						onClick={() => load(project || undefined)}
-						disabled={loading}
+						disabled={loading || !project}
 						className="min-h-10 rounded-md border border-[var(--border)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
 					>
 						{loading ? "Refreshing..." : "Refresh"}
@@ -96,6 +102,13 @@ function ClinicContent() {
 				<div className="mt-8 grid gap-3 lg:grid-cols-3">
 					<div className="h-56 animate-pulse rounded-lg border border-[var(--border)] bg-white/[0.03]" />
 					<div className="h-56 animate-pulse rounded-lg border border-[var(--border)] bg-white/[0.03] lg:col-span-2" />
+				</div>
+			) : !project ? (
+				<div className="mt-8 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-6 py-10 text-center">
+					<p className="text-sm font-medium text-[var(--text)]">Select a project to run Clinic.</p>
+					<p className="mt-2 text-sm text-[var(--text-muted)]">
+						Clinic diagnoses project-specific context and does not run for All projects.
+					</p>
 				</div>
 			) : artifact && activeVersion ? (
 				<div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
@@ -197,8 +210,8 @@ function ClinicHero({
 				<div className="grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)] lg:w-72 lg:grid-cols-1">
 					<Meta label="Generated" value={formatDateTime(version.generated_at)} />
 					<Meta label="Window" value={`${version.window_days || 30} days`} />
-					<Meta label="Current Records" value={`${activeRecords.toLocaleString()} active / ${totalRecords.toLocaleString()} total`} />
-					<Meta label="Archived" value={archivedRecords.toLocaleString()} />
+						<Meta label="Project Records" value={`${activeRecords.toLocaleString()} active / ${totalRecords.toLocaleString()} all-time`} />
+						<Meta label="Archived Records" value={archivedRecords.toLocaleString()} />
 					<Meta label="Clinic Evidence" value={`${version.records_included} cited / ${version.records_considered} active sampled`} />
 					<Meta label="Project" value={data?.selected_project || "Project"} />
 				</div>

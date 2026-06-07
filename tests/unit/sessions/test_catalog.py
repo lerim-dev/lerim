@@ -26,6 +26,7 @@ from lerim.sessions.catalog import (
     index_session_for_fts,
     init_sessions_db,
     latest_service_run,
+    list_session_agent_types_window,
     list_queue_jobs,
     list_service_runs,
     list_sessions_window,
@@ -43,6 +44,7 @@ from lerim.sessions.catalog import (
     skip_session_job,
     update_session_extract_fields,
 )
+from tests.helpers import make_config
 
 
 @pytest.fixture(autouse=True)
@@ -204,6 +206,99 @@ class TestInitAndSchema:
         count = conn.execute("SELECT COUNT(*) FROM session_docs").fetchone()[0]
         assert count == 0
         conn.close()
+
+    def test_init_migrates_legacy_catalog_schema(self, tmp_path, monkeypatch):
+        config = make_config(tmp_path)
+        config.sessions_db_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(config.sessions_db_path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE session_docs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL UNIQUE,
+                    agent_type TEXT NOT NULL,
+                    repo_path TEXT,
+                    repo_name TEXT,
+                    start_time TEXT,
+                    indexed_at TEXT,
+                    status TEXT,
+                    duration_ms INTEGER,
+                    message_count INTEGER,
+                    tool_call_count INTEGER,
+                    error_count INTEGER,
+                    total_tokens INTEGER,
+                    summary_text TEXT,
+                    session_path TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO session_docs (
+                    run_id, agent_type, repo_path, repo_name, start_time,
+                    indexed_at, status, summary_text, session_path
+                )
+                VALUES (
+                    'legacy-1', 'codex', '/tmp/legacy', 'legacy',
+                    '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00',
+                    'completed', 'old summary', '/tmp/legacy.jsonl'
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE session_jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT,
+                    status TEXT DEFAULT 'queued',
+                    project TEXT,
+                    attempts INTEGER DEFAULT 0,
+                    last_error TEXT,
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO session_jobs (
+                    run_id, status, attempts, last_error, created_at, updated_at
+                )
+                VALUES ('legacy-1', 'queued', 1, 'old failure', '2026-01-01', '2026-01-01')
+                """
+            )
+            conn.commit()
+        monkeypatch.setattr("lerim.sessions.catalog.get_config", lambda: config)
+
+        init_sessions_db()
+        rows, total = list_sessions_window(status="queued")
+        assert total == 1
+        assert rows[0]["run_id"] == "legacy-1"
+        assert rows[0]["processing_status"] == "queued"
+        assert rows[0]["extraction_status"] == "pending"
+        assert index_session_for_fts(
+            run_id="legacy-1",
+            agent_type="codex",
+            content="new content",
+            repo_path="/tmp/legacy",
+            repo_name="legacy",
+            start_time="2026-01-01T00:00:00+00:00",
+            summary_text="new summary",
+            session_path="/tmp/legacy.jsonl",
+            content_hash="new-hash",
+        )
+        doc = fetch_session_doc("legacy-1")
+        assert doc is not None
+        assert doc["content_hash"] == "new-hash"
+        with _connect() as conn:
+            job = conn.execute(
+                "SELECT job_type, error, available_at, repo_path FROM session_jobs WHERE run_id = ?",
+                ("legacy-1",),
+            ).fetchone()
+        assert job["job_type"] == "extract"
+        assert job["error"] == "old failure"
+        assert job["available_at"]
+        assert job["repo_path"] is None
 
     def test_concurrent_init_safety(self, tmp_path, monkeypatch):
         """Multiple threads calling init_sessions_db don't crash."""
@@ -614,6 +709,20 @@ class TestSessionWindow:
         _seed("wb-3", agent="opencode")
         rows, total = list_sessions_window(agent_types=["claude", "codex"])
         assert total == 2
+
+    def test_agent_type_options_use_full_filtered_window(self, sessions_db, tmp_path):
+        project_path = tmp_path / "a"
+        child_path = project_path / "packages" / "worker"
+        other_path = tmp_path / "b"
+        child_path.mkdir(parents=True)
+        other_path.mkdir()
+        _seed("wao-1", agent="claude", repo_path=str(project_path))
+        _seed("wao-2", agent="codex", repo_path=str(child_path))
+        _seed("wao-3", agent="opencode", repo_path=str(other_path))
+
+        agents = list_session_agent_types_window(repo_path=str(project_path))
+
+        assert agents == ["claude", "codex"]
 
     def test_window_since_filter(self, sessions_db):
         _seed("ws-1", start_time="2026-01-01T00:00:00+00:00")
@@ -1349,6 +1458,19 @@ class TestServiceRuns:
             )
         runs = list_service_runs(limit=2)
         assert len(runs) == 2
+
+    def test_list_service_runs_offset(self, sessions_db):
+        for i in range(5):
+            record_service_run(
+                job_type="extract",
+                status="completed",
+                started_at=f"2026-04-0{i + 1}T10:00:00+00:00",
+                completed_at=None,
+                trigger=f"run-{i}",
+                details=None,
+            )
+        runs = list_service_runs(limit=2, offset=2)
+        assert [run["trigger"] for run in runs] == ["run-2", "run-1"]
 
     def test_list_service_runs_empty(self, sessions_db):
         assert list_service_runs() == []

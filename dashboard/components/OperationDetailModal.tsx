@@ -8,11 +8,13 @@ import LogViewer from "@/components/LogViewer";
 
 interface OperationDetailModalProps {
   operation: TimelineOperation;
+  project?: string;
   onClose: () => void;
 }
 
 export default function OperationDetailModal({
   operation,
+  project,
   onClose,
 }: OperationDetailModalProps) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -38,6 +40,9 @@ export default function OperationDetailModal({
       if (operation.completed_at) {
         params.until = operation.completed_at;
       }
+      if (project) {
+        params.project = project;
+      }
       const data = await api.getLogs(params);
       setLogs(data.logs);
     } catch (err) {
@@ -45,7 +50,7 @@ export default function OperationDetailModal({
     } finally {
       setLogsLoading(false);
     }
-  }, [operation.started_at, operation.completed_at]);
+  }, [operation.started_at, operation.completed_at, project]);
 
   useEffect(() => {
     loadLogs();

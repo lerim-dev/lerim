@@ -104,6 +104,7 @@ export interface SessionDetail extends Session {
 export interface SessionsResponse {
   sessions: Session[];
   total: number;
+  agent_options?: string[];
 }
 
 /* ----- Records ----------------------------------------------------- */

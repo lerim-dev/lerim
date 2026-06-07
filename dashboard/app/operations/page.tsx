@@ -135,6 +135,15 @@ function OperationsContent() {
     ...timeline,
     days: timeline.days.map(day => {
       const filteredEvents = day.events.map(event => {
+        if (event.records.length === 0) {
+          if (recordFilter === "active") {
+            return { ...event, records_archived: 0 };
+          }
+          if (recordFilter === "archived") {
+            return { ...event, records_new: 0, records_updated: 0 };
+          }
+          return event;
+        }
         const filteredRecords = event.records.filter(record => {
           if (recordFilter === "all") return true;
           if (recordFilter === "active") return record.action !== "archived";
@@ -202,7 +211,7 @@ function OperationsContent() {
         <>
           {/* -- Compact Health + Live Status ----------------------------- */}
           <div className="mt-4">
-            <LiveStatus shared={Boolean(project)} />
+          <LiveStatus shared />
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 text-xs text-[var(--text-secondary)]">
             <span>
@@ -367,6 +376,7 @@ function OperationsContent() {
       {selectedOperation && (
         <OperationDetailModal
           operation={selectedOperation}
+          project={project || undefined}
           onClose={() => setSelectedOperation(null)}
         />
       )}
@@ -1052,7 +1062,8 @@ function getLatestOperations(timeline: TimelineResponse | null): {
 }
 
 function getErrorHealth(status: PipelineStatusResponse | null): Health {
-  if (!status || status.logs.total === 0) return "green";
+  if (!status) return "green";
+  if (status.logs.total === 0) return status.logs.errors > 0 ? "red" : "green";
   const rate = status.logs.errors / status.logs.total;
   if (rate < 0.01) return "green";
   if (rate < 0.05) return "yellow";
