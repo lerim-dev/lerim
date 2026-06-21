@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.31] - 2026-06-21
+
+### Added
+- Added bundled `research` and `compliance` signal profiles, registered as
+  first-class source profiles alongside coding, support, ops, and generic.
+- Added realistic multi-turn example traces for support, incident, research,
+  and compliance workflows, replacing the earlier two-line toy traces.
+- Added before/after demo guides for support ops, incident ops, research, and
+  compliance, each showing real extracted records captured through extraction.
+- Added a custom and non-coding agents front-door guide covering the profile,
+  clean-trace, import, query, and improvement-loop path.
+- Added a defense-in-depth redaction helper (`scripts/redact_trace.py`) that
+  strips common secrets and PII from a trace before import.
+- Added an agent improvement loop diagram to the README and custom-agents guide.
+
+### Changed
+- Updated the README with a Custom and Non-Coding Agents section, the bundled
+  profile table, and links to the vertical demos.
+- Updated the docs navigation, examples index, and custom-trace submission guide
+  to cover the new profiles, demos, and redaction helper.
+- Updated the custom-trace-folder and context-retrieval diagrams to use neutral
+  support and research agent examples instead of removed third-party logos.
+
 ## [0.3.30] - 2026-06-07
 
 ### Fixed
