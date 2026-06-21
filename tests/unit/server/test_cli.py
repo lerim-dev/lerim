@@ -105,11 +105,11 @@ def test_profile_register_writes_profiles_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`lerim profile register` persists custom source profiles in config."""
-    profile_path = tmp_path / "research.yaml"
+    profile_path = tmp_path / "analyst.yaml"
     profile_path.write_text(
         "\n".join(
             [
-                "id: research",
+                "id: analyst",
                 "display_name: Research Analyst",
                 "description: Research and market-analysis agent traces.",
                 "focus_rules:",
@@ -138,9 +138,9 @@ def test_profile_register_writes_profiles_config(
         written = load_toml_file(config_path)
 
         assert code == 0
-        assert payload["source_profile"] == "research"
+        assert payload["source_profile"] == "analyst"
         assert payload["path"] == str(profile_path.resolve())
-        assert written["profiles"]["research"] == str(profile_path.resolve())
+        assert written["profiles"]["analyst"] == str(profile_path.resolve())
     finally:
         reload_config()
         reload_signal_packs()

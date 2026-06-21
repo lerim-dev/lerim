@@ -50,11 +50,11 @@ def test_registered_custom_signal_pack_feeds_extraction_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Custom YAML profiles registered in config are loaded by the registry."""
-    profile_path = tmp_path / "research.yaml"
+    profile_path = tmp_path / "analyst.yaml"
     profile_path.write_text(
         "\n".join(
             [
-                "id: research",
+                "id: analyst",
                 "display_name: Research Analyst",
                 "description: Research and market-analysis agent traces.",
                 "focus_rules:",
@@ -72,7 +72,7 @@ def test_registered_custom_signal_pack_feeds_extraction_context(
     )
     config_path = write_test_config(
         tmp_path,
-        profiles={"research": str(profile_path)},
+        profiles={"analyst": str(profile_path)},
     )
     monkeypatch.setenv("LERIM_CONFIG", str(config_path))
 
@@ -80,13 +80,13 @@ def test_registered_custom_signal_pack_feeds_extraction_context(
         reload_config()
         reload_signal_packs()
 
-        pack = get_signal_pack("research")
-        rendered = format_signal_pack_context("research")
+        pack = get_signal_pack("analyst")
+        rendered = format_signal_pack_context("analyst")
 
-        assert pack.id == "research"
+        assert pack.id == "analyst"
         assert pack.source == "custom"
         assert pack.path == str(profile_path.resolve())
-        assert normalize_signal_pack_id("RESEARCH") == "research"
+        assert normalize_signal_pack_id("ANALYST") == "analyst"
         assert "Remember durable analyst preferences" in rendered
         assert "Keep source URLs" in rendered
     finally:

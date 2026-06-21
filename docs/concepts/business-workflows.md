@@ -14,14 +14,11 @@ The pattern is:
 
 The commercial wedge is one repeated private workflow with trace access, a
 workflow owner, privacy constraints, and measurable quality failure. Coding
-agents are a strong proof pack because native adapters are mature, but the
+Coding agents are a strong proof pack because native adapters are mature, but the
 company positioning should be broader: private agent improvement infrastructure
 for enterprise workflows.
 
-Support, incident/security operations, research, compliance, revenue, and other
-workflows can use custom clean traces today when the source owner handles export,
-redaction, and retention. Dedicated signal packs for those verticals are future
-extensions, not separate pipelines.
+Support, incident/security operations, research, compliance, revenue, and other workflows can use custom clean traces today when the source owner handles export, redaction, and retention. Research, revenue, security, and other workflows can use custom clean traces today when the source owner handles export, redaction, and retention. Support, incident, research, and compliance already have bundled signal packs; revenue, security, and other verticals use the generic profile or a custom YAML profile.
 
 ## Support operations
 
