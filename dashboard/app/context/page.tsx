@@ -132,8 +132,8 @@ function ContextContent() {
 			setRecords(data.records);
 			setTotal(data.total);
 			setSelected((current) =>
-				current && data.records.some((record) => record.record_id === current.record_id)
-					? current
+				current
+					? data.records.find((record) => record.record_id === current.record_id) || null
 					: null,
 			);
 		} catch (err) {
@@ -351,7 +351,9 @@ function ContextContent() {
 													</span>
 												)}
 												{record.confidence != null && (
-													<span>{Math.round(record.confidence * 100)}%</span>
+													<span title="Feedback confidence: earned from recorded feedback signals">
+														Feedback {Math.round(record.confidence * 100)}%
+													</span>
 												)}
 											</div>
 										</button>
@@ -371,6 +373,7 @@ function ContextContent() {
 						<RecordEditor
 							key={selected.record_id}
 							record={selected}
+							onFeedbackSubmitted={load}
 						/>
 					) : (
 						<div className="flex h-full items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-subtle)]">
@@ -456,8 +459,8 @@ function HealthBanner({
 						{intel.record_stats.archived} archived
 					</span>
 					<Separator />
-					<span className="text-[var(--text-secondary)]">
-						avg: {intel.record_stats.avg_confidence.toFixed(2)}
+					<span className="text-[var(--text-secondary)]" title="Average earned feedback confidence across these records">
+						avg feedback confidence: {intel.record_stats.avg_confidence.toFixed(2)}
 					</span>
 				</div>
 

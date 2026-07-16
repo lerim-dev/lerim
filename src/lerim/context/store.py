@@ -31,7 +31,10 @@ from lerim.context.query_spec import (
 import lerim.context.retrieval as retrieval
 from lerim.context.spec import (
     ALLOWED_CHANGE_KINDS,
+    DEFAULT_RECORD_CONFIDENCE,
     DEFAULT_RECORD_ROLE,
+    next_record_confidence,
+    normalize_feedback_signal,
     normalize_record_payload,
     record_search_text,
 )
@@ -370,6 +373,15 @@ class ContextStore:
                     UNIQUE(project_id, source_node_id, target_node_id, relation_kind)
                 );
 
+                CREATE TABLE IF NOT EXISTS record_feedback (
+                    feedback_id TEXT PRIMARY KEY,
+                    record_id TEXT NOT NULL,
+                    signal TEXT NOT NULL,
+                    note TEXT,
+                    source_session_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+
                 CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
                     record_id UNINDEXED,
                     project_id UNINDEXED,
@@ -393,6 +405,7 @@ class ContextStore:
             self._ensure_record_reference_schema(conn)
             self._ensure_record_index_text_schema(conn)
             self._ensure_record_role_schema(conn)
+            self._ensure_record_confidence_schema(conn)
             self._ensure_secondary_indexes(conn)
             self._validate_schema(conn)
             conn.execute(
@@ -475,6 +488,7 @@ class ContextStore:
             CREATE INDEX IF NOT EXISTS idx_records_source_session_id ON records(source_session_id);
             CREATE INDEX IF NOT EXISTS idx_record_versions_record_id ON record_versions(record_id);
             CREATE INDEX IF NOT EXISTS idx_record_versions_changed_at ON record_versions(changed_at);
+            CREATE INDEX IF NOT EXISTS idx_record_feedback_record_id ON record_feedback(record_id);
             CREATE INDEX IF NOT EXISTS idx_context_nodes_project_status ON context_nodes(project_id, status);
             CREATE INDEX IF NOT EXISTS idx_context_nodes_scope ON context_nodes(scope_type, scope_id);
             CREATE INDEX IF NOT EXISTS idx_context_nodes_updated_at ON context_nodes(updated_at);
@@ -632,6 +646,17 @@ class ContextStore:
                 )
             if "role_payload" not in columns:
                 conn.execute(f"ALTER TABLE {table_name} ADD COLUMN role_payload TEXT")
+
+    def _ensure_record_confidence_schema(self, conn: sqlite3.Connection) -> None:
+        """Add the earned-confidence column to older records tables.
+
+        This is intentionally records-only: confidence is not versioned and is
+        never written to record_versions.
+        """
+        if "confidence" not in self._table_columns(conn, "records"):
+            conn.execute(
+                "ALTER TABLE records ADD COLUMN confidence REAL NOT NULL DEFAULT 0.5"
+            )
 
     def _column_expr(self, columns: set[str], name: str, default_sql: str) -> str:
         """Return a SELECT expression for an existing column or SQL default."""
@@ -969,6 +994,7 @@ class ContextStore:
                 "source_event_refs",
                 "evidence_refs",
                 "index_text",
+                "confidence",
             },
             "record_versions": {
                 "version_id",
@@ -2078,6 +2104,82 @@ class ContextStore:
             change_kind_override="supersede",
         )
 
+    def record_feedback(
+        self,
+        record_id: str,
+        signal: str,
+        *,
+        note: str | None = None,
+        source_session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Record one feedback signal and recompute the record's earned confidence.
+
+        This reads the current confidence, appends a row to record_feedback, and
+        updates records.confidence all inside one BEGIN IMMEDIATE transaction, so
+        the read-modify-write cannot race with a concurrent feedback call for the
+        same record_id (mirrors the current-row read in `_update_record_in_conn`).
+        It intentionally does not insert a record_versions row and does not bump
+        the records index generation: confidence is not versioned and is not part
+        of the FTS/embedding index text.
+        """
+        self.initialize()
+        normalized_signal = normalize_feedback_signal(signal)
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute(
+                "SELECT confidence FROM records WHERE record_id = ?",
+                (record_id,),
+            ).fetchone()
+            if current is None:
+                raise ValueError(f"record_not_found:{record_id}")
+            raw_confidence = _row_value(current, "confidence", None)
+            current_confidence = (
+                float(raw_confidence)
+                if raw_confidence is not None
+                else DEFAULT_RECORD_CONFIDENCE
+            )
+            updated_confidence = next_record_confidence(current_confidence, normalized_signal)
+            conn.execute(
+                """
+                INSERT INTO record_feedback(
+                    feedback_id, record_id, signal, note, source_session_id, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    _new_id("fb"),
+                    record_id,
+                    normalized_signal,
+                    _normalize_optional_text(note),
+                    _normalize_optional_text(source_session_id),
+                    _utc_now(),
+                ),
+            )
+            conn.execute(
+                "UPDATE records SET confidence = ? WHERE record_id = ?",
+                (updated_confidence, record_id),
+            )
+        return {
+            "record_id": record_id,
+            "confidence": updated_confidence,
+            "signal": normalized_signal,
+        }
+
+    def list_feedback(self, record_id: str) -> list[dict[str, Any]]:
+        """Return feedback events recorded for one record, oldest first."""
+        self.initialize()
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT feedback_id, record_id, signal, note, source_session_id, created_at
+                FROM record_feedback
+                WHERE record_id = ?
+                ORDER BY created_at ASC, feedback_id ASC
+                """,
+                (record_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def search(
         self,
         *,
@@ -2596,6 +2698,12 @@ class ContextStore:
 
     def _record_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         """Convert one record row into JSON-like data."""
+        raw_confidence = _row_value(row, "confidence", None)
+        confidence = (
+            float(raw_confidence)
+            if raw_confidence is not None
+            else DEFAULT_RECORD_CONFIDENCE
+        )
         return {
             "record_id": str(row["record_id"]),
             "project_id": _row_value(row, "project_id"),
@@ -2625,6 +2733,7 @@ class ContextStore:
             "user_intent": row["user_intent"],
             "what_happened": row["what_happened"],
             "outcomes": row["outcomes"],
+            "confidence": confidence,
         }
 
     def _version_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:

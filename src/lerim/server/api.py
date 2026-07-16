@@ -594,6 +594,92 @@ def api_query(
     }
 
 
+def api_feedback(
+    record_id: str,
+    signal: str,
+    *,
+    note: str | None = None,
+    source_session_id: str | None = None,
+    scope: str = "all",
+    project: str | None = None,
+) -> dict[str, Any]:
+    """Record one feedback signal against an existing context record.
+
+    NOTE: `scope`/`project` are resolved (mirroring `api_query`) only to
+    validate the `project` token and to populate `projects_used`/`scope` in
+    the response. `record_id` is a global identifier and `store.record_feedback`
+    takes no project filter, so this resolution is NOT enforced access control
+    -- any caller can submit feedback for any record_id regardless of scope.
+    See docs/contracts/feedback-and-confidence.md for the full disclosure and
+    the pending product decision on whether to enforce project scope here.
+    """
+    config = get_config()
+    normalized_scope = (
+        "project" if project or str(scope).strip().lower() == "project" else "all"
+    )
+    try:
+        selected_projects = _resolve_selected_projects(
+            config=config,
+            scope=normalized_scope,
+            project=project,
+        )
+    except ValueError as exc:
+        return {
+            "error": True,
+            "message": str(exc),
+            "projects_used": [],
+        }
+
+    store = _context_store(config)
+    try:
+        result = store.record_feedback(
+            record_id,
+            signal,
+            note=note,
+            source_session_id=source_session_id,
+        )
+    except ValueError as exc:
+        return {
+            "error": True,
+            "message": str(exc),
+            "projects_used": [name for name, _ in selected_projects],
+            "status_code": 400,
+        }
+    except sqlite3.Error:
+        return {
+            "error": True,
+            "message": "Context query storage is unavailable.",
+            "projects_used": [name for name, _ in selected_projects],
+            "status_code": 503,
+        }
+    return {
+        **result,
+        "error": False,
+        "projects_used": [name for name, _ in selected_projects],
+        "scope": normalized_scope,
+    }
+
+
+def api_feedback_list(record_id: str) -> dict[str, Any]:
+    """Return recorded feedback events for one context record."""
+    config = get_config()
+    store = _context_store(config)
+    try:
+        rows = store.list_feedback(record_id)
+    except sqlite3.Error:
+        return {
+            "error": True,
+            "message": "Context query storage is unavailable.",
+            "status_code": 503,
+        }
+    return {
+        "record_id": record_id,
+        "rows": rows,
+        "count": len(rows),
+        "error": False,
+    }
+
+
 def api_record_filters(
     project: str | None = None,
     status: str | None = None,

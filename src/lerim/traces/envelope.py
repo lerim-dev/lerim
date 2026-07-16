@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from lerim.adapters.common import make_canonical_entry, normalize_timestamp_iso
+from lerim.redaction import redact_text
 
 _EVENT_LIST_FIELDS = ("events", "messages", "trace", "steps", "items")
 _CONTENT_FIELDS = ("content", "text", "message", "summary", "observation")
@@ -80,10 +81,11 @@ def load_generic_trace(path: Path) -> NormalizedTrace:
 
 
 def write_compact_trace(trace: NormalizedTrace, destination: Path) -> Path:
-    """Write canonical compact events to destination JSONL."""
+    """Write canonical compact events to destination JSONL, with secrets redacted."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     lines = [json.dumps(event, ensure_ascii=False) for event in trace.events]
-    destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    text = redact_text("\n".join(lines) + "\n")
+    destination.write_text(text, encoding="utf-8")
     return destination
 
 

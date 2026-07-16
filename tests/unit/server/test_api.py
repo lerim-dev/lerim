@@ -36,6 +36,8 @@ from lerim.server.api import (
     api_connect_list,
     api_health,
     api_curate,
+    api_feedback,
+    api_feedback_list,
     api_memory_reset,
     api_project_add,
     api_project_list,
@@ -756,6 +758,178 @@ def test_api_record_filters_accept_project_child_path(
     assert payload["types"] == ["preference"]
     assert payload["roles"] == ["procedure"]
     assert payload["projects"] == ["selected"]
+
+
+# ---------------------------------------------------------------------------
+# api_feedback / api_feedback_list
+# ---------------------------------------------------------------------------
+
+
+def _seed_feedback_record(tmp_path: Path, cfg: Any) -> str:
+    """Seed one registered project and fact record; return its record_id."""
+    project_root = tmp_path / "project"
+    project_root.mkdir(exist_ok=True)
+    identity = resolve_project_identity(project_root)
+    store = ContextStore(cfg.context_db_path)
+    store.initialize()
+    store.register_project(identity)
+    record = store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="fact",
+        title="Feedback API test fact",
+        body="api_feedback should reach the real confidence pipeline.",
+    )
+    return record["record_id"]
+
+
+def test_api_feedback_scope_resolution_mirrors_api_query(
+    monkeypatch, tmp_path
+) -> None:
+    """api_feedback resolves scope/project the same way api_query does."""
+    cfg = replace(make_config(tmp_path), projects={"known": str(tmp_path)})
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+    query_payload = api_mod.api_query(entity="records", mode="count", project="missing")
+    feedback_payload = api_feedback("rec_whatever", "correct", project="missing")
+
+    assert feedback_payload["error"] is True
+    assert feedback_payload["message"] == query_payload["message"] == "Project not found: missing"
+    assert feedback_payload["projects_used"] == query_payload["projects_used"] == []
+
+
+def test_api_feedback_success_returns_confidence_and_scope(
+    monkeypatch, tmp_path, mock_embeddings
+) -> None:
+    """A successful feedback call returns confidence, signal, and scope fields."""
+    cfg = replace(make_config(tmp_path), projects={"project": str(tmp_path / "project")})
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    record_id = _seed_feedback_record(tmp_path, cfg)
+
+    payload = api_feedback(record_id, "correct", note="Confirmed in review")
+
+    assert payload["error"] is False
+    assert payload["record_id"] == record_id
+    assert payload["signal"] == "correct"
+    assert payload["confidence"] == pytest.approx(0.65)
+    assert payload["projects_used"] == ["project"]
+    assert payload["scope"] == "all"
+
+
+def test_api_feedback_project_scoped_success_reports_projects_used(
+    monkeypatch, tmp_path, mock_embeddings
+) -> None:
+    """Project-scoped feedback calls still report the resolved project name."""
+    cfg = replace(make_config(tmp_path), projects={"project": str(tmp_path / "project")})
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    record_id = _seed_feedback_record(tmp_path, cfg)
+
+    payload = api_feedback(record_id, "used", project="project")
+
+    assert payload["error"] is False
+    assert payload["scope"] == "project"
+    assert payload["projects_used"] == ["project"]
+    assert payload["confidence"] == pytest.approx(0.55)
+
+
+def test_api_feedback_invalid_signal_returns_bad_request(
+    monkeypatch, tmp_path, mock_embeddings
+) -> None:
+    """An invalid signal is surfaced as a 400-shaped error."""
+    cfg = replace(make_config(tmp_path), projects={"project": str(tmp_path / "project")})
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    record_id = _seed_feedback_record(tmp_path, cfg)
+
+    payload = api_feedback(record_id, "bogus")
+
+    assert payload["error"] is True
+    assert payload["status_code"] == 400
+    assert payload["message"] == "invalid_feedback_signal:bogus"
+
+
+def test_api_feedback_unknown_record_returns_bad_request(
+    monkeypatch, tmp_path
+) -> None:
+    """An unknown record_id is surfaced as a 400-shaped error, not a crash."""
+    cfg = make_config(tmp_path)
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+    payload = api_feedback("rec_missing", "correct")
+
+    assert payload["error"] is True
+    assert payload["status_code"] == 400
+    assert payload["message"] == "record_not_found:rec_missing"
+
+
+def test_api_feedback_storage_error_returns_structured_failure(
+    monkeypatch, tmp_path
+) -> None:
+    """A storage failure while recording feedback is reported, not raised."""
+    cfg = make_config(tmp_path)
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+    class BrokenStore:
+        def record_feedback(self, *args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(api_mod, "_context_store", lambda config: BrokenStore())
+
+    payload = api_feedback("rec_whatever", "correct")
+
+    assert payload["error"] is True
+    assert payload["status_code"] == 503
+    assert payload["message"] == "Context query storage is unavailable."
+
+
+def test_api_feedback_list_returns_rows(monkeypatch, tmp_path, mock_embeddings) -> None:
+    """api_feedback_list returns recorded feedback events for one record."""
+    cfg = replace(make_config(tmp_path), projects={"project": str(tmp_path / "project")})
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    record_id = _seed_feedback_record(tmp_path, cfg)
+    api_feedback(record_id, "used")
+    api_feedback(record_id, "correct")
+
+    payload = api_feedback_list(record_id)
+
+    assert payload["error"] is False
+    assert payload["record_id"] == record_id
+    assert payload["count"] == 2
+    assert [row["signal"] for row in payload["rows"]] == ["used", "correct"]
+
+
+def test_api_feedback_list_empty_for_record_without_feedback(
+    monkeypatch, tmp_path, mock_embeddings
+) -> None:
+    """api_feedback_list returns an empty row list when no feedback exists."""
+    cfg = replace(make_config(tmp_path), projects={"project": str(tmp_path / "project")})
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+    record_id = _seed_feedback_record(tmp_path, cfg)
+
+    payload = api_feedback_list(record_id)
+
+    assert payload["error"] is False
+    assert payload["rows"] == []
+    assert payload["count"] == 0
+
+
+def test_api_feedback_list_storage_error_returns_structured_failure(
+    monkeypatch, tmp_path
+) -> None:
+    """A storage failure while listing feedback is reported, not raised."""
+    cfg = make_config(tmp_path)
+    monkeypatch.setattr(api_mod, "get_config", lambda: cfg)
+
+    class BrokenStore:
+        def list_feedback(self, *args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(api_mod, "_context_store", lambda config: BrokenStore())
+
+    payload = api_feedback_list("rec_whatever")
+
+    assert payload["error"] is True
+    assert payload["status_code"] == 503
+    assert payload["message"] == "Context query storage is unavailable."
 
 
 def test_api_skill_target_add_scopes_registered_project_paths(

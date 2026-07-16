@@ -165,6 +165,28 @@ export interface RecordFiltersResponse {
   projects: string[];
 }
 
+/* ----- Record Feedback (docs/contracts/feedback-and-confidence.md) --- */
+
+/** Canonical feedback signals accepted by `POST /api/records/{id}/feedback`. */
+export type FeedbackSignal = "used" | "correct" | "wrong" | "confirm";
+
+/** One row from `GET /api/records/{id}/feedback`. */
+export interface RecordFeedbackEntry {
+  feedback_id: string;
+  record_id: string;
+  signal: string;
+  note: string | null;
+  source_session_id: string | null;
+  created_at: string;
+}
+
+/** Result payload from `POST /api/records/{id}/feedback`. */
+export interface RecordFeedbackResult {
+  record_id: string;
+  confidence: number;
+  signal: string;
+}
+
 /* ----- Skill Stewardship --------------------------------------------- */
 
 export interface SkillTargetFile {

@@ -1211,7 +1211,7 @@ function DetailsPanel({
       <div className="grid grid-cols-2 gap-3 text-xs">
         <Detail label="Kind" value={formatRecordKind(selection.node.record_kind)} />
         {nodeRole && <Detail label="Role" value={nodeRole} />}
-        <Detail label="Confidence" value={`${Math.round((selection.node.confidence || 0) * 100)}%`} />
+        <Detail label="Graph confidence" value={`${Math.round((selection.node.confidence || 0) * 100)}%`} />
         <Detail label="Status" value={selection.node.status || "active"} />
         <Detail label="Project" value={formatScopeLabel(selection.node.project)} />
       </div>

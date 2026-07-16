@@ -11,6 +11,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from lerim.redaction import redact_text
+
 
 def parse_timestamp(value: Any) -> datetime | None:
     """Parse many timestamp shapes into a timezone-aware UTC datetime."""
@@ -181,11 +183,12 @@ def write_session_cache(
     lines: list[str],
     compact_fn: Callable[[str], str],
 ) -> Path:
-    """Write compacted session JSONL to cache directory and return the path."""
+    """Write compacted, secret-redacted session JSONL to cache directory and return the path."""
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / f"{run_id}.jsonl"
     raw = "\n".join(lines) + "\n"
-    cache_path.write_text(compact_fn(raw), encoding="utf-8")
+    compacted = compact_fn(raw)
+    cache_path.write_text(redact_text(compacted), encoding="utf-8")
     return cache_path
 
 

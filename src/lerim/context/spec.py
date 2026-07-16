@@ -43,10 +43,27 @@ class RecordChangeKind(StrEnum):
     SUPERSEDE = "supersede"
 
 
+class FeedbackSignal(StrEnum):
+    """Canonical per-record feedback signals that earn or spend confidence."""
+
+    USED = "used"
+    CORRECT = "correct"
+    WRONG = "wrong"
+    CONFIRM = "confirm"
+
+
 ALLOWED_KINDS = tuple(kind.value for kind in RecordKind)
 ALLOWED_STATUSES = tuple(status.value for status in RecordStatus)
 ALLOWED_CHANGE_KINDS = tuple(change_kind.value for change_kind in RecordChangeKind)
 ALLOWED_ROLES = ALLOWED_RECORD_ROLES
+ALLOWED_FEEDBACK_SIGNALS = tuple(signal.value for signal in FeedbackSignal)
+DEFAULT_RECORD_CONFIDENCE = 0.5
+FEEDBACK_CONFIDENCE_DELTAS: dict[str, float] = {
+    FeedbackSignal.CORRECT.value: 0.15,
+    FeedbackSignal.CONFIRM.value: 0.15,
+    FeedbackSignal.USED.value: 0.05,
+    FeedbackSignal.WRONG.value: -0.25,
+}
 MAX_RECORD_TITLE_CHARS = 120
 MAX_EPISODE_BODY_CHARS = 1200
 MAX_DURABLE_BODY_CHARS = 850
@@ -200,6 +217,22 @@ def normalize_record_kind(value: Any) -> str:
 def normalize_record_status(value: Any, default: str = "active") -> str:
     """Normalize one record status candidate."""
     return str(value or default).strip().lower()
+
+
+def normalize_feedback_signal(value: Any) -> str:
+    """Return a canonical per-record feedback signal or raise ValueError."""
+    text = str(value or "").strip().lower()
+    if text not in ALLOWED_FEEDBACK_SIGNALS:
+        raise ValueError(f"invalid_feedback_signal:{value}")
+    return text
+
+
+def next_record_confidence(current: Any, signal: str) -> float:
+    """Return the next clamped [0, 1] confidence after one feedback signal."""
+    normalized_signal = normalize_feedback_signal(signal)
+    delta = FEEDBACK_CONFIDENCE_DELTAS[normalized_signal]
+    current_value = float(current if current is not None else DEFAULT_RECORD_CONFIDENCE)
+    return max(0.0, min(1.0, current_value + delta))
 
 
 def format_durable_record_kinds() -> str:

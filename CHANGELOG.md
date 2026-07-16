@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Added a per-record feedback signal and earned confidence: a new `record_feedback`
+  table, a `confidence` column on `records`, and `ContextStore.record_feedback` /
+  `list_feedback`. Confidence is updated in place (not versioned) and never bumps the
+  index generation, so feedback stays cheap and does not churn FTS/embeddings.
+- Added the `lerim_context_feedback` MCP tool, a `lerim feedback <record_id>
+  <used|correct|wrong|confirm>` CLI command, and an `api_feedback` HTTP endpoint
+  (`POST/GET /api/records/{record_id}/feedback`). Feedback references existing records
+  only — it is not a `memory_save` primitive.
+- Earned confidence and recency now factor into hybrid retrieval ranking, so confirmed
+  records rise and repeatedly-wrong records fade. Added a relevance floor so retrieval
+  returns fewer or no results instead of padding out to `limit` with irrelevant matches.
+- Added automatic content-based secret/PII redaction at the ingestion edge
+  (`src/lerim/redaction.py`), applied in `write_session_cache` (all native adapters) and
+  `write_compact_trace` (generic-trace import) so secrets never reach records or skills.
+- Added dashboard feedback controls, real earned-confidence display, and a
+  provenance / proof-of-value view showing a record's source session and evidence.
+- Added `docs/contracts/feedback-and-confidence.md` documenting the feedback + confidence
+  JSON contracts across store, API, HTTP, CLI, and MCP.
+
+### Changed
+- Corrected the Reciprocal Rank Fusion constant from `RRF_K = 2` to the standard `60`,
+  so fused order reflects agreement between the semantic and lexical retrievers rather
+  than either retriever's noisy rank-1 pick.
+- Redaction is now automatic at the ingestion edge, building on the earlier manual
+  `scripts/redact_trace.py` helper.
+- Skill-stewardship validation now verifies that a proposal's cited evidence records
+  actually exist and that the proposed text is supported by them, and treats `AGENTS.md`
+  as a first-class instruction target when co-located with `SKILL.md`.
+
 ## [0.3.31] - 2026-06-21
 
 ### Added
