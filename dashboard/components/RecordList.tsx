@@ -43,7 +43,9 @@ export default function RecordList({ records }: RecordListProps) {
               </span>
             )}
             {m.record_kind !== "summary" && (
-              <span>Confidence: {m.confidence != null ? `${Math.round(m.confidence * 100)}%` : "\u2014"}</span>
+              <span title="Feedback confidence: earned from recorded feedback signals">
+                Feedback confidence: {m.confidence != null ? `${Math.round(m.confidence * 100)}%` : "\u2014"}
+              </span>
             )}
             <span>{m.created_at ? formatDate(m.created_at) : "\u2014"}</span>
           </div>

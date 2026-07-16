@@ -2,6 +2,7 @@ import type {
   ActivityFeedResponse,
   ContextRecord,
   ContextRecordVersion,
+  FeedbackSignal,
   GraphQueryResponse,
   IntelligenceResponse,
   LiveStatusResponse,
@@ -11,6 +12,8 @@ import type {
   PipelineReportResponse,
   PipelineStatusResponse,
   ProjectSummary,
+  RecordFeedbackEntry,
+  RecordFeedbackResult,
   RecordFiltersResponse,
   RecordVersionsResponse,
   RecordsResponse,
@@ -102,7 +105,7 @@ function normalizeRecord(row: Record<string, unknown>): ContextRecord {
     role_payload: asNullableString(row.role_payload),
     project,
     tags: [],
-    confidence: null,
+    confidence: asNullableNumber(row.confidence),
     status: String(row.status || "active"),
     source: asNullableString(row.source_name),
     source_session_id: asNullableString(row.source_session_id),
@@ -138,6 +141,27 @@ function normalizeRecordVersion(row: Record<string, unknown>): ContextRecordVers
     changed_at: String(row.changed_at || row.updated_at || row.created_at || ""),
     changed_by_session_id: asNullableString(row.changed_by_session_id),
   };
+}
+
+/** Normalize one feedback row from `GET /api/records/{id}/feedback`. */
+function normalizeFeedbackEntry(row: Record<string, unknown>): RecordFeedbackEntry {
+  return {
+    feedback_id: String(row.feedback_id || ""),
+    record_id: String(row.record_id || ""),
+    signal: String(row.signal || ""),
+    note: asNullableString(row.note),
+    source_session_id: asNullableString(row.source_session_id),
+    created_at: String(row.created_at || ""),
+  };
+}
+
+/** Average `confidence` across records that carry one, or 0 when none do. */
+function averageConfidence(records: ContextRecord[]): number {
+  const values = records
+    .map((record) => record.confidence)
+    .filter((value): value is number => value != null);
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function normalizeStats(raw: Record<string, unknown>): StatsResponse {
@@ -418,7 +442,7 @@ function normalizeIntelligence(status: Record<string, unknown>, records: Context
       total: records.length,
       active,
       archived,
-      avg_confidence: 0,
+      avg_confidence: averageConfidence(records),
       stale_count: 0,
     },
     signals: [],
@@ -601,6 +625,20 @@ export const api = {
     );
     assertRecordsProjectScope(project, [record]);
     return record;
+  },
+
+  /** Record one feedback signal against a record; returns its recomputed confidence. */
+  recordFeedback: async (recordId: string, signal: FeedbackSignal, note?: string) => {
+    return apiFetch<RecordFeedbackResult>(`/api/records/${encodeURIComponent(recordId)}/feedback`, {
+      method: "POST",
+      body: JSON.stringify({ signal, note: note?.trim() || undefined }),
+    });
+  },
+
+  /** Fetch the feedback history (oldest first) recorded against one record. */
+  getRecordFeedback: async (recordId: string): Promise<RecordFeedbackEntry[]> => {
+    const raw = await apiFetch<Record<string, unknown>>(`/api/records/${encodeURIComponent(recordId)}/feedback`);
+    return arrayValue(raw.rows).map((row) => normalizeFeedbackEntry(objectValue(row)));
   },
 
   getSkillTargets: async (): Promise<SkillTargetsResponse> => {
