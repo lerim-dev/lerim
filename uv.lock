@@ -2237,7 +2237,7 @@ wheels = [
 
 [[package]]
 name = "lerim"
-version = "0.3.32"
+version = "0.3.33"
 source = { editable = "." }
 dependencies = [
     { name = "dspy" },

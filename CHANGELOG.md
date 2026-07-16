@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.33] - 2026-07-17
+
+### Added
+- Added write-time reconciliation ("reconcile-on-write"): after trace ingestion
+  persists a durable record, Lerim runs a scoped context-curation pass over just that
+  record plus its active semantic neighbors, so a genuine update supersedes the record
+  it replaces at write time instead of waiting for the next periodic curate pass. It
+  reuses the existing curator, the `supersede` change-kind, and the bi-temporal
+  `valid_until` / `superseded_by_record_id` columns, so a stale record drops out of
+  default retrieval immediately — no new DSPy signature and no schema migration.
+- Added a scoped context-curator mode: `run_context_curator(..., seed_record_ids=...)`
+  and `ContextCuratorPipeline(seed_record_ids=...)` review a seed record plus its active
+  semantic neighbors (`load_seed_and_neighbors`) and skip single-record health review. A
+  new `protected_record_ids` guard in `apply_context_curation_plans` keeps a just-written
+  record from being retired by the same trace that created it; the periodic curator
+  remains the safety net for anything the scoped pass leaves untouched.
+
 ## [0.3.32] - 2026-07-16
 
 ### Added
