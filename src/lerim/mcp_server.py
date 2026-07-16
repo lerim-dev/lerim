@@ -21,7 +21,7 @@ from lerim.context_brief import (
     resolve_context_brief_project,
     status_to_dict,
 )
-from lerim.server.api import api_answer, api_query, api_status
+from lerim.server.api import api_answer, api_feedback, api_query, api_status
 from lerim.server.daemon import run_context_brief_for_project, run_working_memory_for_project
 from lerim.traces import import_trace_file
 from lerim.traces.submissions import (
@@ -273,6 +273,35 @@ def create_mcp_server() -> FastMCP:
                 limit=max(1, min(int(limit or 20), 100)),
                 offset=max(0, int(offset or 0)),
                 include_total=True,
+            )
+        )
+
+    @mcp.tool(
+        name="lerim_context_feedback",
+        description=(
+            "Record one feedback signal (used, correct, wrong, confirm) against "
+            "an existing Lerim context record and return its updated confidence. "
+            "This is not a memory-save tool: record_id must reference a record "
+            "that already exists."
+        ),
+    )
+    def lerim_context_feedback(
+        record_id: str,
+        signal: str,
+        note: str | None = None,
+        source_session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Record one feedback signal against an existing context record."""
+        if not str(record_id or "").strip():
+            return {"error": True, "message": "record_id_required"}
+        if not str(signal or "").strip():
+            return {"error": True, "message": "signal_required"}
+        return _run_with_stdout_guard(
+            lambda: api_feedback(
+                record_id,
+                signal,
+                note=note,
+                source_session_id=source_session_id,
             )
         )
 

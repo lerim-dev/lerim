@@ -35,6 +35,8 @@ from lerim.server.api import (
     api_connect,
     api_connect_list,
     api_curate,
+    api_feedback,
+    api_feedback_list,
     api_health,
     api_ingest,
     api_project_add,
@@ -1201,6 +1203,16 @@ WHERE 1=1{where_sql} ORDER BY d.agent_type ASC""",
             return
         self._json(record)
 
+    def _api_record_feedback_list(self, path: str) -> None:
+        """Return recorded feedback events for one context record."""
+        record_id = unquote(path[len("/api/records/") : -len("/feedback")]).strip("/")
+        if not record_id:
+            self._error(HTTPStatus.BAD_REQUEST, "Missing record id")
+            return
+        payload = api_feedback_list(record_id)
+        status = int(payload.pop("status_code", HTTPStatus.OK))
+        self._json(payload, status=status)
+
     def _api_refine_status(self) -> None:
         """Return queue and recent run status for refine panel."""
         try:
@@ -1959,6 +1971,9 @@ WHERE 1=1{where_sql} ORDER BY d.agent_type ASC""",
         if path == "/api/logs":
             self._api_logs(query)
             return
+        if path.startswith("/api/records/") and path.endswith("/feedback"):
+            self._api_record_feedback_list(path)
+            return
         if path.startswith("/api/records/"):
             try:
                 self._api_record_detail(path, query)
@@ -2188,6 +2203,30 @@ WHERE 1=1{where_sql} ORDER BY d.agent_type ASC""",
             if result.get("error"):
                 status = int(result.get("status_code") or HTTPStatus.BAD_REQUEST)
                 self._error(HTTPStatus(status), str(result.get("message") or "query failed"))
+                return
+            self._json(result)
+            return
+        if path.startswith("/api/records/") and path.endswith("/feedback"):
+            record_id = unquote(path[len("/api/records/") : -len("/feedback")]).strip("/")
+            if not record_id:
+                self._error(HTTPStatus.BAD_REQUEST, "Missing record id")
+                return
+            body = read_body()
+            if body is None:
+                return
+            signal = str(body.get("signal") or "").strip()
+            if not signal:
+                self._error(HTTPStatus.BAD_REQUEST, "Missing 'signal'")
+                return
+            result = api_feedback(
+                record_id,
+                signal,
+                note=str(body.get("note") or "").strip() or None,
+                source_session_id=str(body.get("source_session_id") or "").strip() or None,
+            )
+            if result.get("error"):
+                status = int(result.get("status_code") or HTTPStatus.BAD_REQUEST)
+                self._error(HTTPStatus(status), str(result.get("message") or "feedback failed"))
                 return
             self._json(result)
             return

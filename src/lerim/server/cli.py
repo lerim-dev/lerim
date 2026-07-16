@@ -41,6 +41,7 @@ from lerim.integrations.mcp_connect import (
 )
 
 from lerim.server.api import (
+    api_feedback,
     api_memory_reset,
     api_project_add,
     api_project_list,
@@ -89,6 +90,7 @@ from lerim.config.settings import (
 from lerim.config.tracing import configure_tracing
 from lerim.context import ContextStore
 from lerim.context.query_spec import QUERY_ENTITIES, QUERY_MODES, QUERY_ORDER_FIELDS
+from lerim.context.spec import ALLOWED_FEEDBACK_SIGNALS
 from lerim.profiles import (
     bundled_signal_pack_ids,
     get_signal_pack,
@@ -1559,6 +1561,23 @@ def _cmd_query(args: argparse.Namespace) -> int:
         return 1 if payload.get("error") else 0
     if payload.get("error"):
         _emit(str(payload.get("message") or "query failed"), file=sys.stderr)
+        return 1
+    _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+    return 0
+
+
+def _cmd_feedback(args: argparse.Namespace) -> int:
+    """Record one feedback signal against a context record and print the result."""
+    payload = api_feedback(
+        args.record_id,
+        args.signal,
+        note=getattr(args, "note", None),
+    )
+    if args.json:
+        _emit(json.dumps(payload, indent=2, ensure_ascii=True))
+        return 1 if payload.get("error") else 0
+    if payload.get("error"):
+        _emit(str(payload.get("message") or "feedback failed"), file=sys.stderr)
         return 1
     _emit(json.dumps(payload, indent=2, ensure_ascii=True))
     return 0
@@ -3475,6 +3494,31 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--offset", type=int, default=0)
     query.add_argument("--include-total", action="store_true")
     query.set_defaults(func=_cmd_query)
+
+    # ── feedback ─────────────────────────────────────────────────────
+    feedback = sub.add_parser(
+        "feedback",
+        formatter_class=_F,
+        help="Record a feedback signal against a context record",
+        description=(
+            "Record one feedback signal against an existing context record and "
+            "print its updated earned confidence.\n\n"
+            "Example: lerim feedback rec_abc123 correct --note 'Confirmed in prod'"
+        ),
+    )
+    feedback.add_argument("record_id", help="Existing context record id.")
+    feedback.add_argument(
+        "signal",
+        choices=ALLOWED_FEEDBACK_SIGNALS,
+        help="Feedback signal to record.",
+    )
+    feedback.add_argument("--note", help="Optional free-text note for this feedback event.")
+    feedback.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON output.",
+    )
+    feedback.set_defaults(func=_cmd_feedback)
 
     # ── context ────────────────────────────────────────────────────────
     context = sub.add_parser(

@@ -711,7 +711,7 @@ def _query_context_records(
         "SELECT r.record_id, r.project_id, r.kind, r.title, r.body, r.status, "
         "r.created_at, r.updated_at, r.valid_from, r.valid_until, "
         "r.source_session_id, r.decision, r.why, r.alternatives, r.consequences, "
-        "r.user_intent, r.what_happened, r.outcomes, "
+        "r.user_intent, r.what_happened, r.outcomes, r.confidence, "
         "s.agent_type AS ingestion_agent, s.source_trace_ref AS source_trace_ref, "
         "COALESCE(rv.changed_by_session_id, r.source_session_id) AS changed_by_session_id, "
         "COALESCE(rv.change_reason, rv.change_kind) AS change_reason "

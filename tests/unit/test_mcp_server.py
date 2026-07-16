@@ -55,6 +55,7 @@ def test_create_mcp_server_lists_expected_tools() -> None:
         "lerim_context_answer",
         "lerim_context_search",
         "lerim_records_list",
+        "lerim_context_feedback",
         "lerim_trace_submit",
         "lerim_ingest_status",
     }.issubset(names)
@@ -366,6 +367,113 @@ def test_records_list_tool_clamps_limit_and_offset(monkeypatch: pytest.MonkeyPat
     assert captured["offset"] == 0
     assert captured["kind"] == "decision"
     assert captured["status"] is None
+
+
+def test_context_feedback_tool_requires_record_id() -> None:
+    """A blank record_id is rejected before reaching the API boundary."""
+    tool = _tool_fn("lerim_context_feedback")
+
+    assert tool(record_id="   ", signal="correct") == {
+        "error": True,
+        "message": "record_id_required",
+    }
+
+
+def test_context_feedback_tool_requires_signal() -> None:
+    """A blank signal is rejected before reaching the API boundary."""
+    tool = _tool_fn("lerim_context_feedback")
+
+    assert tool(record_id="rec_test", signal="") == {
+        "error": True,
+        "message": "signal_required",
+    }
+
+
+def test_context_feedback_tool_rejects_unknown_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unknown record_id surfaces the store's record_not_found error."""
+    captured: dict[str, Any] = {}
+
+    def fake_feedback(record_id, signal, **kwargs: Any) -> dict[str, Any]:
+        captured["record_id"] = record_id
+        captured["signal"] = signal
+        return {
+            "error": True,
+            "message": f"record_not_found:{record_id}",
+            "projects_used": [],
+            "status_code": 400,
+        }
+
+    monkeypatch.setattr("lerim.mcp_server.api_feedback", fake_feedback)
+    tool = _tool_fn("lerim_context_feedback")
+
+    payload = tool(record_id="rec_missing", signal="correct")
+
+    assert payload["error"] is True
+    assert payload["message"] == "record_not_found:rec_missing"
+    assert captured == {"record_id": "rec_missing", "signal": "correct"}
+
+
+def test_context_feedback_tool_rejects_invalid_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An invalid signal surfaces the store's validation error."""
+
+    def fake_feedback(record_id, signal, **kwargs: Any) -> dict[str, Any]:
+        return {
+            "error": True,
+            "message": f"invalid_feedback_signal:{signal}",
+            "projects_used": [],
+            "status_code": 400,
+        }
+
+    monkeypatch.setattr("lerim.mcp_server.api_feedback", fake_feedback)
+    tool = _tool_fn("lerim_context_feedback")
+
+    payload = tool(record_id="rec_test", signal="bogus")
+
+    assert payload["error"] is True
+    assert payload["message"] == "invalid_feedback_signal:bogus"
+
+
+def test_context_feedback_tool_succeeds_and_returns_confidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The feedback tool reaches the real store and returns updated confidence."""
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    cfg = replace(
+        make_config(tmp_path / ".lerim"),
+        projects={"repo": str(project_dir)},
+    )
+    monkeypatch.setattr("lerim.mcp_server.get_config", lambda: cfg)
+    monkeypatch.setattr("lerim.server.api.get_config", lambda: cfg)
+    monkeypatch.setattr(
+        "lerim.context.store.get_embedding_provider",
+        lambda: _FakeEmbeddingProvider(),
+    )
+    identity = resolve_project_identity(project_dir)
+    store = ContextStore(cfg.context_db_path)
+    store.register_project(identity)
+    record = store.create_record(
+        project_id=identity.project_id,
+        session_id=None,
+        kind="fact",
+        title="Feedback MCP tool test",
+        body="The feedback tool should reach the real confidence pipeline.",
+    )
+    assert record["confidence"] == pytest.approx(0.5)
+    tool = _tool_fn("lerim_context_feedback")
+
+    payload = tool(record_id=record["record_id"], signal="correct", note="Confirmed live")
+
+    assert payload["error"] is False
+    assert payload["record_id"] == record["record_id"]
+    assert payload["confidence"] == pytest.approx(0.65)
+    assert payload["signal"] == "correct"
+    refreshed = store.fetch_record(record["record_id"])
+    assert refreshed["confidence"] == pytest.approx(0.65)
+    events = store.list_feedback(record["record_id"])
+    assert len(events) == 1
+    assert events[0]["note"] == "Confirmed live"
 
 
 def test_ingest_status_tool_delegates_to_status_api(monkeypatch: pytest.MonkeyPatch) -> None:
