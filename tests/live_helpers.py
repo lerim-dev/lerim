@@ -45,13 +45,22 @@ FRAMEWORK_TOOL_NAMES = {
 }
 TRACE_INGESTION_EVENT_NAMES = frozenset(
     {
+        # Keep in sync with the stage labels emitted by
+        # agents/trace_ingestion/pipeline.py (call_model_step stage=...).
         "resolve_scope",
         "read_window",
         "scan_window",
         "filter_signals",
         "synthesize_records",
+        "guard_records",
+        "polish_records",
+        "annotate_record_roles",
         "save_context",
         "model_retry",
+        # coding-source-profile sub-stages
+        "extract_coding_project_identity",
+        "extract_coding_user_strategy",
+        "select_coding_durable_records",
     }
 )
 CONTEXT_CURATOR_EVENT_NAMES = frozenset(
