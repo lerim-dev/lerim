@@ -224,10 +224,22 @@ def _belongs_to_artifact(root: Path, path: Path) -> bool:
 
 
 def _file_role(*, root: Path, entry: Path, path: Path) -> str:
-    """Classify one artifact file's role."""
-    if path.resolve() == entry.resolve():
+    """Classify one artifact file's role.
+
+    A co-located AGENTS.md is treated as entry-caliber alongside a SKILL.md entry
+    (both get the "entry" role) instead of being demoted to a plain reference file.
+    """
+    resolved = path.resolve()
+    entry_resolved = entry.resolve()
+    if resolved == entry_resolved:
         return "entry"
-    rel = path.resolve().relative_to(root.resolve()) if root.is_dir() else Path(path.name)
+    if (
+        resolved.name == "AGENTS.md"
+        and entry_resolved.name == "SKILL.md"
+        and resolved.parent == entry_resolved.parent
+    ):
+        return "entry"
+    rel = resolved.relative_to(root.resolve()) if root.is_dir() else Path(path.name)
     if rel.parts and rel.parts[0] in {"scripts"}:
         return "script"
     if rel.parts and rel.parts[0] in {"assets"}:

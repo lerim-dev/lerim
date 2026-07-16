@@ -24,7 +24,12 @@ from lerim.skill_stewardship.schemas import (
     ArtifactManifest,
 )
 from lerim.skill_stewardship.signatures import CompileSkillUpdateProposal
-from lerim.skill_stewardship.validation import frontmatter_block, path_belongs_to_manifest, validate_proposal
+from lerim.skill_stewardship.validation import (
+    frontmatter_block,
+    patch_evidence_errors,
+    path_belongs_to_manifest,
+    validate_proposal,
+)
 
 DEFAULT_RECORD_LIMIT = 80
 PREFERRED_RECORD_ROLES = [
@@ -84,8 +89,18 @@ class SkillStewardshipPipeline(dspy.Module):
             )
             draft = self._compile(target=refreshed, base=base, manifest=manifest, files=files, records=records)
             draft = hydrate_patch_text(base=base, draft=draft)
-            guard = guard_proposal(draft=draft, policy=refreshed.auto_apply_policy, manifest=manifest)
-            validation = validate_proposal(base_path=base, manifest=manifest, proposal=draft)
+            guard = guard_proposal(
+                draft=draft,
+                policy=refreshed.auto_apply_policy,
+                manifest=manifest,
+                store=self.repository.context_store,
+            )
+            validation = validate_proposal(
+                base_path=base,
+                manifest=manifest,
+                proposal=draft,
+                store=self.repository.context_store,
+            )
             signals = self.repository.save_signals(run_id=run_id, target_id=refreshed.target_id, draft=draft)
             if draft.patches and guard.accepted:
                 status = "pending_review" if validation.ok else "failed_validation"
@@ -192,9 +207,18 @@ def guard_proposal(
     draft: SkillProposalDraft,
     policy: AutoApplyPolicy,
     manifest: ArtifactManifest | None = None,
+    store: ContextStore | None = None,
 ) -> ProposalGuardResult:
-    """Apply deterministic safety gates to a model-authored proposal."""
+    """Apply deterministic safety gates to a model-authored proposal.
+
+    ``store`` is optional and backward compatible: when omitted, the evidence gate
+    only checks that each patch cites at least one record id (presence only), same
+    as before. When provided, cited record ids must exist and the patch's new text
+    must be evidence-supported (see ``validation.patch_evidence_errors``); any such
+    problem keeps the proposal out of ``accepted`` the same way missing evidence does.
+    """
     reasons: list[str] = []
+    evidence_reasons: list[str] = []
     if not draft.patches:
         return ProposalGuardResult(accepted=False, risk_level="low", auto_apply_eligible=False, reasons=["no_patch"])
     risk = _highest_risk([draft.risk_level, *(patch.risk for patch in draft.patches)])
@@ -215,8 +239,13 @@ def guard_proposal(
     if removed_lines > policy.max_removed_lines:
         reasons.append(f"removed lines exceed auto-apply max_removed_lines={policy.max_removed_lines}")
     for patch in draft.patches:
+        patch_evidence_reasons: list[str] = []
         if not patch.evidence_record_ids:
-            reasons.append(f"{patch.relative_path}: missing evidence")
+            patch_evidence_reasons.append(f"{patch.relative_path}: missing evidence")
+        elif store is not None:
+            patch_evidence_reasons.extend(patch_evidence_errors(store=store, patch=patch))
+        evidence_reasons.extend(patch_evidence_reasons)
+        reasons.extend(patch_evidence_reasons)
         reasons.extend(_patch_policy_reasons(patch=patch, policy=policy, manifest=manifest))
     auto_apply = (
         policy.enabled
@@ -227,7 +256,7 @@ def guard_proposal(
         and not reasons
     )
     return ProposalGuardResult(
-        accepted=all("missing evidence" not in reason for reason in reasons),
+        accepted=not evidence_reasons,
         risk_level=risk,
         auto_apply_eligible=auto_apply,
         reasons=reasons,
