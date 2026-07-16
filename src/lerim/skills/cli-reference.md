@@ -52,6 +52,7 @@ generation for the resolved project and record service runs.
 - `dashboard`
 - `answer`
 - `query`
+- `feedback`
 - `context` (`records`)
 - `profile` (`list`, `show`, `validate`, `register`) (host-only)
 - `status`
@@ -215,6 +216,7 @@ Exposed tools:
 - `lerim_context_answer`
 - `lerim_context_search`
 - `lerim_records_list`
+- `lerim_context_feedback`
 - `lerim_trace_submit`
 - `lerim_ingest_status`
 
@@ -529,6 +531,30 @@ lerim query sessions list --order-by created_at --limit 20
 | `--limit` | `20` | Page size for `list` |
 | `--offset` | `0` | Page offset for `list` |
 | `--include-total` | `false` | Include total matching rows for `list` |
+
+### `lerim feedback`
+
+Record one feedback signal against an existing context record and print its
+updated earned confidence. Feedback references an existing `record_id` only; it
+never creates a memory. Confidence is updated in place (not versioned) and
+factors into retrieval ranking so confirmed records rise and wrong ones fade.
+
+```bash
+lerim feedback rec_abc123 correct
+lerim feedback rec_abc123 wrong --note "Superseded by the new caching decision"
+lerim feedback rec_abc123 used --json
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `record_id` | required | Existing context record id |
+| `signal` | required | `used`, `correct`, `wrong`, or `confirm` |
+| `--note` | -- | Optional free-text note for this feedback event |
+| `--json` | off | Print the raw JSON result (record id, signal, new confidence) |
+
+Signal deltas (applied to the current confidence, clamped to `[0, 1]`):
+`correct` / `confirm` `+0.15`, `used` `+0.05`, `wrong` `-0.25`. New records start
+at `0.5`.
 
 ### `lerim profile`
 

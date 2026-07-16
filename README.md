@@ -227,6 +227,7 @@ Available MCP tools:
 - `lerim_context_answer`
 - `lerim_context_search`
 - `lerim_records_list`
+- `lerim_context_feedback`
 - `lerim_trace_submit`
 - `lerim_ingest_status`
 
