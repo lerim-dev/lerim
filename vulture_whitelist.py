@@ -148,6 +148,7 @@ lerim_context_brief  # noqa
 lerim_working_memory  # noqa
 lerim_context_answer  # noqa
 lerim_context_search  # noqa
+lerim_context_feedback  # noqa
 lerim_records_list  # noqa
 lerim_trace_submit  # noqa
 lerim_ingest_status  # noqa
