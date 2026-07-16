@@ -20,6 +20,7 @@ REQUIRED_CONTEXT_TABLES = {
     "projects",
     "records",
     "record_embeddings",
+    "record_feedback",
     "record_versions",
     "records_fts",
     "schema_meta",
