@@ -1,6 +1,8 @@
 # Lerim
 
-Lerim turns completed agent traces into reusable operating context.
+Lerim compiles completed agent traces into cited, reusable context.
+
+_Lerim is an open-source project by [Nablo](https://nablo.io/lerim)._
 
 It filters noisy execution history into evidence-backed context records:
 decisions, preferences, constraints, facts, references, and compact episode

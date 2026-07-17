@@ -48,7 +48,7 @@ def create_mcp_server() -> FastMCP:
     mcp = FastMCP(
         "lerim",
         instructions=SERVER_INSTRUCTIONS,
-        website_url="https://lerim.dev",
+        website_url="https://nablo.io/lerim",
     )
 
     @mcp.tool(
