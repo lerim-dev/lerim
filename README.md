@@ -3,7 +3,7 @@
 </p>
 
 
-<h1 align="center">Private improvement infrastructure for AI agents.</h1>
+<h1 align="center">Lerim compiles completed agent traces into cited, reusable context.</h1>
 
 <p align="center">
   Lerim sits above agent traces, compiles useful signal into cited context and eval assets, and gives future agents the operating memory they need before work begins.
@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/lerim/"><img src="https://img.shields.io/pypi/v/lerim?style=flat-square&color=245f46" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/lerim/"><img src="https://img.shields.io/pypi/v/lerim?style=flat-square&color=d4a44a" alt="PyPI version"></a>
   <a href="https://pypi.org/project/lerim/"><img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square" alt="Python 3.11+"></a>
   <a href="https://github.com/nablo-io/lerim/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License"></a>
   <a href="https://github.com/nablo-io/lerim/actions"><img src="https://img.shields.io/github/actions/workflow/status/nablo-io/lerim/ci.yml?style=flat-square&label=tests" alt="Tests"></a>
@@ -22,9 +22,9 @@
 </p>
 
 <p align="center">
-  <a href="https://lerim.dev/">Website</a>
+  <a href="https://nablo.io/lerim">Website</a>
   ·
-  <a href="https://docs.lerim.dev">Docs</a>
+  <a href="https://docs.nablo.io">Docs</a>
   ·
   <a href="docs/benchmarks/index.md">Benchmarks</a>
   ·
@@ -489,6 +489,6 @@ Good starting points include:
 
 Helpful links:
 
-- [Contributing Guide](https://docs.lerim.dev/contributing/getting-started/)
+- [Contributing Guide](https://docs.nablo.io/contributing/getting-started/)
 - [Open issues](https://github.com/nablo-io/lerim/issues)
 - Trace-source adapter examples: `src/lerim/adapters/`

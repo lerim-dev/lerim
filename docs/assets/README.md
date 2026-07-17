@@ -3,7 +3,9 @@
 These files are public documentation assets. Keep this folder limited to assets
 that are safe to ship with the docs site.
 
-- `lerim.png` is the docs-site logo and favicon copy.
+- `logo-nabla-drop.svg` / `logo-nabla-drop-icon.png` are the docs-site logo and
+  favicon copy (the shared Nablo nabla-drop mark; Lerim is an open-source
+  project by Nablo).
 - `lerim-context-compiler.svg` is the public README hero showing completed
   runs flowing into Lerim, then into a context graph reused by agents and
   humans.
