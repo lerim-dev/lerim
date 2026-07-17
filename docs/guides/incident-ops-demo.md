@@ -74,12 +74,9 @@ writer does not re-derive what the 3am responder already concluded.
 
 ## 5. The improvement loop
 
-The rejected-hypothesis and root-cause records above are exactly the kind of
-approved, cited, incident-specific data that can be exported as training-ready
-data for a smaller, private incident-response model. Lerim captures and cites the
-data for a smaller, private incident-response model. The open core captures and cites; model specialization (distillation, RL,
-prompt and harness tuning) is the private Lerim layer, built on top of this open
-foundation.
+Lerim compiles cited context and eval-ready signal; it does not train models.
+Model specialization is a separate business (Nablo, https://nablo.io) and is
+independent of Lerim.
 
 ## Notes
 

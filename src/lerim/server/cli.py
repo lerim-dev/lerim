@@ -3161,7 +3161,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lerim",
         formatter_class=_F,
-        description="Lerim -- trace-to-context layer for agents.\n"
+        description="Lerim -- open-source agent-memory / context compiler for agents.\n"
         "Ingests agent sessions, extracts durable context, and answers questions\n"
         "using accumulated operational knowledge.",
     )
@@ -3915,9 +3915,9 @@ def build_parser() -> argparse.ArgumentParser:
     auth = sub.add_parser(
         "auth",
         formatter_class=_F,
-        help="Authenticate with Lerim Cloud",
+        help="Authenticate with a self-hosted Lerim sync server",
         description=(
-            "Authenticate with Lerim Cloud (login, status, logout).\n\n"
+            "Authenticate with a self-hosted Lerim sync server (login, status, logout).\n\n"
             "Examples:\n"
             "  lerim auth               # browser-based login\n"
             "  lerim auth status        # check auth state"
@@ -3933,7 +3933,7 @@ def build_parser() -> argparse.ArgumentParser:
     auth_sub.add_parser(
         "login",
         formatter_class=_F,
-        help="Log in to Lerim Cloud (same as bare `lerim auth`)",
+        help="Log in to the Lerim sync server (same as bare `lerim auth`)",
     )
 
     auth_sub.add_parser(

@@ -69,11 +69,9 @@ standing constraints above are available before work begins.
 
 ## 5. The improvement loop
 
-The constraints above are exactly the kind of approved, cited, workflow-specific
-data for a smaller, private support
-model. The open core captures and cites; model specialization (distillation, RL,
-prompt and harness tuning) is the private Lerim layer, built on top of this open
-foundation.
+Lerim compiles cited context and eval-ready signal; it does not train models.
+Model specialization is a separate business (Nablo, https://nablo.io) and is
+independent of Lerim.
 
 ## Notes
 

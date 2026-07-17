@@ -147,7 +147,7 @@ lerim memory reset --all --yes
 
 JSON HTTP API + daemon loop in one process (Docker entrypoint). This repo does
 not bundle the full web UI; GET `/` may return a small stub page pointing to
-Lerim Cloud when no static assets are present.
+the Lerim sync server when no static assets are present.
 
 ```bash
 lerim serve

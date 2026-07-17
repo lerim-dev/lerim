@@ -1,4 +1,4 @@
-"""Auth commands for Lerim Cloud: login, status, logout.
+"""Auth commands for the self-hosted Lerim sync server: login, status, logout.
 
 Implements browser-based OAuth callback flow and manual token entry.
 The token is persisted in ~/.lerim/config.toml under [cloud].

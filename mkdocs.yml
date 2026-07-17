@@ -1,6 +1,6 @@
 site_name: Lerim
 site_url: https://docs.nablo.io
-site_description: Lerim compiles completed agent traces into cited, reusable context. An open-source project by Nablo.
+site_description: Lerim is a context compiler that turns completed agent traces into cited, reusable context. An open-source project by Nablo.
 repo_url: https://github.com/nablo-io/lerim
 repo_name: nablo-io/lerim
 edit_uri: edit/main/docs/
@@ -81,6 +81,7 @@ plugins:
 not_in_nav: |
   assets/README.md
   assets/remotion/**/README.md
+  contracts/feedback-and-confidence.md
 
 exclude_docs: |
   assets/remotion/**/node_modules/
@@ -96,7 +97,7 @@ extra:
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/lerim/
 
-copyright: Copyright &copy; 2026 Nablo · Lerim
+copyright: Copyright (c) 2026 Nablo
 
 nav:
   - Home: index.md
@@ -107,7 +108,6 @@ nav:
     - Source-Session Context Compiler: concepts/source-session-context-compiler.md
     - Business Workflows: concepts/business-workflows.md
     - Signal Packs: concepts/signal-packs.md
-    - Commercial Boundary: concepts/commercial-boundary.md
     - Context Records: concepts/context-records.md
     - How It Works: concepts/how-it-works.md
     - Context Model: concepts/context-model.md

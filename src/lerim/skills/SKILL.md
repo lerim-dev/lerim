@@ -101,7 +101,7 @@ flowchart TD
 - Trust Continuation Handoff only when it cites recent episode evidence; otherwise use the current chat, workspace state, and relevant checks for live implementation status.
 - Prefer `query` over `answer` when the question is exact.
 - Prefer `answer` over manual browsing when the question needs synthesis across records.
-- Treat Lerim as the context layer, not as a place to manually edit durable state during normal agent work.
+- Treat Lerim as the context compiler, not as a place to manually edit durable state during normal agent work.
 - Query Lerim through its CLI/API instead of inspecting storage directly.
 - If the runtime is down, say so plainly and use the workspace directly rather than pretending Lerim answered.
 
@@ -109,7 +109,7 @@ flowchart TD
 
 - `lerim up` runs the local service in Docker.
 - `lerim serve` runs the local API directly without Docker.
-- `lerim dashboard` is only a transition message; the hosted UI lives on Lerim Cloud.
+- `lerim dashboard` is only a transition message; the hosted UI lives on the Lerim sync server.
 - Local durable context is stored in the global SQLite store.
 
 ## Read more when needed

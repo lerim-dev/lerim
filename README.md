@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <em>Lerim is an open-source project by Nablo. It compiles context and does not train models — training a small model on the result is the Nablo pipeline.</em>
+  <em>Lerim is an independent open-source project by <a href="https://nablo.io">Nablo</a> - one example of our work. It compiles context and does not train models; model specialization (distillation, RL) is Nablo's separate post-training business and does not depend on Lerim.</em>
 </p>
 
 <p align="center">
@@ -116,9 +116,9 @@ Without a durable context layer:
 - constraints get rediscovered
 - preferences get ignored
 - every new session starts too close to zero
-- useful corrections never become eval or training signal
+- useful corrections never become reusable context or eval signal
 
-Lerim fixes that by turning raw traces into reusable context records, eval assets, and training-ready workflow signal that remain queryable from agent tools and product workflows.
+Lerim fixes that by turning raw traces into reusable context records and eval assets that remain queryable from agent tools and product workflows.
 
 Lerim is meant for any trace-producing agent workflow. Today, native source
 adapters are strongest for coding agents, and documented custom-trace paths cover
@@ -272,19 +272,7 @@ hardware/runtime metadata, and failure count.
 - Operations and incidents: documented custom-trace path; preserve root causes, mitigations, rejected hypotheses, runbook gaps, owner decisions, and follow-up risks.
 - Coding agents: retain architecture decisions, failed paths, repo conventions, setup facts, release handoffs, and constraints.
 
-Research, revenue, security, compliance, and other verticals can use the same custom-trace path today when the user owns export, cleaning, and redaction. The product wedge is one repeated private workflow with trace access, a workflow owner, privacy constraints, and measurable quality failure. Coding remains a strong proof workflow because the native adapters are mature, but the commercial company should be positioned around private agent improvement for enterprise workflows.
-
-## Enterprise Readiness To-Do List
-
-Use this list to keep the repo, website, and pitch aligned without turning the
-open-source package into a closed enterprise product:
-
-- Keep open core useful: CLI, local runtime, MCP server, native adapters, custom trace import, context DB, docs, and benchmarks.
-- Sell the production layer: Context Audits, private deployment, workflow evals, governance controls, managed integrations, retention, and enterprise support.
-- Prove one workflow first: support escalation, incident/security ops, research intelligence, compliance review, or engineering automation.
-- Measure improvement honestly: context reused, false memories rejected, eval pass rate, human acceptance, token budget saved, and repeated work reduced.
-- Build training only after proof: approved traces, corrections, and eval assets can become SFT/RL data once the customer workflow and privacy boundary are clear.
-- Keep coding agents as a proof pack, not the headline TAM/SAM/SOM story.
+Research, revenue, security, compliance, and other verticals can use the same custom-trace path today when the user owns export, cleaning, and redaction. Lerim fits best where one repeated workflow has trace access, a workflow owner, privacy constraints, and a measurable quality failure to fix. Coding remains a strong proof workflow because the native adapters are mature.
 
 ## Skill Updates
 
@@ -320,7 +308,7 @@ research, compliance, revenue, and other custom business agents feed the same
 compiler through clean JSONL traces and a signal profile that matches the workflow.
 
 <p align="center">
-  <img src="docs/assets/lerim-agent-improvement-loop.png" alt="The agent improvement loop: your agent produces a completed run, the Lerim open core captures and compiles it into cited context, context is served back to future runs, and the Lerim private layer specializes models for the workflow" width="860">
+  <img src="docs/assets/lerim-context-loop.svg" alt="Lerim's context loop: your agent produces a completed run, Lerim captures and compiles it into cited context, and that context is served back into the next run." width="860">
 </p>
 
 Bundled signal profiles cover the common verticals out of the box:
@@ -462,18 +450,9 @@ Start here if you want to read the codebase:
 - [docs/concepts/how-it-works.md](docs/concepts/how-it-works.md)
 - [docs/concepts/context-model.md](docs/concepts/context-model.md)
 
-## License And Commercial Boundary
+## License
 
-Lerim core is Apache-2.0. The local CLI, runtime, MCP server, native adapters,
-context DB schema, benchmark scripts, and integration docs should remain useful
-without a paid account.
-
-The planned commercial path is the production layer around the open core:
-Context Audits, hosted/private MCP, dashboards, review workflows, governance,
-SSO, audit logs, managed retention, evaluation monitoring, private deployments,
-workflow packs, training-ready dataset export, and enterprise support.
-
-See [COMMERCIAL.md](COMMERCIAL.md) for the open-core boundary.
+Lerim core is Apache-2.0. The local CLI, runtime, self-hosted sync server, native adapters, context DB schema, benchmark scripts, and integration docs stay usable without any paid account. Any hosted, commercial, or model-training offering is Nablo's business, not a Lerim product - see https://nablo.io. See COMMERCIAL.md for the open-source scope.
 
 ## Contributing
 

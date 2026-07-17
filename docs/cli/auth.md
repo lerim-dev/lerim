@@ -1,6 +1,6 @@
 # lerim auth
 
-Authenticate the local CLI with Lerim Cloud.
+Authenticate the local CLI with a self-hosted Lerim sync server.
 
 ## Examples
 
@@ -14,4 +14,4 @@ lerim auth logout
 ## Notes
 
 - Auth stores the cloud token in the active Lerim config.
-- Local ingest, curate, and answer do not require Lerim Cloud auth.
+- Local ingest, curate, and answer do not require self-hosted Lerim sync auth.

@@ -10,7 +10,7 @@ that read completed sessions automatically. Everything else uses the **custom
 agent path** below. Both paths feed the same compiler and the same context store.
 
 <p align="center">
-  <img src="../assets/lerim-agent-improvement-loop.png" alt="The agent improvement loop: your agent produces a completed run, the Lerim open core captures and compiles it into cited context, context is served back to future runs, and the Lerim private layer specializes models for the workflow" width="860">
+  <img src="../assets/lerim-context-loop.svg" alt="Lerim's context loop: your agent produces a completed run, Lerim captures and compiles it into cited context, and that context is served back into the next run." width="860">
 </p>
 
 ## 1. Does your agent have a native adapter?
@@ -119,14 +119,11 @@ context in-loop: [MCP Quickstart](mcp-quickstart.md).
 ## 7. The improvement loop
 
 Approved traces, corrections, and extracted records are structured, cited, and
-scoped — which makes them reusable beyond the next query. They become
-**training-ready data** for the same workflow (for example, distilling a strong
-general model into a cheaper task-specific one).
+scoped — which makes them reusable beyond the next query.
 
-Lerim has two layers. The **open core** (Apache-2.0, this repo) captures,
-compiles, cites, and serves context. **Model specialization** — distillation, RL,
-and prompt and harness tuning for a specific workflow — is the private Lerim
-layer, built on top of this open foundation.
+Lerim compiles cited context and eval-ready signal; it does not train models.
+Model specialization is a separate business (Nablo, https://nablo.io) and is
+independent of Lerim.
 
 ## Worked examples
 
