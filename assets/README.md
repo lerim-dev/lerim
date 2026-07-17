@@ -4,8 +4,10 @@ These files are historical repo assets. Do not use them in launch galleries or
 benchmark docs unless they are regenerated from the current Lerim runtime and
 reviewed again.
 
-The exception is `assets/lerim.png`, which remains the public logo used by the
-README and docs theme.
+There is no logo exception here anymore: Lerim's docs theme and public marks
+now use the shared Nablo nabla-drop (`docs/assets/logo-nabla-drop.svg` and
+`docs/assets/logo-nabla-drop-icon.png`), not a Lerim-specific logo. The old
+`assets/lerim.png` mark has been retired.
 
 Current public launch-safe visuals live under `docs/assets/`:
 
